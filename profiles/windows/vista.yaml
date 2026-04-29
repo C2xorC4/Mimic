@@ -1,0 +1,43 @@
+name: "Windows Vista"
+description: "Windows Vista TCP/IP stack fingerprint"
+family: windows
+version: "6.0.6000"
+
+stack:
+  # IP Layer
+  ttl: 128
+  df_bit: true
+  ip_id_behavior: incremental
+
+  # TCP Layer
+  window_size: 8192
+  window_scale: 2
+  mss: 1460
+  tcp_timestamps: false
+  sack_permitted: true
+  tcp_options_order:
+    - mss
+    - nop
+    - window_scale
+    - nop
+    - nop
+    - sack_permitted
+
+  # TCP Quirks
+  ecn_support: false
+  urg_pointer: 0
+  ack_in_rst: zero
+  window_in_rst: 0
+  fin_ack_behavior: rst
+  bogus_flags: rst
+  explicit_congestion: ignore
+
+  # ICMP
+  icmp_quote_size: 8
+  icmp_df_in_quote: true
+  icmp_ttl_in_quote: 128
+  icmp_rate_limit: false
+  icmp_checksum_bad: false
+
+  # UDP
+  udp_closed_port_response: true

@@ -1,0 +1,27 @@
+Starting Nmap 7.98 ( https://nmap.org ) at 2026-02-17 17:30 -0500
+Nmap scan report for HMDXIN.blackic.systems (10.0.250.7)
+Host is up (0.00031s latency).
+
+PORT    STATE  SERVICE VERSION
+80/tcp  open   http    Microsoft IIS httpd 10.0
+|_http-server-header: Microsoft-IIS/10.0
+| http-methods: 
+|   Supported Methods: OPTIONS TRACE GET HEAD POST
+|_  Potentially risky methods: TRACE
+| http-headers: 
+|   Content-Length: 696
+|   Content-Type: text/html
+|   Last-Modified: Tue, 17 Feb 2026 21:09:03 GMT
+|   Accept-Ranges: bytes
+|   ETag: "b413ea551a0dc1:0"
+|   Server: Microsoft-IIS/10.0
+|   Date: Tue, 17 Feb 2026 21:31:15 GMT
+|   Connection: close
+|   
+|_  (Request type: HEAD)
+443/tcp closed https
+MAC Address: F4:6B:8C:C3:DE:26 (Hon Hai Precision Industry)
+Service Info: OS: Windows; CPE: cpe:/o:microsoft:windows
+
+Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 6.34 seconds

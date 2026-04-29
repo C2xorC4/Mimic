@@ -1,0 +1,8 @@
+captures: 3
+name: smb_probe_947f08e7
+probe_hex: 446d6454000000170000000100000000111100ff01ff13
+probe_length: 23
+response_hex: ""
+response_length: 0
+service: smb
+source_os: Windows 11

@@ -1,0 +1,55 @@
+[13:40:02] [~/Source/Claude] ❱❱❱ sudo nmap -O -sV -p 53,88,135,389,445,464,593,636,3268,3269,5722,5985,9389 10.0.253.61
+Starting Nmap 7.98 ( https://nmap.org ) at 2026-02-05 13:42 -0500
+Nmap scan report for BOOK-4I9E56JPIC.blackic.systems (10.0.253.61)
+Host is up (0.0085s latency).
+
+PORT     STATE  SERVICE          VERSION
+53/tcp   closed domain
+88/tcp   closed kerberos-sec
+135/tcp  open   msrpc            Microsoft Windows RPC
+389/tcp  closed ldap
+445/tcp  open   microsoft-ds?
+464/tcp  closed kpasswd5
+593/tcp  closed http-rpc-epmap
+636/tcp  closed ldapssl
+3268/tcp closed globalcatLDAP
+3269/tcp closed globalcatLDAPssl
+5722/tcp closed msdfsr
+5985/tcp closed wsman
+9389/tcp closed adws
+MAC Address: 24:EB:16:09:19:65 (Intel Corporate)
+OS fingerprint not ideal because: Didn't receive UDP response. Please try again with -sSU
+No OS matches for host
+Network Distance: 1 hop
+Service Info: OS: Windows; CPE: cpe:/o:microsoft:windows
+
+OS and Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 20.72 seconds
+[13:43:04] [cost 20.799s] sudo nmap -O -sV -p 53,88,135,389,445,464,593,636,3268,3269,5722,5985,9389 10.0.253.61
+
+[13:44:18] [~/Source/Claude] ❱❱❱ sudo nmap -O -sV -p 53,88,135,389,445,464,593,636,3268,3269,5722,5985,9389 10.0.253.61
+Starting Nmap 7.98 ( https://nmap.org ) at 2026-02-05 13:44 -0500
+Nmap scan report for BOOK-4I9E56JPIC.blackic.systems (10.0.253.61)
+Host is up (0.032s latency).
+
+PORT     STATE    SERVICE          VERSION
+53/tcp   filtered domain
+88/tcp   filtered kerberos-sec
+135/tcp  filtered msrpc
+389/tcp  filtered ldap
+445/tcp  filtered microsoft-ds
+464/tcp  filtered kpasswd5
+593/tcp  filtered http-rpc-epmap
+636/tcp  filtered ldapssl
+3268/tcp filtered globalcatLDAP
+3269/tcp filtered globalcatLDAPssl
+5722/tcp filtered msdfsr
+5985/tcp filtered wsman
+9389/tcp filtered adws
+MAC Address: 24:EB:16:09:19:65 (Intel Corporate)
+Too many fingerprints match this host to give specific OS details
+Network Distance: 1 hop
+
+OS and Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 4.67 seconds
+[13:44:27] [cost 4.737s] sudo nmap -O -sV -p 53,88,135,389,445,464,593,636,3268,3269,5722,5985,9389 10.0.253.61

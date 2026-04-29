@@ -1,0 +1,45 @@
+name: "macOS Sonoma"
+description: "macOS 14 Sonoma TCP/IP stack fingerprint"
+family: macos
+version: "14.0"
+
+stack:
+  # IP Layer - BSD heritage
+  ttl: 64
+  df_bit: true
+  ip_id_behavior: random
+
+  # TCP Layer - Darwin/XNU stack
+  window_size: 65535
+  window_scale: 6
+  mss: 1460
+  tcp_timestamps: true
+  sack_permitted: true
+  tcp_options_order:
+    - mss
+    - nop
+    - window_scale
+    - nop
+    - nop
+    - timestamp
+    - sack_permitted
+    - eol
+
+  # TCP Quirks
+  ecn_support: true
+  urg_pointer: 0
+  ack_in_rst: zero
+  window_in_rst: 0
+  fin_ack_behavior: finack
+  bogus_flags: rst
+  explicit_congestion: respond
+
+  # ICMP - BSD style
+  icmp_quote_size: 64
+  icmp_df_in_quote: true
+  icmp_ttl_in_quote: 64
+  icmp_rate_limit: true
+  icmp_checksum_bad: false
+
+  # UDP
+  udp_closed_port_response: true

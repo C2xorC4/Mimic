@@ -1,0 +1,44 @@
+# NetBIOS Name Service (NBNS) Template
+# Generated from Windows 11 captures
+# Source OS: Windows 11
+# Port: UDP 137
+
+name: nbns
+port: 137
+protocol: udp
+stateful: false
+
+probes:
+  # NetBIOS Node Status Query (NBSTAT)
+  # nmap -sC sends this to enumerate NetBIOS names
+  # Structure: TxID(2) + Flags(2) + QDCOUNT(2) + ANCOUNT(2) + NSCOUNT(2) + ARCOUNT(2) + NameLen(1)
+  # Pattern matches at offset 4: QDCOUNT=0001, AN/NS/AR=0000, NameLen=0x20
+  # This ignores the Flags field which can vary (0x0000, 0x0010 recursion desired, etc.)
+  - name: nbstat_query
+    signature:
+      pattern: '\x00\x01\x00\x00\x00\x00\x00\x00\x20'
+      offset: 4
+      min_length: 50
+    response_file: responses/node_status.bin
+    rewrite_rules:
+      # Echo transaction ID from request (bytes 0-1)
+      - offset: 0
+        length: 2
+        type: echo
+      # Domain/workgroup name (16 bytes at offset 57)
+      # Structure: 15-char name + 1-byte suffix, space-padded
+      - offset: 57
+        length: 16
+        type: nbns_domain
+      # Computer name - first entry (16 bytes at offset 75)
+      - offset: 75
+        length: 16
+        type: nbns_name
+      # Computer name - second entry (16 bytes at offset 93)
+      - offset: 93
+        length: 16
+        type: nbns_name
+      # MAC address (6 bytes at offset 111)
+      - offset: 111
+        length: 6
+        type: mac_address

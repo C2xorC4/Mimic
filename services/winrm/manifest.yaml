@@ -1,0 +1,58 @@
+# WinRM Service Template
+# Generated from Windows 11 25H2 WinRM/HTTPAPI 2.0
+# Source OS: Windows 11 Pro
+# Captured: 2026-02-18 from HMDXIN
+
+name: winrm
+port: 5985
+protocol: tcp
+stateful: false
+
+probes:
+  # WS-Management SOAP request - POST to /wsman
+  # Pattern: POST /wsman (WinRM clients send SOAP over HTTP POST)
+  # Response: 401 Unauthorized (requires authentication)
+  - name: winrm_soap_post
+    signature:
+      pattern: 'POST '
+      offset: 0
+      min_length: 5
+    response_file: responses/winrm_404_not_found.bin
+    rewrite_rules: []
+
+  # HTTP GET to /wsman endpoint
+  # WinRM only accepts POST, returns 405 Method Not Allowed
+  - name: winrm_get_wsman
+    signature:
+      pattern: 'GET /wsman'
+      offset: 0
+      min_length: 10
+    response_file: responses/winrm_405_method_not_allowed.bin
+    rewrite_rules: []
+
+  # Generic HTTP GET request (nmap probes)
+  - name: winrm_http_get
+    signature:
+      pattern: 'GET '
+      offset: 0
+      min_length: 4
+    response_file: responses/winrm_404_not_found.bin
+    rewrite_rules: []
+
+  # HTTP 1.0 requests (nmap version probes)
+  - name: winrm_http10
+    signature:
+      pattern: 'HTTP/1.0'
+      offset: 0
+      min_length: 8
+    response_file: responses/winrm_404_not_found.bin
+    rewrite_rules: []
+
+  # Fallback for any other request
+  - name: winrm_fallback
+    signature:
+      pattern: ''
+      offset: 0
+      min_length: 0
+    response_file: responses/winrm_404_not_found.bin
+    rewrite_rules: []

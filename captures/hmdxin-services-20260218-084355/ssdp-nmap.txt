@@ -1,0 +1,9 @@
+Starting Nmap 7.98 ( https://nmap.org ) at 2026-02-18 08:44 -0500
+Nmap scan report for HMDXIN.blackic.systems (10.0.250.7)
+Host is up (0.00016s latency).
+
+PORT     STATE         SERVICE
+1900/udp open|filtered upnp
+MAC Address: F4:6B:8C:C3:DE:26 (Hon Hai Precision Industry)
+
+Nmap done: 1 IP address (1 host up) scanned in 0.38 seconds

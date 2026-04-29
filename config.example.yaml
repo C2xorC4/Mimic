@@ -1,0 +1,23 @@
+# Mimic Configuration Example
+# Copy to /etc/mimic/config.yaml or use with -c flag
+
+# Active OS profile to emulate
+profile: "Windows 10"
+
+# Network interface to attach eBPF program to
+interface: "eth0"
+
+# Services to emulate (future feature)
+services:
+  - smb
+  # - rdp
+  # - http
+
+# Logging level: debug, info, warn, error
+log_level: info
+
+# Path to profiles directory
+profiles_dir: /etc/mimic/profiles
+
+# Path to services directory
+services_dir: /etc/mimic/services

@@ -1,0 +1,55 @@
+# HTTP/IIS Service Template
+# Generated from Windows 11 25H2 IIS 10.0
+# Source OS: Windows 11 Pro
+# Captured: 2026-02-18 from HMDXIN
+
+name: http
+port: 80
+protocol: tcp
+stateful: false
+
+probes:
+  # HTTP HEAD request - headers only response
+  - name: http_head
+    signature:
+      pattern: 'HEAD '
+      offset: 0
+      min_length: 5
+    response_file: responses/iis_200_headers.bin
+    rewrite_rules: []
+
+  # HTTP GET request - full response with IIS welcome page
+  - name: http_get
+    signature:
+      pattern: 'GET '
+      offset: 0
+      min_length: 4
+    response_file: responses/iis_200_full.bin
+    rewrite_rules: []
+
+  # HTTP POST request (used by some scanners)
+  - name: http_post
+    signature:
+      pattern: 'POST '
+      offset: 0
+      min_length: 5
+    response_file: responses/iis_404_not_found.bin
+    rewrite_rules: []
+
+  # HTTP OPTIONS request (used by nmap)
+  - name: http_options
+    signature:
+      pattern: 'OPTIONS '
+      offset: 0
+      min_length: 8
+    response_file: responses/iis_200_headers.bin
+    rewrite_rules: []
+
+  # Fallback for any other HTTP request
+  - name: http_fallback
+    signature:
+      pattern: 'HTTP'
+      offset: 0
+      min_length: 4
+    response_file: responses/iis_404_not_found.bin
+    rewrite_rules: []
