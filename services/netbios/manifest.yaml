@@ -1,0 +1,51 @@
+# NetBIOS Session Service Template
+# Generated from Windows 11 captures
+# Source OS: Windows 11
+
+name: netbios
+port: 139
+protocol: tcp
+stateful: false
+
+probes:
+  # HTTP probe (nmap sends this to many ports)
+  # Pattern: GET / HTTP/1.0
+  # Windows responds with NetBIOS negative session response
+  - name: http_probe
+    signature:
+      pattern: 'GET '
+      offset: 0
+      min_length: 10
+    response_file: responses/negative_session.bin
+    rewrite_rules: []
+
+  # SMB1 Negotiate over port 139
+  # Pattern: 00 XX XX XX ff 53 4d 42 72 (NetBIOS + SMB1 magic)
+  # Windows responds with negative session (called name not present)
+  - name: smb1_over_netbios
+    signature:
+      pattern: '\x00...\xffSMBr'
+      offset: 0
+      min_length: 39
+    response_file: responses/negative_session.bin
+    rewrite_rules: []
+
+  # NetBIOS Session Request (type 0x81)
+  # Pattern: 81 XX XX XX (session request header)
+  - name: session_request
+    signature:
+      pattern: '\x81'
+      offset: 0
+      min_length: 4
+    response_file: responses/negative_session.bin
+    rewrite_rules: []
+
+  # Catch-all for other probes
+  # Any data sent gets negative session response
+  - name: catchall
+    signature:
+      pattern: ''
+      offset: 0
+      min_length: 1
+    response_file: responses/negative_session.bin
+    rewrite_rules: []

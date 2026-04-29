@@ -1,0 +1,115 @@
+# SMB Service Template
+# Generated from Windows 11 25H2 (Build 26200) captures
+# Source OS: Windows 11 Pro
+
+name: smb
+port: 445
+protocol: tcp
+stateful: true
+
+probes:
+  # SMB2 Session Setup - NTLM Auth (second round, larger packet)
+  # NTLMSSP_AUTH packets are typically 200+ bytes (includes credentials)
+  # Response: STATUS_LOGON_FAILURE (0xc000015b)
+  - name: smb2_session_setup_auth
+    signature:
+      pattern: '\x00...\xfeSMB@\x00......\x01\x00'
+      offset: 0
+      min_length: 200
+    response_file: responses/session_setup_logon_failure.bin
+    rewrite_rules:
+      # MessageId: Echo from request (offset 28 = NetBIOS(4) + SMB2 header offset 24)
+      - offset: 28
+        length: 8
+        type: echo
+      # SessionId: Echo from request (offset 40 = NetBIOS(4) + SMB2 header offset 36)
+      - offset: 40
+        length: 8
+        type: echo
+
+  # SMB2 Session Setup - NTLM Negotiate (first round)
+  # Pattern: NetBIOS(4) + SMB2 magic(4) + StructSize(2) + wildcards(6) + Command(2)
+  # Command 0x01 = Session Setup
+  # NTLMSSP_NEGOTIATE is typically 150-180 bytes
+  # Response: NTLM Challenge (STATUS_MORE_PROCESSING_REQUIRED)
+  - name: smb2_session_setup_ntlm
+    signature:
+      pattern: '\x00...\xfeSMB@\x00......\x01\x00'
+      offset: 0
+      min_length: 100
+      max_length: 199
+    response_file: responses/session_setup_ntlm_challenge.bin
+    rewrite_rules:
+      # MessageId: Echo from request (offset 28 = NetBIOS(4) + SMB2 header offset 24)
+      - offset: 28
+        length: 8
+        type: echo
+      # SessionId: Echo from request (offset 40 = NetBIOS(4) + SMB2 header offset 36)
+      # Note: Server should set SessionId, but we echo 0 since client sends 0 initially
+      - offset: 40
+        length: 8
+        type: echo
+      # NTLM ServerChallenge at offset 131 (0x83) inside NTLMSSP Type 2 message
+      - offset: 131
+        length: 8
+        type: random
+      # Timestamp at offset 243 (0xf3) - NTLM AvPair MsvAvTimestamp
+      - offset: 243
+        length: 8
+        type: timestamp
+
+  # SMB2 Negotiate - Full response with SPNEGO
+  # Pattern: NetBIOS(4) + SMB2 magic(4) + StructSize(2) + wildcards(6) + Command(2)
+  # Command 0x00 = Negotiate
+  - name: smb2_negotiate_full
+    signature:
+      pattern: '\x00...\xfeSMB@\x00......\x00\x00'
+      offset: 0
+      min_length: 50
+    response_file: responses/smb2_negotiate_df362849.bin
+    rewrite_rules:
+      # MessageId: Echo from request (SMB2 negotiate typically has MessageId 0)
+      - offset: 28
+        length: 8
+        type: echo
+      - offset: 108  # SystemTime: NetBIOS(4) + SMB2Header(64) + ResponseOffset(40)
+        length: 8
+        type: timestamp
+      - offset: 76   # ServerGuid: NetBIOS(4) + SMB2Header(64) + ResponseOffset(8)
+        length: 16
+        type: guid
+
+  # SMB2 generic fallback (any SMB2 command not matched above)
+  - name: smb2_generic
+    signature:
+      pattern: '\x00...\xfeSMB'
+      offset: 0
+      min_length: 50
+    response_file: responses/smb2_negotiate_df362849.bin
+    rewrite_rules:
+      - offset: 28
+        length: 8
+        type: echo
+      - offset: 108
+        length: 8
+        type: timestamp
+      - offset: 76
+        length: 16
+        type: guid
+
+  # SMB1 Negotiate - Pattern: 00 XX XX XX ff 53 4d 42 72
+  # Modern Windows servers respond to SMB1 negotiate with SMB2 negotiate
+  # This tells the client "I prefer SMB2"
+  - name: smb1_negotiate
+    signature:
+      pattern: '\x00...\xffSMBr'
+      offset: 0
+      min_length: 39
+    response_file: responses/smb2_negotiate_df362849.bin
+    rewrite_rules:
+      - offset: 108
+        length: 8
+        type: timestamp
+      - offset: 76
+        length: 16
+        type: guid

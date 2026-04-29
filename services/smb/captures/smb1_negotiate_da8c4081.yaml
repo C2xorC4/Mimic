@@ -1,0 +1,8 @@
+captures: 1
+name: smb1_negotiate_da8c4081
+probe_hex: 00000031ff534d4272000000001845680000000000000000000000000000686200000100000e00024e54204c4d20302e3132000200
+probe_length: 53
+response_hex: ""
+response_length: 0
+service: smb
+source_os: Windows 11

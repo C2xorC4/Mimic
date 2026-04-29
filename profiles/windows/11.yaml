@@ -1,0 +1,46 @@
+name: "Windows 11"
+description: "Windows 11 TCP/IP stack fingerprint"
+family: windows
+version: "10.0.22000"
+
+stack:
+  # IP Layer
+  ttl: 128
+  df_bit: true
+  ip_id_behavior: incremental
+
+  # TCP Layer - Values from nmap scan of Windows 11 25H2
+  # Note: Real Windows 11 uses window_size=65535 and has timestamps enabled.
+  # However, proper timestamp handling requires per-connection state for TSecr echo.
+  # Until stateful TS is implemented, we use timestamps=false which gives TS=U in nmap.
+  window_size: 65535
+  window_scale: 8
+  mss: 1460   # Standard MSS for Ethernet (65495 on localhost)
+  tcp_timestamps: false  # TODO: Enable when stateful TS implemented
+  sack_permitted: true
+  tcp_options_order:
+    - mss
+    - nop
+    - window_scale
+    - nop
+    - nop
+    - sack_permitted
+
+  # TCP Quirks
+  ecn_support: true
+  urg_pointer: 0
+  ack_in_rst: zero
+  window_in_rst: 0
+  fin_ack_behavior: rst
+  bogus_flags: rst
+  explicit_congestion: respond
+
+  # ICMP
+  icmp_quote_size: 8
+  icmp_df_in_quote: true
+  icmp_ttl_in_quote: 128
+  icmp_rate_limit: false
+  icmp_checksum_bad: false
+
+  # UDP
+  udp_closed_port_response: true

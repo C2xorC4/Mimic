@@ -1,0 +1,8 @@
+captures: 3
+name: smb_probe_a2295e3d
+probe_hex: 47494f500100010024000000000000000100000001000000060000006162636465660000040000006765740000000000
+probe_length: 48
+response_hex: ""
+response_length: 0
+service: smb
+source_os: Windows 11

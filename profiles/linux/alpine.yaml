@@ -1,0 +1,42 @@
+name: "Alpine Linux"
+description: "Alpine Linux TCP/IP stack fingerprint"
+family: linux
+version: "6.1"
+
+stack:
+  # IP Layer
+  ttl: 64
+  df_bit: true
+  ip_id_behavior: random
+
+  # TCP Layer - Alpine often uses smaller default values
+  window_size: 14600
+  window_scale: 6
+  mss: 1460
+  tcp_timestamps: true
+  sack_permitted: true
+  tcp_options_order:
+    - mss
+    - sack_permitted
+    - timestamp
+    - nop
+    - window_scale
+
+  # TCP Quirks
+  ecn_support: false
+  urg_pointer: 0
+  ack_in_rst: zero
+  window_in_rst: 0
+  fin_ack_behavior: finack
+  bogus_flags: rst
+  explicit_congestion: ignore
+
+  # ICMP
+  icmp_quote_size: 64
+  icmp_df_in_quote: true
+  icmp_ttl_in_quote: 64
+  icmp_rate_limit: true
+  icmp_checksum_bad: false
+
+  # UDP
+  udp_closed_port_response: true

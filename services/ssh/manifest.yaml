@@ -1,0 +1,32 @@
+# SSH Service Template
+# Generated from Windows 11 25H2 OpenSSH for Windows 9.5
+# Source OS: Windows 11 Pro
+# Captured: 2026-02-18 from HMDXIN
+
+name: ssh
+port: 22
+protocol: tcp
+stateful: false
+
+probes:
+  # SSH version exchange - client sends its version string first
+  # Pattern: SSH-2.0- or SSH-1.
+  # Response: Server banner immediately upon connection
+  - name: ssh_version_exchange
+    signature:
+      pattern: 'SSH-'
+      offset: 0
+      min_length: 4
+    response_file: responses/ssh_banner.bin
+    rewrite_rules: []
+
+  # TCP connection - SSH server sends banner first without waiting for client data
+  # This is the primary probe - SSH servers advertise their banner on connect
+  - name: ssh_connect_banner
+    signature:
+      # Empty pattern - send banner on any TCP connection
+      pattern: ''
+      offset: 0
+      min_length: 0
+    response_file: responses/ssh_banner.bin
+    rewrite_rules: []

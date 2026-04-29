@@ -1,0 +1,68 @@
+# Mimic Configuration Example
+# Copy to /etc/mimic/config.yaml or use with -c flag
+
+# OS profile to emulate (from profiles/ directory)
+profile: "Windows 11"
+
+# Network interface to attach eBPF program to
+# interface: eth0
+interface: enp73s0f1
+
+# Services to emulate
+services:
+  - smb
+  - msrpc
+  - netbios
+  - nbns
+  - rdp
+
+# Ports that appear closed (send RST on connect)
+# Required for nmap OS fingerprinting (needs 1 open + 1 closed port)
+closed_ports:
+  - 8080
+  - 8443
+
+# Service-specific options
+service_options:
+  # NetBIOS computer name (15 chars max, will be uppercased)
+  netbios_name: "WORKSTATION"
+
+  # Domain/workgroup name
+  domain: "WORKGROUP"
+
+  # Hostname for services that use it
+  hostname: "workstation"
+
+  # MAC address for NBNS responses (format: aa:bb:cc:dd:ee:ff)
+  # Leave empty for random locally-administered MAC
+  mac_address: ""
+
+  # Response timing jitter (milliseconds) - helps avoid timing fingerprinting
+  # Set both to 0 to disable jitter
+  jitter_min_ms: 5
+  jitter_max_ms: 50
+
+# Logging configuration
+logging:
+  # Log level: debug, info, warn, error
+  level: info
+
+  # Directory for log files
+  # - mimic.log: Application events (startup, shutdown, errors)
+  # - probes.log: All probe attempts (matched and unmatched) for security monitoring
+  # Falls back to ./log/mimic if /var/log/mimic is not writable
+  log_dir: /var/log/mimic
+
+  # Use JSON format for FILE logs (recommended for SIEM integration)
+  # Set to false for human-readable file logs
+  # Note: stdout is ALWAYS human-readable regardless of this setting
+  json_mode: true
+
+  # Also output logs to stdout (always human-readable for interactive debugging)
+  to_stdout: true
+
+# Path to profiles directory (default: ./profiles)
+profiles_dir: ./profiles
+
+# Path to services directory (default: ./services)
+services_dir: ./services

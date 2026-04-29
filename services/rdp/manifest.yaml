@@ -1,0 +1,80 @@
+# RDP (Remote Desktop Protocol) Service Template
+# Generated from Windows 11 25H2 (Build 26200) captures
+# Source OS: Windows 11 Pro
+
+name: rdp
+port: 3389
+protocol: tcp
+stateful: false
+
+probes:
+  # RDP Negotiation Request (TPKT + X.224 CR + Cookie + NEG_REQ)
+  # Pattern: 03 00 00 2a (TPKT header, length 42)
+  # This matches the standard nmap rdp-enum-encryption probe
+  # Windows responds with NEG_RSP selecting TLS (0x02)
+  - name: rdp_negotiate_42
+    signature:
+      pattern: '\x03\x00\x00\x2a'
+      offset: 0
+      min_length: 42
+    response_file: responses/rdp_neg_tls.bin
+    rewrite_rules: []
+
+  # RDP Connection Request without negotiation (TPKT + X.224 CR + Cookie only)
+  # Pattern: 03 00 00 22 (TPKT header, length 34)
+  # Older clients or simple probes without RDP_NEG_REQ
+  - name: rdp_x224_cr_34
+    signature:
+      pattern: '\x03\x00\x00\x22'
+      offset: 0
+      min_length: 34
+    response_file: responses/rdp_neg_tls.bin
+    rewrite_rules: []
+
+  # X.224 Data request (short probe)
+  # Pattern: 03 00 00 0b (TPKT header, length 11)
+  # This is an X.224 disconnect or data request - respond with same
+  - name: rdp_x224_data
+    signature:
+      pattern: '\x03\x00\x00\x0b'
+      offset: 0
+      min_length: 11
+    response_file: responses/rdp_neg_tls.bin
+    rewrite_rules: []
+
+  # Generic TPKT fallback - any TPKT packet to RDP port
+  # Catches other connection attempts
+  - name: rdp_generic_tpkt
+    signature:
+      pattern: '\x03\x00'
+      offset: 0
+      min_length: 7
+    response_file: responses/rdp_neg_tls.bin
+    rewrite_rules: []
+
+  # TLS ClientHello - sent after RDP negotiation selects TLS
+  # Pattern: 16 03 01 (TLS record type=handshake, version=1.0)
+  # ClientHello may use TLS 1.0 in record layer even for TLS 1.2/1.3
+  - name: tls_client_hello_10
+    signature:
+      pattern: '\x16\x03\x01'
+      offset: 0
+      min_length: 50
+    response_file: responses/tls_server_hello.bin
+    rewrite_rules:
+      # ServerRandom (32 bytes at offset 11 in ServerHello record)
+      - offset: 11
+        length: 32
+        type: random
+
+  # TLS ClientHello with TLS 1.2 record version
+  - name: tls_client_hello_12
+    signature:
+      pattern: '\x16\x03\x03'
+      offset: 0
+      min_length: 50
+    response_file: responses/tls_server_hello.bin
+    rewrite_rules:
+      - offset: 11
+        length: 32
+        type: random
