@@ -46,6 +46,19 @@ type fingerprintOsProfile struct {
 	Pad4                  [3]uint8
 }
 
+type fingerprintSeqCacheKey struct {
+	_     structs.HostLayout
+	Saddr uint32
+	Sport uint16
+	Dport uint16
+}
+
+type fingerprintSeqCacheVal struct {
+	_      structs.HostLayout
+	Seq    uint32
+	AckNum uint32
+}
+
 // loadFingerprint returns the embedded CollectionSpec for fingerprint.
 func loadFingerprint() (*ebpf.CollectionSpec, error) {
 	reader := bytes.NewReader(_FingerprintBytes)
@@ -88,7 +101,8 @@ type fingerprintSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type fingerprintProgramSpecs struct {
-	FingerprintEgress *ebpf.ProgramSpec `ebpf:"fingerprint_egress"`
+	FingerprintEgress  *ebpf.ProgramSpec `ebpf:"fingerprint_egress"`
+	FingerprintIngress *ebpf.ProgramSpec `ebpf:"fingerprint_ingress"`
 }
 
 // fingerprintMapSpecs contains maps before they are loaded into the kernel.
@@ -98,6 +112,7 @@ type fingerprintMapSpecs struct {
 	EnabledMap *ebpf.MapSpec `ebpf:"enabled_map"`
 	IpIdMap    *ebpf.MapSpec `ebpf:"ip_id_map"`
 	ProfileMap *ebpf.MapSpec `ebpf:"profile_map"`
+	SeqCache   *ebpf.MapSpec `ebpf:"seq_cache"`
 }
 
 // fingerprintVariableSpecs contains global variables before they are loaded into the kernel.
@@ -129,6 +144,7 @@ type fingerprintMaps struct {
 	EnabledMap *ebpf.Map `ebpf:"enabled_map"`
 	IpIdMap    *ebpf.Map `ebpf:"ip_id_map"`
 	ProfileMap *ebpf.Map `ebpf:"profile_map"`
+	SeqCache   *ebpf.Map `ebpf:"seq_cache"`
 }
 
 func (m *fingerprintMaps) Close() error {
@@ -136,6 +152,7 @@ func (m *fingerprintMaps) Close() error {
 		m.EnabledMap,
 		m.IpIdMap,
 		m.ProfileMap,
+		m.SeqCache,
 	)
 }
 
@@ -149,12 +166,14 @@ type fingerprintVariables struct {
 //
 // It can be passed to loadFingerprintObjects or ebpf.CollectionSpec.LoadAndAssign.
 type fingerprintPrograms struct {
-	FingerprintEgress *ebpf.Program `ebpf:"fingerprint_egress"`
+	FingerprintEgress  *ebpf.Program `ebpf:"fingerprint_egress"`
+	FingerprintIngress *ebpf.Program `ebpf:"fingerprint_ingress"`
 }
 
 func (p *fingerprintPrograms) Close() error {
 	return _FingerprintClose(
 		p.FingerprintEgress,
+		p.FingerprintIngress,
 	)
 }
 
