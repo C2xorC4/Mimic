@@ -139,10 +139,9 @@ func (m *ClosedPortManager) GetPorts() []uint16 {
 // ProbeResponseManager adds nftables rules that respond to unusual TCP probes
 // (nmap T2/T3 OS fingerprint probes) with RST, matching Windows behavior.
 type ProbeResponseManager struct {
-	openPorts []uint16
-	active    bool
-	mu        sync.Mutex
-	log       *logging.Logger
+	active bool
+	mu     sync.Mutex
+	log    *logging.Logger
 }
 
 // NewProbeResponseManager creates a manager for T2/T3 probe responses.
@@ -155,7 +154,10 @@ func NewProbeResponseManager() *ProbeResponseManager {
 // Start adds nftables rules to respond to T2/T3 nmap OS fingerprint probes.
 // T2: NULL-flagged TCP (all flags=0) → Windows responds with RST+ACK
 // T3: SYN+FIN+PSH+URG flagged TCP → Windows responds with RST+ACK
-func (p *ProbeResponseManager) Start(openPorts []uint16) error {
+// Rules apply to all TCP ports — these flag combinations never appear in
+// legitimate traffic, so port scoping is unnecessary and would miss any
+// open port that nmap selects for probing (e.g. SSH on 22).
+func (p *ProbeResponseManager) Start() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -166,43 +168,30 @@ func (p *ProbeResponseManager) Start(openPorts []uint16) error {
 		return err
 	}
 
-	// Build port set string: e.g. "{ 135, 139, 445, 3389 }"
-	portSet := "{"
-	for i, port := range openPorts {
-		if i > 0 {
-			portSet += ","
-		}
-		portSet += fmt.Sprintf(" %d", port)
-	}
-	portSet += " }"
-
-	// T2 probe: TCP with NO flags set (NULL probe) to open ports
+	// T2 probe: TCP with NO flags set (NULL probe), any port
 	args2 := []string{
 		"nft", "add", "rule", "inet", "mimic_reject", "input",
-		"tcp", "dport", portSet,
 		"tcp", "flags", "&", "(fin|syn|rst|psh|ack|urg)", "==", "0x00",
 		"reject", "with", "tcp", "reset",
 	}
 	if out, err := exec.Command(args2[0], args2[1:]...).CombinedOutput(); err != nil {
 		p.log.Warn("T2 probe rule failed", map[string]interface{}{"error": string(out)})
 	} else {
-		p.log.Info("T2 probe response active (NULL flags → RST)")
+		p.log.Info("T2 probe response active (NULL flags → RST, all ports)")
 	}
 
-	// T3 probe: SYN+FIN+PSH+URG to open ports (0x2b)
+	// T3 probe: SYN+FIN+PSH+URG (0x2b), any port
 	args3 := []string{
 		"nft", "add", "rule", "inet", "mimic_reject", "input",
-		"tcp", "dport", portSet,
 		"tcp", "flags", "&", "(fin|syn|psh|urg)", "==", "(fin|syn|psh|urg)",
 		"reject", "with", "tcp", "reset",
 	}
 	if out, err := exec.Command(args3[0], args3[1:]...).CombinedOutput(); err != nil {
 		p.log.Warn("T3 probe rule failed", map[string]interface{}{"error": string(out)})
 	} else {
-		p.log.Info("T3 probe response active (SYN+FIN+PSH+URG → RST)")
+		p.log.Info("T3 probe response active (SYN+FIN+PSH+URG → RST, all ports)")
 	}
 
-	p.openPorts = openPorts
 	p.active = true
 	return nil
 }
