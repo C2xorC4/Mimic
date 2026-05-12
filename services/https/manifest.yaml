@@ -2,41 +2,65 @@ name: https
 port: 443
 protocol: tcp
 stateful: false
-description: "Windows IIS TLS ServerHello (Schannel TLS 1.3) — JA3S: 772,4866,43-51"
+description: "Windows IIS JARM/JA3S fingerprint — HMDXIN Schannel signature"
+
+# JARM probe distinguishers (jarm.py sends 10 probes to fingerprint TLS stacks):
+#
+#   Probes 1-2 (TLS 1.2 FORWARD/REVERSE, ALL ciphers, 1.2_SUPPORT):
+#     Record: \x16\x03\x03, cipher_suites_len = 0x008a (69 ciphers × 2 bytes)
+#     cipher_suites_len at fixed offset 76-77 (after 5-byte record header,
+#     4-byte hs header, 2-byte version, 32-byte random, 1-byte sid_len, 32-byte sid).
+#     Pattern uses positional wildcards to skip the random/variable fields.
+#     → respond TLS 1.2 ServerHello, cipher c030 (ECDHE-RSA-AES256-GCM-SHA384)
+#
+#   Probe 6 (TLS 1.1 middle_out):
+#     Record: \x16\x03\x02 — only probe to use TLS 1.1 record version on wire.
+#     → respond TLS 1.1 ServerHello, cipher c014 (ECDHE-RSA-AES256-SHA)
+#
+#   Probes 3-5 (TLS 1.2, TOP/BOTTOM_HALF/MIDDLE_OUT): cipher_suites_len != 0x008a → no match → no response
+#   Probes 7-10 (TLS 1.3): \x16\x03\x01 record → no match → no response
+#
+# Target JARM: 2ad2ad00000000022c0000000000000daf8512f1afb4642b76b4dfdb33f354
 
 probes:
-  # TLS 1.0/1.2 ClientHello record header
-  - name: tls_client_hello_legacy
+  # JARM probes 1 & 2 — TLS 1.2 ALL-cipher FORWARD and REVERSE
+  # Pattern breakdown (78 bytes total, positional):
+  #   \x16\x03\x03 = TLS record header (handshake, TLS 1.2)
+  #   .. = 2 wildcards for record length (variable)
+  #   \x01 = ClientHello handshake type
+  #   ... = 3 wildcards for handshake length (variable)
+  #   \x03\x03 = client_hello version (TLS 1.2)
+  #   32 wildcards = ClientRandom (random per probe)
+  #   \x20 = session_id_len = 32 (jarm always uses 32-byte session ID)
+  #   32 wildcards = session_id (random per probe)
+  #   \x00\x8a = cipher_suites_len = 138 bytes = 69 ciphers (ALL list, no GREASE)
+  #              Probes 3-4 (HALF lists ~68 bytes) and probe 5 (GREASE+ALL=140) won't match.
+  - name: jarm_tls12_probes_1_2
     signature:
-      pattern: '\x16\x03\x01'
+      pattern: '\x16\x03\x03..\x01...\x03\x03................................\x20................................\x00\x8a'
       offset: 0
-      min_length: 50
-    response_file: responses/iis_server_hello.bin
+      min_length: 80
+    response_file: responses/tls12_server_hello.bin
     rewrite_rules:
       - offset: 11
         length: 32
         type: random
       - offset: 44
-        length: 32
-        type: random
-      - offset: 95
         length: 32
         type: random
 
-  # TLS 1.2/1.3 ClientHello record header
-  - name: tls_client_hello
+  # JARM probe 6 — TLS 1.1 middle_out
+  # Only probe to use TLS record version 0x0302 (TLS 1.1 on wire).
+  - name: jarm_tls11_probe_6
     signature:
-      pattern: '\x16\x03\x03'
+      pattern: '\x16\x03\x02'
       offset: 0
       min_length: 50
-    response_file: responses/iis_server_hello.bin
+    response_file: responses/tls11_server_hello.bin
     rewrite_rules:
       - offset: 11
         length: 32
         type: random
       - offset: 44
-        length: 32
-        type: random
-      - offset: 95
         length: 32
         type: random
