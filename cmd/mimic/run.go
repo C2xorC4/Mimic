@@ -164,6 +164,7 @@ func runMimic(cmd *cobra.Command, args []string) error {
 	var fm *ebpf.FingerprintManager
 	var svcMgr *services.Manager
 	var closedMgr *services.ClosedPortManager
+	var probeMgr *services.ProbeResponseManager
 
 	// Start closed port listeners (optional - may fail if netfilter unavailable)
 	if len(appCfg.ClosedPorts) > 0 {
@@ -171,13 +172,27 @@ func runMimic(cmd *cobra.Command, args []string) error {
 		if err := closedMgr.AddPorts(appCfg.ClosedPorts); err != nil {
 			logging.Warn("Closed ports unavailable - OS fingerprinting may be incomplete", map[string]interface{}{
 				"error": err.Error(),
-				"hint":  "Ensure kernel has nf_tables or ip_tables modules loaded",
+				"hint":  "Ensure kernel has nf_tables or nft_reject_inet modules loaded",
 			})
 			closedMgr = nil // Continue without closed ports
 		} else {
 			logging.Info("Closed ports active", map[string]interface{}{
 				"ports": appCfg.ClosedPorts,
 			})
+		}
+	}
+
+	// Start T2/T3 probe response rules (nmap OS fingerprint probes)
+	if len(appCfg.Services) > 0 {
+		openPorts := serviceOpenPorts(appCfg.Services)
+		if len(openPorts) > 0 {
+			probeMgr = services.NewProbeResponseManager()
+			if err := probeMgr.Start(openPorts); err != nil {
+				logging.Warn("T2/T3 probe response unavailable", map[string]interface{}{
+					"error": err.Error(),
+				})
+				probeMgr = nil
+			}
 		}
 	}
 
@@ -297,6 +312,9 @@ func runMimic(cmd *cobra.Command, args []string) error {
 		if closedMgr != nil {
 			closedMgr.StopAll()
 		}
+		if probeMgr != nil {
+			probeMgr.Stop()
+		}
 		return err
 	default:
 	}
@@ -319,6 +337,9 @@ func runMimic(cmd *cobra.Command, args []string) error {
 			if closedMgr != nil {
 				closedMgr.StopAll()
 			}
+			if probeMgr != nil {
+				probeMgr.Stop()
+			}
 			return err
 
 		case <-ticker.C:
@@ -336,10 +357,40 @@ func runMimic(cmd *cobra.Command, args []string) error {
 			if closedMgr != nil {
 				closedMgr.StopAll()
 			}
+			if probeMgr != nil {
+				probeMgr.Stop()
+			}
 			logging.Info("Mimic stopped", nil)
 			return nil
 		}
 	}
+}
+
+// serviceOpenPorts maps known service names to their TCP port numbers.
+// Used to seed T2/T3 probe response nftables rules.
+func serviceOpenPorts(svcNames []string) []uint16 {
+	portMap := map[string]uint16{
+		"smb":     445,
+		"msrpc":   135,
+		"netbios": 139,
+		"rdp":     3389,
+		"ssh":     22,
+		"http":    80,
+		"https":   443,
+		"winrm":   5985,
+		"nbns":    0, // UDP — excluded
+	}
+	seen := make(map[uint16]bool)
+	var ports []uint16
+	for _, name := range svcNames {
+		if p, ok := portMap[name]; ok && p > 0 {
+			if !seen[p] {
+				seen[p] = true
+				ports = append(ports, p)
+			}
+		}
+	}
+	return ports
 }
 
 func logRunStats(mgr *services.Manager, serviceNames []string) {
