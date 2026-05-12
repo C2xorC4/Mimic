@@ -486,7 +486,20 @@ int fingerprint_egress(struct __sk_buff *skb) {
         // nmap's O6 probe sends SYN without WS, kernel responds with MSS+SACK+TS=16 bytes.
         // The 20-byte template above skips this packet, so the kernel's randomized TSval
         // leaks through and breaks nmap's TS rate calculation. Override TSval here.
+        // Also set window to 0xFFDC (65500): Windows 10/11 uses this value for W6 (probe
+        // without WS), while probes 1-5 (WS negotiated) get W=FFFF.
         if (opt_len == 16 && profile->tcp_timestamps && is_syn) {
+            if (profile->window_size == 0xFFFF) {
+                __be16 w6_new = bpf_htons((__u16)0xFFDC);
+                __be16 w6_cur;
+                if (bpf_skb_load_bytes(skb, tcp_offset + 14, &w6_cur, 2) >= 0) {
+                    if (w6_cur != w6_new) {
+                        if (bpf_skb_store_bytes(skb, tcp_offset + 14, &w6_new, 2, 0) >= 0) {
+                            bpf_l4_csum_replace(skb, tcp_offset + 16, w6_cur, w6_new, 2);
+                        }
+                    }
+                }
+            }
             __u32 opt16_start = tcp_offset + 20;
             __u8 old16[8];
             if (bpf_skb_load_bytes(skb, opt16_start + 6, old16, 8) >= 0) {

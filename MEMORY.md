@@ -1,103 +1,142 @@
 # Mimic Project Memory
 
-## Last Session: 2026-02-18
+## Last Session: 2026-05-12
 
-### Current Status: Functional with Known Limitations
+### Current Status: 98% Windows 10/11 nmap OS Match — W6 Fixed, HTTPS/JA3S Live
 
-**Working:**
-- eBPF stack fingerprinting (TTL, DF, Window, IP ID, TCP options)
-- Service emulation: SMB, MSRPC, NetBIOS, NBNS, RDP, SSH, HTTP, WinRM
-- Windows 11 profile produces Windows-like fingerprint
-- nmap identifies services as "Microsoft Windows" with `Service Info: OS: Windows`
-
-**TCP/IP Fingerprint Achieved:**
+**nmap -O result:**
 ```
-TTL: 128 (T=80)           ✓ Windows
-Window: 65535 (W=FFFF)    ✓ Windows 11
-DF bit: Yes               ✓ Windows
-IP ID: Incremental        ✓ Windows
-TCP Options: MSS,NOP,WS8,NOP,NOP,SACK  ✓ Windows pattern
+Aggressive OS guesses: Microsoft Windows 10 1703 or Windows 11 21H2 (98%),
+                       Microsoft Windows 11 21H2 (98%)
+Service Info: OS: Windows; CPE: cpe:/o:microsoft:windows
 ```
 
-**Known Limitation - Timestamps:**
-- Real Windows 11: `TS=A` (timestamps active)
-- Mimic: `TS=U` (timestamps unsupported/removed)
-- nmap says "No OS matches" because exact combination not in database
-- Services still correctly identified as Windows
+**Full fingerprint match:**
+```
+SEQ: TI=I, CI=I, II=I, SS=S, TS=A     ✓ all correct
+OPS: O1=M5B4NW8ST11 ... O3=M5B4NW8NNT11 ... O6=M5B4ST11  ✓
+WIN: W1-W5=FFFF, W6=FFDC              ✓ FIXED (was FFFF)
+ECN: CC=N, O=M5B4NW8NNS              ✓
+T1:  F=AS, A=S+                        ✓
+T2:  R=Y, F=AR, S=Z, A=S             ✓
+T3:  R=Y, F=AR, S=Z, A=O             ✓
+T4:  F=R, A=Z                          A should be O (minor)
+T5:  F=AR, A=S+                        ✓
+T6:  F=R, A=Z                          A should be O (minor)
+T7:  F=AR, A=S+                        ✓
+U1:  DF=N                              ✓
+IE:  DFI=N, CD=Z                       ✓
+```
 
-### Why Timestamps Are Hard
+### What Was Fixed This Session (2026-05-11)
 
-TCP timestamps require per-connection state:
-1. **TSval**: Our monotonic counter (easy)
-2. **TSecr**: Must echo peer's TSval from their last packet (hard)
+1. **TCP Timestamps** → TS=A
+   - Enable `tcp_timestamps: true` in profile
+   - Extract TSecr from kernel's layout before overwriting
+   - TSval = bpf_ktime_get_ns()/1000000 (1kHz)
+   - Write Windows order: MSS+NOP+WS+SACK+TS = 20 bytes
 
-Requires:
-- BPF map keyed by 4-tuple (src_ip, src_port, dst_ip, dst_port)
-- Ingress hook to capture peer's TSval
-- Egress hook to set our TSval and echo TSecr
-- State cleanup on connection close
+2. **SACK Negotiation** → O3=M5B4NW8NNT11
+   - `use_sack = profile->sack_permitted && had_sack`
+   - Only reflect SACK when peer's SYN included SACK_PERM
 
-Attempted implementation broke connectivity - reverted to safe version.
+3. **ECN Probe** → O(ECN)=M5B4NW8NNS, CC=N
+   - opt_len=12 handler for ECN SYN: Windows-ordered 12-byte options
+   - Strip ECE flag from SYN-ACK packets
 
-### Service Templates Created This Session
+4. **opt_len=16 probe** → TS=A (not TS=1F)
+   - Override TSval in 16-byte options path (no-WS probe)
+   - Prevents Linux per-conn tsoffset from leaking through
 
-From HMDXIN (Windows 11) captures on 2026-02-18:
+5. **IP ID sharing** → SS=S
+   - Apply shared counter to ALL protocols (TCP + ICMP)
+   - Previously only applied when old_id==0 (TCP only)
 
-| Service | Port | Response Files |
-|---------|------|----------------|
-| SSH | 22 | ssh_banner.bin (OpenSSH_for_Windows_9.5) |
-| HTTP | 80 | iis_200_full.bin, iis_200_headers.bin, iis_404_not_found.bin |
-| WinRM | 5985 | winrm_404_not_found.bin, winrm_405_method_not_allowed.bin |
+6. **RST fix** → T5/T7 F=AR
+   - Remove incorrect ACK flag stripping from RST handler
+   - Linux already handles T4/T6 (no ACK) correctly without it
 
-Captures stored in: `captures/hmdxin-services-20260218-084543/`
+7. **ICMP fixes** → IE DFI=N, CD=Z; U1 DF=N
+   - Add ICMP section that clears DF bit on all ICMP packets
+   - Force ICMP echo reply code=0 (was echoing probe code)
+
+8. **T2/T3 probes** → R=Y (both now matching exactly)
+   - ClosedPortManager rewritten to use native `nft` (was iptables-nft)
+   - ProbeResponseManager adds nftables rules for NULL-flag and
+     SYN+FIN+PSH+URG TCP packets → RST+ACK responses
+   - nft_reject_inet module provides TCP reset capability
+
+### What Was Fixed This Session (2026-05-12)
+
+1. **W6=FFDC** — In opt_len==16 block: if window_size==0xFFFF, override to 0xFFDC for
+   Windows probe-6 match (no WS negotiated path). Verified in nmap output.
+
+2. **HTTPS/JA3S service** — Captured Windows Schannel TLS 1.3 ServerHello from HMDXIN IIS,
+   created `services/https/manifest.yaml` + `services/https/responses/iis_server_hello.bin`
+   (127 bytes). JA3S: `6c2811f7ba8e88604ea41a2bf9fa5ad7` ("772,4866,43-51").
+   Port 443 now responds to TLS ClientHello with Windows Schannel fingerprint.
+   Note: Handshake won't complete (static response, no key material) but JA3S scanners
+   work at packet level — fingerprint is correct.
+
+3. **Boot persistence** — `/etc/modules-load.d/mimic.conf` on argus-lab:
+   `nft_reject` and `nft_reject_inet` load at boot automatically.
+
+### Known Remaining Gaps
+
+1. **T4/T6 A=Z** (should be A=O) — minor
+   - RST without ACK flag has ACK_num=0 (Linux) vs non-zero (Windows)
+   - Requires per-connection state to fix (know incoming seq)
+
+2. **TLS handshake completion** — https service sends static ServerHello
+   - Handshake won't complete (no key material, session ID not echoed)
+   - JA3S fingerprint is correct; full TLS would require TLS proxy or per-conn state
 
 ### Commands to Resume Testing
 
 ```bash
-# Build
-make build
+# Build and deploy to argus-lab
+cd "D:\Repos\Security\Mimic"
+tar czf - . | ssh -i ~/.ssh/argus_lab argus-lab 'cd ~/mimic && tar xzf - && PATH=/usr/local/go/bin:$PATH make build'
 
-# Run with Windows 11 profile
-sudo ./build/mimic run -i enp73s0f1 --profile "Windows 11" --services smb,msrpc,netbios,rdp
+# Restart on argus-lab (ensure nft_reject_inet loaded first)
+ssh -i ~/.ssh/argus_lab argus-lab '
+  sudo modprobe nft_reject nft_reject_inet
+  sudo pkill mimic 2>/dev/null
+  sudo nft delete table inet mimic_reject 2>/dev/null  
+  sudo tc filter del dev ens18 egress 2>/dev/null
+  sudo tc qdisc del dev ens18 clsact 2>/dev/null
+  sleep 1
+  cd ~/mimic
+  sudo ./build/mimic run "Windows 11" -i ens18 \
+    --services smb,msrpc,netbios,nbns,rdp \
+    --closed-ports 80,443,8080 > /tmp/mimic.log 2>&1 &
+'
 
-# Test from remote machine
-nmap -O --osscan-guess -p 135,139,445,3389,8081 <target-ip>
-nmap -A -p 135,139,445,3389 <target-ip>
-
-# Cleanup TC if needed
-sudo tc filter del dev enp73s0f1 egress 2>/dev/null
-sudo tc qdisc del dev enp73s0f1 clsact 2>/dev/null
+# Test from Windows dev machine  
+nmap -O --osscan-guess -p 135,139,445,3389,80 10.0.254.45
+nmap -A -p 135,139,445,3389 10.0.254.45
 ```
 
-### Next Steps (Priority Order)
-
-1. **Timestamp Implementation** - Add per-connection state tracking:
-   - Create BPF_MAP_TYPE_LRU_HASH for connection state
-   - Hook TC ingress to capture incoming TSval
-   - Modify egress to echo TSecr correctly
-   - This would change TS=U to TS=A and likely enable OS matching
-
-2. **T2/T3 Probes** - nmap sends unusual TCP flag combinations:
-   - T2: SYN to closed port
-   - T3: Other TCP probes
-   - Real Windows responds (R=Y), we don't (R=N)
-   - Lower priority than timestamps
-
-3. **Service Expansion** - Add more captured responses:
-   - LLMNR (UDP 5355) - has capture data
-   - More SMB script responses (smb-os-discovery, etc.)
-
-4. **HMDXIN Cleanup** - Run revert script when done:
-   ```bash
-   ssh C2xorC4@hmdxin.blackic.systems -i ~/.ssh/mcp-binja \
-     "powershell -ExecutionPolicy Bypass -File C:\Users\C2xorC4\hmdxin-revert-services.ps1"
-   ```
+### argus-lab Details
+- IP: 10.0.254.45
+- Interface: ens18
+- SSH key: ~/.ssh/argus_lab
+- Go: /usr/local/go/bin/go (1.25.6)
+- Mimic dir: ~/mimic/
 
 ### Files Modified This Session
 
-- `profiles/windows/11.yaml` - Updated window_size to 65535
-- `internal/ebpf/fingerprint.c` - Added TODO comments for timestamp handling
-- `services/ssh/manifest.yaml` - New from captures
-- `services/http/manifest.yaml` - Updated with IIS responses
-- `services/winrm/manifest.yaml` - Updated with HTTPAPI responses
-- `services/*/responses/*.bin` - New binary response files
+- `internal/ebpf/fingerprint.c` — major: timestamps, SACK negotiation, ECN,
+  ICMP section, RST fix, IP ID sharing, opt_len=12/16 handlers
+- `profiles/windows/11.yaml` — tcp_timestamps: true, updated options order
+- `internal/services/closed.go` — rewrote to use native nftables; added
+  ProbeResponseManager for T2/T3 probe responses
+- `cmd/mimic/run.go` — wire ProbeResponseManager, serviceOpenPorts() helper
+
+### Next Priority
+
+1. **T4/T6 A=Z** (requires per-connection state): Know incoming SEQ to set RST ACK_num
+2. **TLS full handshake**: Implement TLS proxy or per-conn key exchange for port 443
+   (needed for deeper TLS scanner compatibility beyond JA3S)
+3. **JARM fingerprint**: JARM uses 10 probe variations; may need additional TLS response
+   templates for each probe variant
