@@ -14,11 +14,12 @@ import (
 
 // FingerprintManager manages the eBPF fingerprint modification program
 type FingerprintManager struct {
-	iface   *net.Interface
-	objs    *fingerprintObjects
-	qdisc   *netlink.GenericQdisc
-	filter  *netlink.BpfFilter
-	enabled bool
+	iface         *net.Interface
+	objs          *fingerprintObjects
+	qdisc         *netlink.GenericQdisc
+	filter        *netlink.BpfFilter
+	ingressFilter *netlink.BpfFilter
+	enabled       bool
 }
 
 // NewFingerprintManager creates a new fingerprint manager for the given interface
@@ -114,6 +115,27 @@ func (fm *FingerprintManager) attachTC() error {
 	}
 	fm.filter = filter
 
+	// Attach BPF filter to ingress (for seq_cache population — T4/T6 A=O fix)
+	ingressAttrs := netlink.FilterAttrs{
+		LinkIndex: fm.iface.Index,
+		Parent:    netlink.HANDLE_MIN_INGRESS,
+		Handle:    1,
+		Protocol:  0x0003, // ETH_P_ALL
+		Priority:  1,
+	}
+
+	ingressFilter := &netlink.BpfFilter{
+		FilterAttrs:  ingressAttrs,
+		Fd:           fm.objs.FingerprintIngress.FD(),
+		Name:         "deceiver_fingerprint_ingress",
+		DirectAction: true,
+	}
+
+	if err := netlink.FilterAdd(ingressFilter); err != nil {
+		return fmt.Errorf("adding BPF ingress filter: %w", err)
+	}
+	fm.ingressFilter = ingressFilter
+
 	return nil
 }
 
@@ -167,10 +189,15 @@ func (fm *FingerprintManager) IsEnabled() bool {
 func (fm *FingerprintManager) Close() error {
 	var errs []error
 
-	// Remove filter
+	// Remove filters
 	if fm.filter != nil {
 		if err := netlink.FilterDel(fm.filter); err != nil {
-			errs = append(errs, fmt.Errorf("removing filter: %w", err))
+			errs = append(errs, fmt.Errorf("removing egress filter: %w", err))
+		}
+	}
+	if fm.ingressFilter != nil {
+		if err := netlink.FilterDel(fm.ingressFilter); err != nil {
+			errs = append(errs, fmt.Errorf("removing ingress filter: %w", err))
 		}
 	}
 

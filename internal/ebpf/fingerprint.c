@@ -100,6 +100,97 @@ struct {
     __type(value, __u32);
 } enabled_map SEC(".maps");
 
+// Key: {remote_ip, remote_port, local_port} of an incoming TCP probe.
+// Used to set ack_seq in bare RST replies (T4/T6 A=O Windows behavior).
+struct seq_cache_key {
+    __u32 saddr;
+    __u16 sport;
+    __u16 dport;
+};
+
+struct seq_cache_val {
+    __u32 seq;     // probe SEQ in host byte order
+    __u32 ack_num; // probe ACK in host byte order — used as RST's ack_seq for A=O
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, 4096);
+    __type(key, struct seq_cache_key);
+    __type(value, struct seq_cache_val);
+} seq_cache SEC(".maps");
+
+SEC("tc/ingress")
+int fingerprint_ingress(struct __sk_buff *skb) {
+    __u32 key = 0;
+    __u32 *enabled = bpf_map_lookup_elem(&enabled_map, &key);
+    if (!enabled || *enabled == 0) {
+        return TC_ACT_OK;
+    }
+
+    if (bpf_skb_pull_data(skb, 0) < 0) {
+        return TC_ACT_OK;
+    }
+
+    void *data = (void *)(long)skb->data;
+    void *data_end = (void *)(long)skb->data_end;
+
+    if (data + 34 > data_end) {
+        return TC_ACT_OK;
+    }
+
+    struct ethhdr *eth = data;
+    if (eth->h_proto != bpf_htons(ETH_P_IP)) {
+        return TC_ACT_OK;
+    }
+
+    __u8 ihl_byte;
+    if (bpf_skb_load_bytes(skb, 14, &ihl_byte, 1) < 0) {
+        return TC_ACT_OK;
+    }
+    if ((ihl_byte >> 4) != 4) {
+        return TC_ACT_OK;
+    }
+
+    __u8 proto;
+    if (bpf_skb_load_bytes(skb, 14 + 9, &proto, 1) < 0) {
+        return TC_ACT_OK;
+    }
+    if (proto != IPPROTO_TCP) {
+        return TC_ACT_OK;
+    }
+
+    __u32 ip_hlen = (ihl_byte & 0x0F) * 4;
+    if (ip_hlen < 20) {
+        return TC_ACT_OK;
+    }
+    __u32 tcp_off = 14 + ip_hlen;
+
+    __u32 saddr;
+    __be16 sport, dport;
+    __be32 tcp_seq_be, tcp_ack_be;
+
+    if (bpf_skb_load_bytes(skb, 14 + 12, &saddr, 4) < 0 ||
+        bpf_skb_load_bytes(skb, tcp_off,     &sport, 2) < 0 ||
+        bpf_skb_load_bytes(skb, tcp_off + 2, &dport, 2) < 0 ||
+        bpf_skb_load_bytes(skb, tcp_off + 4, &tcp_seq_be, 4) < 0 ||
+        bpf_skb_load_bytes(skb, tcp_off + 8, &tcp_ack_be, 4) < 0) {
+        return TC_ACT_OK;
+    }
+
+    struct seq_cache_key ckey = {};
+    ckey.saddr = saddr;
+    ckey.sport = sport;
+    ckey.dport = dport;
+
+    struct seq_cache_val cval = {};
+    cval.seq     = bpf_ntohl(tcp_seq_be);
+    cval.ack_num = bpf_ntohl(tcp_ack_be);
+
+    bpf_map_update_elem(&seq_cache, &ckey, &cval, BPF_ANY);
+    return TC_ACT_OK;
+}
+
 SEC("tc")
 int fingerprint_egress(struct __sk_buff *skb) {
     __u32 key = 0;
@@ -546,6 +637,42 @@ int fingerprint_egress(struct __sk_buff *skb) {
                         return TC_ACT_OK;
                     }
                     bpf_l4_csum_replace(skb, tcp_offset + 16, rst_window, zero_window, 2);
+                }
+            }
+
+            // A=O: bare RST (no ACK flag) — set ack_seq to probe's SEQ.
+            // Linux sends bare RST with ack_seq=0 (A=Z); Windows uses incoming SEQ (A=O).
+            // Applies to T4 (ACK→open port) and T6 (ACK→closed port).
+            if (!(tcp_flags & 0x10)) {
+                __u32 ip_daddr;
+                __be16 tcp_sport, tcp_dport;
+                if (bpf_skb_load_bytes(skb, 14 + 16, &ip_daddr, 4) >= 0 &&
+                    bpf_skb_load_bytes(skb, tcp_offset,     &tcp_sport, 2) >= 0 &&
+                    bpf_skb_load_bytes(skb, tcp_offset + 2, &tcp_dport, 2) >= 0) {
+                    // Egress packet: sport=our_port, dport=remote_port, daddr=remote_ip
+                    // Cache key was stored as: {saddr=remote_ip, sport=remote_port, dport=our_port}
+                    struct seq_cache_key rkey = {};
+                    rkey.saddr = ip_daddr;
+                    rkey.sport = tcp_dport;
+                    rkey.dport = tcp_sport;
+                    struct seq_cache_val *sv = bpf_map_lookup_elem(&seq_cache, &rkey);
+                    if (sv && sv->ack_num != 0) {
+                        __u8 old_ack_b[4], new_ack_b[4];
+                        if (bpf_skb_load_bytes(skb, tcp_offset + 8, old_ack_b, 4) >= 0) {
+                            new_ack_b[0] = (sv->ack_num >> 24) & 0xFF;
+                            new_ack_b[1] = (sv->ack_num >> 16) & 0xFF;
+                            new_ack_b[2] = (sv->ack_num >>  8) & 0xFF;
+                            new_ack_b[3] =  sv->ack_num        & 0xFF;
+                            if (bpf_skb_store_bytes(skb, tcp_offset + 8, new_ack_b, 4, 0) >= 0) {
+                                bpf_l4_csum_replace(skb, tcp_offset + 16,
+                                    ((__u16)old_ack_b[0] << 8) | old_ack_b[1],
+                                    ((__u16)new_ack_b[0] << 8) | new_ack_b[1], 2);
+                                bpf_l4_csum_replace(skb, tcp_offset + 16,
+                                    ((__u16)old_ack_b[2] << 8) | old_ack_b[3],
+                                    ((__u16)new_ack_b[2] << 8) | new_ack_b[3], 2);
+                            }
+                        }
+                    }
                 }
             }
         }
