@@ -10,21 +10,17 @@ stack:
   ip_id_behavior: incremental
 
   # TCP Layer - Values from nmap scan of Windows 11 25H2
-  # Note: Real Windows 11 uses window_size=65535 and has timestamps enabled.
-  # However, proper timestamp handling requires per-connection state for TSecr echo.
-  # Until stateful TS is implemented, we use timestamps=false which gives TS=U in nmap.
   window_size: 65535
   window_scale: 8
-  mss: 1460   # Standard MSS for Ethernet (65495 on localhost)
-  tcp_timestamps: false  # TODO: Enable when stateful TS implemented
+  mss: 1460
+  tcp_timestamps: true
   sack_permitted: true
   tcp_options_order:
     - mss
     - nop
     - window_scale
-    - nop
-    - nop
     - sack_permitted
+    - timestamp
 
   # TCP Quirks
   ecn_support: true
