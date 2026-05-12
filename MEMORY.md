@@ -81,15 +81,25 @@ IE:  DFI=N, CD=Z                       ✓
 3. **Boot persistence** — `/etc/modules-load.d/mimic.conf` on argus-lab:
    `nft_reject` and `nft_reject_inet` load at boot automatically.
 
+4. **T4/T6 A=Z → A=O** — Per-connection seq_cache BPF map (LRU_HASH):
+   - Ingress hook `fingerprint_ingress` stores {saddr,sport,dport} → {seq,ack_num}
+   - Egress RST handler looks up probe's ACK value and sets RST ack_seq = probe's ACK
+   - A=O confirmed in nmap fingerprint output (crosses final exact DB match threshold)
+
+5. **JARM fingerprint** — Full JARM match with HMDXIN Schannel:
+   `2ad2ad00000000022c0000000000000daf8512f1afb4642b76b4dfdb33f354`
+   - services/https/responses/tls12_server_hello.bin (99 bytes, c030 TLS 1.2)
+   - services/https/responses/tls11_server_hello.bin (105 bytes, c014 TLS 1.1)
+   - Probe 1-2 pattern: 78-byte wildcard matching cipher_suites_len=0x008a (ALL 69 ciphers)
+     `\x16\x03\x03..\x01...\x03\x03` + 32 wildcards + `\x20` + 32 wildcards + `\x00\x8a`
+   - Probe 6 pattern: `\x16\x03\x02` (TLS 1.1 record, uniquely identifies probe 6)
+   - Probes 3-5 (HALF/GREASE, different len) and probes 7-10 (0x0301) → no response ✓
+
 ### Known Remaining Gaps
 
-1. **T4/T6 A=Z** (should be A=O) — minor
-   - RST without ACK flag has ACK_num=0 (Linux) vs non-zero (Windows)
-   - Requires per-connection state to fix (know incoming seq)
-
-2. **TLS handshake completion** — https service sends static ServerHello
+1. **TLS handshake completion** — https service sends static ServerHello
    - Handshake won't complete (no key material, session ID not echoed)
-   - JA3S fingerprint is correct; full TLS would require TLS proxy or per-conn state
+   - JA3S/JARM fingerprint is correct; full TLS would require TLS proxy or per-conn state
 
 ### Commands to Resume Testing
 
@@ -135,8 +145,7 @@ nmap -A -p 135,139,445,3389 10.0.254.45
 
 ### Next Priority
 
-1. **T4/T6 A=Z** (requires per-connection state): Know incoming SEQ to set RST ACK_num
-2. **TLS full handshake**: Implement TLS proxy or per-conn key exchange for port 443
-   (needed for deeper TLS scanner compatibility beyond JA3S)
-3. **JARM fingerprint**: JARM uses 10 probe variations; may need additional TLS response
-   templates for each probe variant
+1. **TLS full handshake**: Implement TLS proxy or per-conn key exchange for port 443
+   (needed for deeper TLS scanner compatibility beyond JA3S/JARM)
+2. **Deeper service honeypot**: SMB/RDP sessions that absorb scanner time (state machine
+   responding to enumeration scripts with plausible but endless data)
