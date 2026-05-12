@@ -95,6 +95,12 @@ IE:  DFI=N, CD=Z                       ✓
    - Probe 6 pattern: `\x16\x03\x02` (TLS 1.1 record, uniquely identifies probe 6)
    - Probes 3-5 (HALF/GREASE, different len) and probes 7-10 (0x0301) → no response ✓
 
+6. **T2/T3 global probe response** — Removed port scope from nftables rules.
+   Previously scoped to Mimic's service ports; nmap -O (no -p) selects its own
+   open port (e.g. SSH:22) for T2/T3, missing the rules → "No exact OS matches".
+   Rules now match all TCP ports. `nmap -O 10.0.254.45` returns exact Windows 11
+   match unconditionally.
+
 ### Known Remaining Gaps
 
 1. **TLS handshake completion** — https service sends static ServerHello
