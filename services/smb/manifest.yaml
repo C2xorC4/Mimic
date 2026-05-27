@@ -75,6 +75,9 @@ probes:
       - offset: 108  # SystemTime: NetBIOS(4) + SMB2Header(64) + ResponseOffset(40)
         length: 8
         type: timestamp
+      - offset: 116  # ServerStartTime: immediately after SystemTime
+        length: 8
+        type: timestamp_past
       - offset: 76   # ServerGuid: NetBIOS(4) + SMB2Header(64) + ResponseOffset(8)
         length: 16
         type: guid
@@ -93,6 +96,9 @@ probes:
       - offset: 108
         length: 8
         type: timestamp
+      - offset: 116
+        length: 8
+        type: timestamp_past
       - offset: 76
         length: 16
         type: guid
@@ -110,6 +116,9 @@ probes:
       - offset: 108
         length: 8
         type: timestamp
+      - offset: 116
+        length: 8
+        type: timestamp_past
       - offset: 76
         length: 16
         type: guid

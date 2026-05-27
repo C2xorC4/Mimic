@@ -15,10 +15,11 @@ import (
 
 // Responder handles loading and rewriting response templates
 type Responder struct {
-	baseDir string
-	cache   map[string][]byte
-	options map[string]string
-	mu      sync.RWMutex
+	baseDir  string
+	cache    map[string][]byte
+	options  map[string]string
+	mu       sync.RWMutex
+	bootTime time.Time // fixed fake boot time for this run (used by timestamp_past)
 }
 
 // NewResponder creates a new responder
@@ -32,10 +33,20 @@ func NewResponderWithOptions(baseDir string, options map[string]string) (*Respon
 		options = make(map[string]string)
 	}
 	return &Responder{
-		baseDir: baseDir,
-		cache:   make(map[string][]byte),
-		options: options,
+		baseDir:  baseDir,
+		cache:    make(map[string][]byte),
+		options:  options,
+		bootTime: fakeBootTime(),
 	}, nil
+}
+
+// fakeBootTime returns a plausible fake boot time: 2–26 hours before now.
+// Fixed per Responder instance so all responses report the same start_date.
+func fakeBootTime() time.Time {
+	ns := time.Now().UnixNano()
+	hours := 2 + (ns>>32)%24
+	minutes := (ns >> 16) % 60
+	return time.Now().Add(-time.Duration(hours)*time.Hour - time.Duration(minutes)*time.Minute)
 }
 
 // GetResponse loads a response template and applies rewrite rules
@@ -102,6 +113,15 @@ func (r *Responder) applyRule(response, probe []byte, rule *config.RewriteRule) 
 		// Unix epoch to Windows epoch difference in 100ns intervals
 		const epochDiff = 116444736000000000
 		filetime := uint64(now.UnixNano()/100) + epochDiff
+		binary.LittleEndian.PutUint64(response[rule.Offset:], filetime)
+
+	case "timestamp_past":
+		// Write fake boot time as Windows FILETIME — same value for all responses in this run
+		if rule.Length < 8 {
+			return fmt.Errorf("timestamp_past requires 8 bytes")
+		}
+		const epochDiff = 116444736000000000
+		filetime := uint64(r.bootTime.UnixNano()/100) + epochDiff
 		binary.LittleEndian.PutUint64(response[rule.Offset:], filetime)
 
 	case "timestamp_unix":
