@@ -2,6 +2,8 @@ package smb
 
 import "sync"
 
+// handle map lives on Session; keyed by volatile FileId (uint64).
+
 // SessionState is the per-connection SMB2 protocol state.
 type SessionState int
 
@@ -20,13 +22,15 @@ type Session struct {
 	challenge [8]byte              // server challenge sent in round 1
 	trees     map[uint32]string    // treeID → UNC path
 	nextTree  uint32               // monotonically incrementing tree ID counter
+	handles   map[uint64]*FileHandle // volatile FileId → open handle
 	mu        sync.Mutex
 }
 
 func newSession() *Session {
 	return &Session{
-		trees: make(map[uint32]string),
-		state: StateNew,
+		trees:   make(map[uint32]string),
+		handles: make(map[uint64]*FileHandle),
+		state:   StateNew,
 	}
 }
 
@@ -70,4 +74,37 @@ func (s *Session) treePathFor(treeID uint32) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.trees[treeID]
+}
+
+// allocHandle registers a new open handle and returns its volatile FileId.
+func (s *Session) allocHandle(node *VFSNode, shareName string) uint64 {
+	id := nextHandleID()
+	h := &FileHandle{node: node, shareName: shareName}
+	s.mu.Lock()
+	s.handles[id] = h
+	s.mu.Unlock()
+	return id
+}
+
+// getHandle retrieves an open handle by volatile FileId; returns nil if unknown.
+func (s *Session) getHandle(volatileID uint64) *FileHandle {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.handles[volatileID]
+}
+
+// freeHandle removes an open handle.
+func (s *Session) freeHandle(volatileID uint64) {
+	s.mu.Lock()
+	delete(s.handles, volatileID)
+	s.mu.Unlock()
+}
+
+// resetDir resets directory enumeration state for a handle (SL_RESTART_SCAN).
+func (s *Session) resetDir(volatileID uint64) {
+	s.mu.Lock()
+	if h := s.handles[volatileID]; h != nil {
+		h.dirIdx = 0
+	}
+	s.mu.Unlock()
 }

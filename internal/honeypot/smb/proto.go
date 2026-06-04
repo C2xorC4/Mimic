@@ -33,8 +33,14 @@ const (
 	StatusMoreProcessing = uint32(0xC0000016)
 	StatusAccessDenied   = uint32(0xC0000022)
 	StatusLogonFailure   = uint32(0xC000006D)
-	StatusNotSupported   = uint32(0xC00000BB)
-	StatusInvalidParam   = uint32(0xC000000D)
+	StatusNotSupported       = uint32(0xC00000BB)
+	StatusInvalidParam       = uint32(0xC000000D)
+	StatusObjectNotFound     = uint32(0xC0000034)
+	StatusObjectPathNotFound = uint32(0xC000003A)
+	StatusNoMoreFiles        = uint32(0x80000006)
+	StatusEndOfFile          = uint32(0xC0000011)
+	StatusNotADirectory      = uint32(0xC0000103)
+	StatusBufferOverflow     = uint32(0x80000005)
 )
 
 // SMB2 header flag bits

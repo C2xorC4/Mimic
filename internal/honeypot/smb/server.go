@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -41,6 +42,7 @@ type Server struct {
 	bootTime     time.Time
 	nextSessionID uint64 // atomic
 
+	vfs *VFS
 	log *logging.Logger
 
 	ln     net.Listener
@@ -72,6 +74,7 @@ func New(cfg Config) *Server {
 	s := &Server{
 		cfg:      cfg,
 		bootTime: fakeBootTime(),
+		vfs:      newDefaultVFS(),
 		log:      logging.Component("smb-honeypot"),
 	}
 	s.serverGUID = generateGUID()
@@ -206,6 +209,21 @@ func (s *Server) handleConn(conn net.Conn) {
 
 		case CmdLogoff:
 			response = buildPacket(hdr, StatusSuccess, sess.id, 0, buildErrorBody())
+
+		case CmdCreate:
+			response = s.handleCreate(sess, hdr, body, frame)
+
+		case CmdClose:
+			response = s.handleClose(sess, hdr, body)
+
+		case CmdQueryDirectory:
+			response = s.handleQueryDirectory(sess, hdr, body, frame)
+
+		case CmdQueryInfo:
+			response = s.handleQueryInfo(sess, hdr, body)
+
+		case CmdRead:
+			response = s.handleRead(sess, hdr, body)
 
 		default:
 			response = buildPacket(hdr, StatusAccessDenied, sess.id, hdr.TreeID, buildErrorBody())
@@ -459,4 +477,332 @@ func (s *Server) logCreds(sessionID uint64, c *NTLMCredentials) {
 		"nt_response":  hex.EncodeToString(c.NTResponse),
 		"lm_response":  hex.EncodeToString(c.LMResponse),
 	})
+}
+
+// --- Phase 3: VFS handlers ---
+
+// shareFromTree extracts the share name from a UNC path like \\HOST\C$.
+func shareFromTree(uncPath string) string {
+	s := strings.TrimLeft(uncPath, `\/`)
+	idx := strings.IndexAny(s, `\/`)
+	if idx < 0 {
+		return strings.ToUpper(s)
+	}
+	return strings.ToUpper(s[idx+1:])
+}
+
+// handleCreate opens a file or directory handle from the VFS.
+// CREATE request body[44:46]=NameOffset (from SMB2 hdr), body[46:48]=NameLength.
+func (s *Server) handleCreate(sess *Session, req smb2Header, body []byte, frame []byte) []byte {
+	if sess.getState() < StateAuthenticated {
+		return buildPacket(req, StatusAccessDenied, sess.id, req.TreeID, buildErrorBody())
+	}
+	if len(body) < 57 {
+		return buildPacket(req, StatusInvalidParam, sess.id, req.TreeID, buildErrorBody())
+	}
+
+	nameOff := binary.LittleEndian.Uint16(body[44:46])
+	nameLen := binary.LittleEndian.Uint16(body[46:48])
+
+	var filePath string
+	if nameLen > 0 {
+		start := 4 + int(nameOff) // nameOff relative to SMB2 header start (frame[4])
+		end := start + int(nameLen)
+		if end <= len(frame) {
+			raw := frame[start:end]
+			u16 := make([]uint16, len(raw)/2)
+			for i := range u16 {
+				u16[i] = binary.LittleEndian.Uint16(raw[i*2:])
+			}
+			filePath = string(utf16.Decode(u16))
+		}
+	}
+
+	shareName := shareFromTree(sess.treePathFor(req.TreeID))
+	node := s.vfs.resolve(shareName, filePath)
+	if node == nil {
+		return buildPacket(req, StatusObjectNotFound, sess.id, req.TreeID, buildErrorBody())
+	}
+
+	volatileID := sess.allocHandle(node, shareName)
+
+	if s.log != nil {
+		s.log.Debug("Create", map[string]interface{}{
+			"session_id": sess.id,
+			"share":      shareName,
+			"path":       filePath,
+			"handle":     volatileID,
+		})
+	}
+
+	// CREATE response: StructureSize=89, fixed body = 88 bytes
+	b := make([]byte, 88)
+	binary.LittleEndian.PutUint16(b[0:2], 89) // StructureSize
+	// OplockLevel=0 (none), Flags=0
+	binary.LittleEndian.PutUint32(b[4:8], 1) // CreateAction=FILE_OPENED
+	copy(b[8:16], windowsFiletime(node.created))
+	copy(b[16:24], windowsFiletime(node.modified))
+	copy(b[24:32], windowsFiletime(node.modified))
+	copy(b[32:40], windowsFiletime(node.modified))
+	binary.LittleEndian.PutUint64(b[40:48], uint64(node.allocSize()))
+	binary.LittleEndian.PutUint64(b[48:56], uint64(node.size()))
+	binary.LittleEndian.PutUint32(b[56:60], node.attrs)
+	// [60:64] Reserved2 = 0
+	// FileId: Persistent[64:72]=0, Volatile[72:80]=volatileID
+	binary.LittleEndian.PutUint64(b[72:80], volatileID)
+	// CreateContextsOffset[80:84]=0, CreateContextsLength[84:88]=0
+
+	return buildPacket(req, StatusSuccess, sess.id, req.TreeID, b)
+}
+
+// handleClose closes a file handle and releases it.
+// CLOSE request body[8:16]=FileId.Persistent, body[16:24]=FileId.Volatile.
+func (s *Server) handleClose(sess *Session, req smb2Header, body []byte) []byte {
+	if len(body) < 24 {
+		return buildPacket(req, StatusInvalidParam, sess.id, req.TreeID, buildErrorBody())
+	}
+	volatileID := binary.LittleEndian.Uint64(body[16:24])
+	h := sess.getHandle(volatileID)
+	if h == nil {
+		return buildPacket(req, StatusInvalidParam, sess.id, req.TreeID, buildErrorBody())
+	}
+	node := h.node
+	sess.freeHandle(volatileID)
+
+	// CLOSE response: StructureSize=60, fixed = 60 bytes
+	b := make([]byte, 60)
+	binary.LittleEndian.PutUint16(b[0:2], 60)
+	// Flags=0, Reserved=0
+	copy(b[8:16], windowsFiletime(node.created))
+	copy(b[16:24], windowsFiletime(node.modified))
+	copy(b[24:32], windowsFiletime(node.modified))
+	copy(b[32:40], windowsFiletime(node.modified))
+	binary.LittleEndian.PutUint64(b[40:48], uint64(node.allocSize()))
+	binary.LittleEndian.PutUint64(b[48:56], uint64(node.size()))
+	binary.LittleEndian.PutUint32(b[56:60], node.attrs)
+
+	return buildPacket(req, StatusSuccess, sess.id, req.TreeID, b)
+}
+
+// handleQueryDirectory enumerates a directory handle.
+// Supports FileInformationClass 3 (FileBothDir) and 37 (FileIdBothDir).
+func (s *Server) handleQueryDirectory(sess *Session, req smb2Header, body []byte, frame []byte) []byte {
+	if len(body) < 32 {
+		return buildPacket(req, StatusInvalidParam, sess.id, req.TreeID, buildErrorBody())
+	}
+
+	infoClass := body[2]
+	flags := body[3]
+	volatileID := binary.LittleEndian.Uint64(body[16:24])
+	outputLen := binary.LittleEndian.Uint32(body[28:32])
+
+	h := sess.getHandle(volatileID)
+	if h == nil {
+		return buildPacket(req, StatusInvalidParam, sess.id, req.TreeID, buildErrorBody())
+	}
+	if !h.node.isDir() {
+		return buildPacket(req, StatusNotADirectory, sess.id, req.TreeID, buildErrorBody())
+	}
+
+	if flags&0x01 != 0 { // SL_RESTART_SCAN
+		sess.resetDir(volatileID)
+	}
+
+	if !h.hasMoreChildren() {
+		return buildPacket(req, StatusNoMoreFiles, sess.id, req.TreeID, buildErrorBody())
+	}
+
+	var packed [][]byte
+	totalLen := 0
+	for h.hasMoreChildren() {
+		name, node, _ := h.nextChild()
+		entry := buildDirEntry(name, node, infoClass)
+		if totalLen+len(entry) > int(outputLen) && len(packed) > 0 {
+			h.dirIdx-- // put back
+			break
+		}
+		packed = append(packed, entry)
+		totalLen += len(entry)
+	}
+
+	// Wire up NextEntryOffset chain; last entry stays 0.
+	for i := 0; i < len(packed)-1; i++ {
+		binary.LittleEndian.PutUint32(packed[i][0:4], uint32(len(packed[i])))
+	}
+
+	buf := make([]byte, 0, totalLen)
+	for _, e := range packed {
+		buf = append(buf, e...)
+	}
+
+	// Response body: StructureSize=9, OutputBufferOffset=72 (SMB2hdr+8), Length=len(buf)
+	resp := make([]byte, 8)
+	binary.LittleEndian.PutUint16(resp[0:2], 9)
+	binary.LittleEndian.PutUint16(resp[2:4], 72)
+	binary.LittleEndian.PutUint32(resp[4:8], uint32(len(buf)))
+	resp = append(resp, buf...)
+
+	return buildPacket(req, StatusSuccess, sess.id, req.TreeID, resp)
+}
+
+// handleQueryInfo returns file or filesystem metadata.
+// InfoType 1=file, 2=filesystem.
+func (s *Server) handleQueryInfo(sess *Session, req smb2Header, body []byte) []byte {
+	if len(body) < 40 {
+		return buildPacket(req, StatusInvalidParam, sess.id, req.TreeID, buildErrorBody())
+	}
+
+	infoType := body[2]
+	infoClass := body[3]
+	volatileID := binary.LittleEndian.Uint64(body[32:40])
+
+	h := sess.getHandle(volatileID)
+	if h == nil {
+		return buildPacket(req, StatusInvalidParam, sess.id, req.TreeID, buildErrorBody())
+	}
+	node := h.node
+
+	var infoBuf []byte
+
+	switch infoType {
+	case 1: // SMB2_0_INFO_FILE
+		switch infoClass {
+		case 4: // FileBasicInformation: times(32) + attrs(4) + reserved(4) = 40
+			b := make([]byte, 40)
+			copy(b[0:8], windowsFiletime(node.created))
+			copy(b[8:16], windowsFiletime(node.modified))
+			copy(b[16:24], windowsFiletime(node.modified))
+			copy(b[24:32], windowsFiletime(node.modified))
+			binary.LittleEndian.PutUint32(b[32:36], node.attrs)
+			infoBuf = b
+
+		case 5: // FileStandardInformation: allocSize(8)+endOfFile(8)+links(4)+del(1)+dir(1)+pad(2) = 24
+			b := make([]byte, 24)
+			binary.LittleEndian.PutUint64(b[0:8], uint64(node.allocSize()))
+			binary.LittleEndian.PutUint64(b[8:16], uint64(node.size()))
+			binary.LittleEndian.PutUint32(b[16:20], 1) // NumberOfLinks
+			if node.isDir() {
+				b[21] = 1
+			}
+			infoBuf = b
+
+		case 34: // FileNetworkOpenInformation: times(32)+sizes(16)+attrs(4)+reserved(4) = 56
+			b := make([]byte, 56)
+			copy(b[0:8], windowsFiletime(node.created))
+			copy(b[8:16], windowsFiletime(node.modified))
+			copy(b[16:24], windowsFiletime(node.modified))
+			copy(b[24:32], windowsFiletime(node.modified))
+			binary.LittleEndian.PutUint64(b[32:40], uint64(node.allocSize()))
+			binary.LittleEndian.PutUint64(b[40:48], uint64(node.size()))
+			binary.LittleEndian.PutUint32(b[48:52], node.attrs)
+			infoBuf = b
+
+		default:
+			return buildPacket(req, StatusNotSupported, sess.id, req.TreeID, buildErrorBody())
+		}
+
+	case 2: // SMB2_0_INFO_FILESYSTEM
+		switch infoClass {
+		case 1: // FileFsVolumeInformation
+			label := utf16LE("Windows")
+			b := make([]byte, 18+len(label))
+			copy(b[0:8], windowsFiletime(vfsBaseTime()))         // VolumeCreationTime
+			binary.LittleEndian.PutUint32(b[8:12], 0x12345678)  // VolumeSerialNumber
+			binary.LittleEndian.PutUint32(b[12:16], uint32(len(label))) // VolumeLabelLength
+			// SupportsObjects[16]=0, Reserved[17]=0
+			copy(b[18:], label)
+			infoBuf = b
+
+		case 3: // FileFsSizeInformation: 24 bytes
+			b := make([]byte, 24)
+			binary.LittleEndian.PutUint64(b[0:8], 25165824)  // TotalAllocationUnits (~100 GB)
+			binary.LittleEndian.PutUint64(b[8:16], 12582912) // AvailableAllocationUnits (~50 GB)
+			binary.LittleEndian.PutUint32(b[16:20], 8)       // SectorsPerAllocationUnit
+			binary.LittleEndian.PutUint32(b[20:24], 512)     // BytesPerSector
+			infoBuf = b
+
+		case 5: // FileFsAttributeInformation
+			fsName := utf16LE("NTFS")
+			b := make([]byte, 12+len(fsName))
+			binary.LittleEndian.PutUint32(b[0:4], 0x0002003F)        // FileSystemAttributes (NTFS)
+			binary.LittleEndian.PutUint32(b[4:8], 255)               // MaximumComponentNameLength
+			binary.LittleEndian.PutUint32(b[8:12], uint32(len(fsName)))
+			copy(b[12:], fsName)
+			infoBuf = b
+
+		case 7: // FileFsFullSizeInformation: 32 bytes
+			b := make([]byte, 32)
+			binary.LittleEndian.PutUint64(b[0:8], 25165824)
+			binary.LittleEndian.PutUint64(b[8:16], 12582912)
+			binary.LittleEndian.PutUint64(b[16:24], 12582912)
+			binary.LittleEndian.PutUint32(b[24:28], 8)
+			binary.LittleEndian.PutUint32(b[28:32], 512)
+			infoBuf = b
+
+		default:
+			return buildPacket(req, StatusNotSupported, sess.id, req.TreeID, buildErrorBody())
+		}
+
+	default:
+		return buildPacket(req, StatusNotSupported, sess.id, req.TreeID, buildErrorBody())
+	}
+
+	// Response: StructureSize=9, OutputBufferOffset=72
+	resp := make([]byte, 8)
+	binary.LittleEndian.PutUint16(resp[0:2], 9)
+	binary.LittleEndian.PutUint16(resp[2:4], 72)
+	binary.LittleEndian.PutUint32(resp[4:8], uint32(len(infoBuf)))
+	resp = append(resp, infoBuf...)
+
+	return buildPacket(req, StatusSuccess, sess.id, req.TreeID, resp)
+}
+
+// handleRead serves bait file content.
+// READ request: body[4:8]=Length, body[8:16]=Offset, body[16:24]=FileId.Persistent, body[24:32]=Volatile.
+func (s *Server) handleRead(sess *Session, req smb2Header, body []byte) []byte {
+	if len(body) < 48 {
+		return buildPacket(req, StatusInvalidParam, sess.id, req.TreeID, buildErrorBody())
+	}
+
+	readLen := binary.LittleEndian.Uint32(body[4:8])
+	offset := binary.LittleEndian.Uint64(body[8:16])
+	volatileID := binary.LittleEndian.Uint64(body[24:32])
+
+	h := sess.getHandle(volatileID)
+	if h == nil {
+		return buildPacket(req, StatusInvalidParam, sess.id, req.TreeID, buildErrorBody())
+	}
+	if h.node.isDir() {
+		return buildPacket(req, StatusInvalidParam, sess.id, req.TreeID, buildErrorBody())
+	}
+
+	content := h.node.content
+	if offset >= uint64(len(content)) {
+		return buildPacket(req, StatusEndOfFile, sess.id, req.TreeID, buildErrorBody())
+	}
+
+	end := offset + uint64(readLen)
+	if end > uint64(len(content)) {
+		end = uint64(len(content))
+	}
+	data := content[offset:end]
+
+	if s.log != nil {
+		s.log.Debug("Read", map[string]interface{}{
+			"session_id": sess.id,
+			"handle":     volatileID,
+			"offset":     offset,
+			"length":     len(data),
+		})
+	}
+
+	// READ response: StructureSize=17, DataOffset=80 (64 hdr + 16 fixed body)
+	resp := make([]byte, 16)
+	binary.LittleEndian.PutUint16(resp[0:2], 17) // StructureSize
+	resp[2] = 80                                  // DataOffset (from SMB2 header start)
+	binary.LittleEndian.PutUint32(resp[4:8], uint32(len(data))) // DataLength
+	// DataRemaining[8:12]=0, Reserved2[12:16]=0
+	resp = append(resp, data...)
+
+	return buildPacket(req, StatusSuccess, sess.id, req.TreeID, resp)
 }
