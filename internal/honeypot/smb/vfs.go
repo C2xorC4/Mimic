@@ -16,19 +16,24 @@ const (
 	FileAttrNormal    = uint32(0x00000080)
 )
 
-// VFSNode is one node in the static virtual filesystem.
+// VFSNode is one node in the virtual filesystem.
+// Static nodes: mazePath == "".  Maze nodes: mazePath is the canonical
+// share-rooted path used as deterministic seed for child generation.
 type VFSNode struct {
-	name     string
-	attrs    uint32
-	content  []byte     // nil for directories
-	children []*VFSNode
-	created  time.Time
-	modified time.Time
+	name      string
+	attrs     uint32
+	content   []byte     // nil for directories
+	children  []*VFSNode // explicit children (static nodes only)
+	created   time.Time
+	modified  time.Time
+	mazePath  string // non-empty → maze-generated; path acts as RNG seed
+	mazeDepth int    // depth within the maze (0 for static and top-level entries)
 }
 
-// VFS holds named share roots.
+// VFS holds named share roots and the maze configuration.
 type VFS struct {
 	shares map[string]*VFSNode // uppercase share name → root
+	maze   *MazeConfig
 }
 
 // --- constructors ---
@@ -52,7 +57,8 @@ func vfsBaseTime() time.Time {
 }
 
 // newDefaultVFS builds a realistic-looking Windows VFS tree.
-func newDefaultVFS() *VFS {
+// mazeCfg is stored and used by resolve() for paths that fall outside the static tree.
+func newDefaultVFS(mazeCfg MazeConfig) *VFS {
 	cRoot := dirNode("",
 		dirNode("Windows",
 			dirNode("System32",
@@ -110,12 +116,14 @@ func newDefaultVFS() *VFS {
 
 	winNode := cRoot.findChild("Windows")
 
+	maze := &mazeCfg // store pointer; caller owns the value
 	return &VFS{
 		shares: map[string]*VFSNode{
 			"C$":     cRoot,
 			"ADMIN$": winNode,
 			"IPC$":   dirNode(""),
 		},
+		maze: maze,
 	}
 }
 
@@ -123,8 +131,11 @@ func newDefaultVFS() *VFS {
 
 // resolve finds the node for shareName+filePath; returns nil if not found.
 // filePath uses either \ or / separators and is case-insensitive.
+// When the static tree has no match, the maze layer generates nodes deterministically
+// provided v.maze.Enabled is true.
 func (v *VFS) resolve(shareName, filePath string) *VFSNode {
-	root := v.shares[strings.ToUpper(shareName)]
+	shareUpper := strings.ToUpper(shareName)
+	root := v.shares[shareUpper]
 	if root == nil {
 		return nil
 	}
@@ -133,17 +144,47 @@ func (v *VFS) resolve(shareName, filePath string) *VFSNode {
 		return root
 	}
 	parts := strings.FieldsFunc(filePath, func(r rune) bool { return r == '\\' || r == '/' })
+
 	cur := root
-	for _, part := range parts {
+	pathBuf := shareUpper // canonical path accumulated as we descend
+
+	for i, part := range parts {
 		if part == "." {
 			continue
 		}
-		cur = cur.findChild(part)
-		if cur == nil {
+		pathBuf += `\` + part
+
+		child := cur.findChild(part)
+		if child != nil {
+			cur = child
+			continue
+		}
+
+		// Static miss — fall through to maze if enabled.
+		if v.maze == nil || !v.maze.Enabled {
 			return nil
+		}
+		nextDepth := cur.mazeDepth + 1
+		if v.maze.MaxDepth > 0 && nextDepth > v.maze.MaxDepth {
+			return nil
+		}
+
+		isLast := i == len(parts)-1
+		if isLast && strings.Contains(part, ".") {
+			cur = newMazeFileNode(pathBuf, part)
+		} else {
+			cur = newMazeDirNode(pathBuf, part, nextDepth)
 		}
 	}
 	return cur
+}
+
+// listMazeChildren returns the deterministic child list for a maze directory node.
+func (v *VFS) listMazeChildren(node *VFSNode) []*VFSNode {
+	if v.maze == nil || !v.maze.Enabled || node.mazePath == "" {
+		return nil
+	}
+	return buildMazeChildren(node.mazePath, node.mazeDepth, v.maze)
 }
 
 func (n *VFSNode) findChild(name string) *VFSNode {
@@ -176,15 +217,29 @@ func (n *VFSNode) allocSize() int64 {
 
 // FileHandle is an open SMB2 handle (file or directory).
 type FileHandle struct {
-	node      *VFSNode
-	shareName string
-	dirIdx    int   // enumeration cursor: 0="..", 1="..", 2+=children
-	offset    int64 // read offset for files
+	node         *VFSNode
+	shareName    string
+	dirIdx       int        // enumeration cursor: 0=".", 1="..", 2+=children
+	offset       int64      // read offset for files
+	mazeChildren []*VFSNode // lazily populated for maze directory enumeration
+}
+
+// effectiveChildren returns the child list to enumerate.
+// For maze dirs it is generated once and cached; for static dirs it is node.children.
+func (h *FileHandle) effectiveChildren(v *VFS) []*VFSNode {
+	if h.node.mazePath != "" {
+		if h.mazeChildren == nil {
+			h.mazeChildren = v.listMazeChildren(h.node)
+		}
+		return h.mazeChildren
+	}
+	return h.node.children
 }
 
 // nextChild returns the next (name, node) pair for directory enumeration.
 // Returns ("", nil, false) when exhausted.
-func (h *FileHandle) nextChild() (string, *VFSNode, bool) {
+func (h *FileHandle) nextChild(v *VFS) (string, *VFSNode, bool) {
+	children := h.effectiveChildren(v)
 	switch h.dirIdx {
 	case 0:
 		h.dirIdx++
@@ -194,17 +249,18 @@ func (h *FileHandle) nextChild() (string, *VFSNode, bool) {
 		return "..", h.node, true
 	default:
 		idx := h.dirIdx - 2
-		if idx >= len(h.node.children) {
+		if idx >= len(children) {
 			return "", nil, false
 		}
 		h.dirIdx++
-		c := h.node.children[idx]
+		c := children[idx]
 		return c.name, c, true
 	}
 }
 
-func (h *FileHandle) hasMoreChildren() bool {
-	return h.dirIdx < 2+len(h.node.children)
+func (h *FileHandle) hasMoreChildren(v *VFS) bool {
+	children := h.effectiveChildren(v)
+	return h.dirIdx < 2+len(children)
 }
 
 var globalHandleSeq uint64

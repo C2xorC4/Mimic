@@ -101,10 +101,12 @@ func (s *Session) freeHandle(volatileID uint64) {
 }
 
 // resetDir resets directory enumeration state for a handle (SL_RESTART_SCAN).
+// The mazeChildren cache is cleared so the listing is regenerated on the next call.
 func (s *Session) resetDir(volatileID uint64) {
 	s.mu.Lock()
 	if h := s.handles[volatileID]; h != nil {
 		h.dirIdx = 0
+		h.mazeChildren = nil
 	}
 	s.mu.Unlock()
 }

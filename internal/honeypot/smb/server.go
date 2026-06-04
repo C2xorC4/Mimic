@@ -22,9 +22,10 @@ import (
 
 // Config holds honeypot server configuration.
 type Config struct {
-	Port         uint16 // default 445
-	ComputerName string // NTLM target name / NetBIOS computer name
-	DomainName   string // NTLM domain / workgroup
+	Port         uint16     // default 445
+	ComputerName string     // NTLM target name / NetBIOS computer name
+	DomainName   string     // NTLM domain / workgroup
+	Maze         MazeConfig // zero value → defaultMazeConfig() applied
 }
 
 // Stats holds per-server counters.
@@ -71,10 +72,15 @@ func New(cfg Config) *Server {
 		cfg.DomainName = "WORKGROUP"
 	}
 
+	mazeCfg := cfg.Maze
+	if mazeCfg.MinDirs == 0 {
+		mazeCfg = defaultMazeConfig()
+	}
+
 	s := &Server{
 		cfg:      cfg,
 		bootTime: fakeBootTime(),
-		vfs:      newDefaultVFS(),
+		vfs:      newDefaultVFS(mazeCfg),
 		log:      logging.Component("smb-honeypot"),
 	}
 	s.serverGUID = generateGUID()
@@ -608,14 +614,14 @@ func (s *Server) handleQueryDirectory(sess *Session, req smb2Header, body []byte
 		sess.resetDir(volatileID)
 	}
 
-	if !h.hasMoreChildren() {
+	if !h.hasMoreChildren(s.vfs) {
 		return buildPacket(req, StatusNoMoreFiles, sess.id, req.TreeID, buildErrorBody())
 	}
 
 	var packed [][]byte
 	totalLen := 0
-	for h.hasMoreChildren() {
-		name, node, _ := h.nextChild()
+	for h.hasMoreChildren(s.vfs) {
+		name, node, _ := h.nextChild(s.vfs)
 		entry := buildDirEntry(name, node, infoClass)
 		if totalLen+len(entry) > int(outputLen) && len(packed) > 0 {
 			h.dirIdx-- // put back
