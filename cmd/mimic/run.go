@@ -12,6 +12,7 @@ import (
 
 	"github.com/c2xorc4/mimic/internal/config"
 	"github.com/c2xorc4/mimic/internal/ebpf"
+	honeysmb "github.com/c2xorc4/mimic/internal/honeypot/smb"
 	"github.com/c2xorc4/mimic/internal/logging"
 	"github.com/c2xorc4/mimic/internal/services"
 )
@@ -281,7 +282,27 @@ func runMimic(cmd *cobra.Command, args []string) error {
 			}
 
 			// Load and start services
+			var honeypotSMB *honeysmb.Server
 			for _, svcName := range appCfg.Services {
+				if svcName == "smb_honeypot" {
+					cfg := honeysmb.Config{
+						ComputerName: appCfg.ServiceOptions.NetBIOSName,
+						DomainName:   appCfg.ServiceOptions.Domain,
+					}
+					if cfg.ComputerName == "" {
+						cfg.ComputerName = "WORKSTATION"
+					}
+					if cfg.DomainName == "" {
+						cfg.DomainName = "WORKGROUP"
+					}
+					honeypotSMB = honeysmb.New(cfg)
+					if err := honeypotSMB.Start(); err != nil {
+						errChan <- fmt.Errorf("starting smb_honeypot: %w", err)
+						return
+					}
+					continue
+				}
+
 				if err := svcMgr.LoadService(svcName); err != nil {
 					errChan <- fmt.Errorf("loading service %s: %w", svcName, err)
 					return
@@ -297,6 +318,9 @@ func runMimic(cmd *cobra.Command, args []string) error {
 			<-shutdown
 			logging.Info("Shutting down services", nil)
 			svcMgr.StopAll()
+			if honeypotSMB != nil {
+				honeypotSMB.Stop()
+			}
 		}()
 	}
 
