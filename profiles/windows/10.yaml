@@ -41,3 +41,8 @@ stack:
 
   # UDP
   udp_closed_port_response: true
+
+smb:
+  dialect: "3.1.1"
+  smb1_enabled: false
+  signing_required: false

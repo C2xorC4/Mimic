@@ -104,9 +104,12 @@ probes:
         type: guid
 
   # SMB1 Negotiate - Pattern: 00 XX XX XX ff 53 4d 42 72
-  # Modern Windows servers respond to SMB1 negotiate with SMB2 negotiate
-  # This tells the client "I prefer SMB2"
+  # Windows 7/8 (smb1_enabled: true): respond with SMB2 negotiate (up-negotiation).
+  # Windows 10/11 (smb1_enabled: false): probe excluded — port silently ignores
+  # SMB1 probes, matching real Win10+ behavior (SMB1 disabled by default).
   - name: smb1_negotiate
+    requires:
+      smb1_enabled: "true"
     signature:
       pattern: '\x00...\xffSMBr'
       offset: 0

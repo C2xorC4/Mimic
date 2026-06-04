@@ -12,6 +12,22 @@ import (
 	"github.com/c2xorc4/mimic/internal/logging"
 )
 
+// SetProfileOptions translates OS profile settings into service options so
+// that probe matchers can gate protocol-version-specific probes correctly.
+func (m *Manager) SetProfileOptions(profile *config.OSProfile) {
+	if profile == nil {
+		return
+	}
+	smb1 := "false"
+	if profile.SMB.SMB1Enabled {
+		smb1 = "true"
+	}
+	m.SetOption("smb1_enabled", smb1)
+	if profile.SMB.Dialect != "" {
+		m.SetOption("smb_dialect", profile.SMB.Dialect)
+	}
+}
+
 // Manager manages multiple service emulators
 type Manager struct {
 	servicesDir string

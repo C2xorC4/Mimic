@@ -20,12 +20,21 @@ type compiledProbe struct {
 	segments    [][]byte // For patterns with wildcards: segments between wildcards
 }
 
-// NewProbeMatcher creates a new probe matcher from probe configurations
-func NewProbeMatcher(probes []config.ProbeConfig) (*ProbeMatcher, error) {
+// NewProbeMatcher creates a new probe matcher from probe configurations.
+// options may contain profile-derived keys (e.g. "smb1_enabled") used to
+// gate probes whose Requires map specifies a condition. A Requires key that
+// is absent from options is ignored (probe included); a key that is present
+// and doesn't match excludes the probe.
+func NewProbeMatcher(probes []config.ProbeConfig, options map[string]string) (*ProbeMatcher, error) {
 	compiled := make([]compiledProbe, 0, len(probes))
 
 	for i := range probes {
 		probe := &probes[i]
+
+		if !probeRequirementsMet(probe, options) {
+			continue
+		}
+
 		cp := compiledProbe{config: probe}
 
 		if probe.Signature.Pattern != "" {
@@ -174,6 +183,17 @@ func matchWithWildcards(data []byte, segments [][]byte) bool {
 		pos += len(seg)
 	}
 
+	return true
+}
+
+// probeRequirementsMet returns true if all Requires conditions are satisfied.
+// A condition is only evaluated when the key exists in options; absent keys pass.
+func probeRequirementsMet(probe *config.ProbeConfig, options map[string]string) bool {
+	for k, required := range probe.Requires {
+		if actual, set := options[k]; set && actual != required {
+			return false
+		}
+	}
 	return true
 }
 

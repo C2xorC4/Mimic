@@ -7,6 +7,7 @@ type OSProfile struct {
 	Family      string      `yaml:"family"` // windows, linux, macos
 	Version     string      `yaml:"version"`
 	Stack       StackConfig `yaml:"stack"`
+	SMB         SMBConfig   `yaml:"smb"`
 }
 
 // StackConfig contains all TCP/IP stack fingerprint parameters
@@ -59,6 +60,11 @@ type ProbeConfig struct {
 	Signature    SignatureConfig   `yaml:"signature"`
 	ResponseFile string            `yaml:"response_file"`
 	RewriteRules []RewriteRule     `yaml:"rewrite_rules"`
+	// Requires is an optional set of option key=value conditions that must be
+	// satisfied for this probe to be active. If a key is absent from options the
+	// condition is ignored (probe is included). Use to gate protocol-version-specific
+	// probes on the active OS profile (e.g. smb1_enabled: "true").
+	Requires     map[string]string `yaml:"requires,omitempty"`
 }
 
 // SignatureConfig defines how to identify an incoming probe
@@ -75,6 +81,13 @@ type RewriteRule struct {
 	Offset int    `yaml:"offset"`
 	Length int    `yaml:"length"`
 	Type   string `yaml:"type"` // timestamp, guid, seq, ip, port, random
+}
+
+// SMBConfig defines protocol-level SMB behavior for an OS profile
+type SMBConfig struct {
+	Dialect         string `yaml:"dialect"`          // "1.0", "2.0", "2.1", "3.0", "3.0.2", "3.1.1"
+	SMB1Enabled     bool   `yaml:"smb1_enabled"`     // false on Win10 1709+ / Server 2019+
+	SigningRequired bool   `yaml:"signing_required"` // true on domain controllers
 }
 
 // ServiceOptions contains per-service configuration options

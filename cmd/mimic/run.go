@@ -148,6 +148,20 @@ func runMimic(cmd *cobra.Command, args []string) error {
 		})
 	}
 
+	// Load OS profile once so both eBPF and service layers share the same instance
+	var profile *config.OSProfile
+	if appCfg.Profile != "" {
+		pm := config.NewProfileManager(appCfg.ProfilesDir)
+		if err := pm.LoadAllProfiles(); err != nil {
+			return fmt.Errorf("loading profiles: %w", err)
+		}
+		p, err := pm.GetProfile(appCfg.Profile)
+		if err != nil {
+			return fmt.Errorf("getting profile %q: %w", appCfg.Profile, err)
+		}
+		profile = p
+	}
+
 	// Channel to collect errors from goroutines
 	errChan := make(chan error, 2)
 
@@ -192,27 +206,15 @@ func runMimic(cmd *cobra.Command, args []string) error {
 	}
 
 	// Start eBPF fingerprinting in goroutine
-	if appCfg.Profile != "" {
+	if profile != nil {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 
 			ebpfLog := logging.Component("ebpf")
 
-			// Load profile
-			pm := config.NewProfileManager(appCfg.ProfilesDir)
-			if err := pm.LoadAllProfiles(); err != nil {
-				errChan <- fmt.Errorf("loading profiles: %w", err)
-				return
-			}
-
-			profile, err := pm.GetProfile(appCfg.Profile)
-			if err != nil {
-				errChan <- fmt.Errorf("getting profile: %w", err)
-				return
-			}
-
 			// Create and load fingerprint manager
+			var err error
 			fm, err = ebpf.NewFingerprintManager(appCfg.Interface)
 			if err != nil {
 				errChan <- fmt.Errorf("creating fingerprint manager: %w", err)
@@ -268,6 +270,8 @@ func runMimic(cmd *cobra.Command, args []string) error {
 			if appCfg.ServiceOptions.MACAddress != "" {
 				svcMgr.SetOption("mac_address", appCfg.ServiceOptions.MACAddress)
 			}
+			// Apply profile-derived service options (e.g. smb1_enabled)
+			svcMgr.SetProfileOptions(profile)
 			// Set jitter options
 			if appCfg.ServiceOptions.JitterMinMs > 0 {
 				svcMgr.SetOption("jitter_min_ms", fmt.Sprintf("%d", appCfg.ServiceOptions.JitterMinMs))

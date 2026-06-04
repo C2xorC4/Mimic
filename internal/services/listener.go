@@ -50,7 +50,7 @@ func NewListener(cfg *config.ServiceConfig, baseDir string) (*Listener, error) {
 
 // NewListenerWithOptions creates a new service listener with custom options
 func NewListenerWithOptions(cfg *config.ServiceConfig, baseDir string, options map[string]string) (*Listener, error) {
-	matcher, err := NewProbeMatcher(cfg.Probes)
+	matcher, err := NewProbeMatcher(cfg.Probes, options)
 	if err != nil {
 		return nil, fmt.Errorf("creating probe matcher: %w", err)
 	}
