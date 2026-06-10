@@ -112,16 +112,67 @@ func MazeDirNode(path, name string, depth int) *Node {
 }
 
 // MazeFileNode builds a single maze file node. Maze files carry the Archive
-// attribute only (no Normal), matching the original SMB behavior.
+// attribute only (no Normal), matching the original SMB behavior. Bait-named
+// files get planted content; all other generated files get deterministic
+// plausible-length filler so listings don't show a tell-tale wall of 0-byte
+// files (and a download returns content of the advertised size).
 func MazeFileNode(path, name string) *Node {
 	t := mazeNodeTime(path)
+	content := MazeFileContent(name)
+	if content == nil {
+		content = fillerContent(path, name)
+	}
 	return &Node{
 		Name: name, Archive: true,
-		Content:  MazeFileContent(name),
+		Content:  content,
 		Created:  t,
 		Modified: t,
 		MazePath: path,
 	}
+}
+
+// fillerContent returns deterministic, plausible-length filler for a generated
+// file, sized by extension and seeded by path (stable across requests). Capped at
+// a modest size so a recursive crawl of the tarpit stays cheap on the server.
+func fillerContent(path, name string) []byte {
+	rng := newLCG(pathSeed(path + "|content"))
+	low, high := 1024, 16384
+	lname := strings.ToLower(name)
+	switch {
+	case strings.HasSuffix(lname, ".log"):
+		low, high = 4096, 32768
+	case strings.HasSuffix(lname, ".sql"), strings.HasSuffix(lname, ".dat"),
+		strings.HasSuffix(lname, ".db"), strings.HasSuffix(lname, ".bak"):
+		low, high = 8192, 32768
+	case strings.HasSuffix(lname, ".ini"), strings.HasSuffix(lname, ".config"),
+		strings.HasSuffix(lname, ".xml"), strings.HasSuffix(lname, ".txt"):
+		low, high = 512, 6144
+	}
+	size := low + rng.intn(high-low+1)
+	buf := make([]byte, 0, size)
+	for len(buf) < size {
+		line := fillerLines[rng.intn(len(fillerLines))]
+		buf = append(buf, line...)
+		buf = append(buf, '\r', '\n')
+	}
+	return buf[:size]
+}
+
+// fillerLines are generic, innocuous lines used to pad generated files to a
+// believable length.
+var fillerLines = []string{
+	"2024-03-14 08:21:07 INFO  service started",
+	"2024-03-14 08:21:08 INFO  configuration loaded from registry",
+	"2024-03-14 08:22:11 WARN  retry attempt 1 of 3",
+	"key=value",
+	"enabled=true",
+	"timeout=30000",
+	"[section]",
+	"; generated configuration - do not edit",
+	"path=C:\\Program Files\\Common Files",
+	"status=OK",
+	"0x0040 0x0000 0x00ff 0x1a2b",
+	"server=10.0.1.50;port=1433;trusted_connection=yes",
 }
 
 // mazeNodeTime returns a deterministic creation timestamp for a path.

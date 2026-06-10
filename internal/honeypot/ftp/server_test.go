@@ -19,11 +19,14 @@ func testTree() *deception.Tree {
 	cfg := deception.TreeConfig{
 		Shares: []deception.ShareDef{
 			{Name: "C$", Type: "disk_special", Root: &deception.NodeDefGroup{
-				Dirs: []deception.DirDef{{Name: "Users", Dirs: []deception.DirDef{{Name: "Administrator", Dirs: []deception.DirDef{{
-					Name: "Documents",
-					Files: []deception.FileDef{{Name: "backup_credentials.txt",
-						Content: "user={{cred:svc.username}} pass={{cred:svc.password}}"}},
-				}}}}}},
+				Dirs: []deception.DirDef{
+					{Name: "Users", Dirs: []deception.DirDef{{Name: "Administrator", Dirs: []deception.DirDef{{
+						Name: "Documents",
+						Files: []deception.FileDef{{Name: "backup_credentials.txt",
+							Content: "user={{cred:svc.username}} pass={{cred:svc.password}}"}},
+					}}}}},
+					{Name: "Data", Maze: true}, // generative tarpit dir reached by listing C$
+				},
 			}},
 			{Name: "BACKUPS", Type: "disk", Generate: &deception.GenSpec{Seed: "v1", Dirs: deception.Range{Min: 3, Max: 5}, Files: deception.Range{Min: 2, Max: 3}, Depth: 1}},
 		},
@@ -161,11 +164,23 @@ func TestFTPLoginListRetrieveMaze(t *testing.T) {
 		t.Errorf("RETR content = %q", content)
 	}
 
-	// Maze: a non-existent deep dir resolves and lists deterministically.
-	c.cmd("CWD /NoSuchVendor/Deep", 250)
+	// Maze is reached by navigating into an advertised generative dir (/Data),
+	// not by guessing — and a guessed name under a real dir 404s.
+	c.cmd("CWD /", 250)
+	c.cmd("CWD /NoSuchVendor", 550) // guessed name under a real dir → 404
+	c.cmd("CWD /Data", 250)
 	m1 := c.transfer("LIST")
-	if strings.Count(m1, "\n") < 2 {
-		t.Errorf("maze LIST too small:\n%s", m1)
+	if strings.Count(m1, "\n") < 3 {
+		t.Errorf("generative dir LIST too small:\n%s", m1)
+	}
+	// Descend into a *listed* subdirectory (parsed from the listing) — infinite.
+	sub := firstDirName(m1)
+	if sub == "" {
+		t.Fatalf("no <DIR> entry in generative listing:\n%s", m1)
+	}
+	c.cmd("CWD /Data/"+sub, 250)
+	if m2 := c.transfer("LIST"); strings.Count(m2, "\n") < 3 {
+		t.Errorf("generative subdir LIST too small:\n%s", m2)
 	}
 	c.cmd("QUIT", 221)
 
@@ -180,6 +195,19 @@ func TestFTPLoginListRetrieveMaze(t *testing.T) {
 	c3.cmd("USER svc_backup", 331)
 	c3.cmd("PASS wrong", 530)
 	c3.cmd("QUIT", 221)
+}
+
+// firstDirName extracts the name of the first <DIR> entry from an IIS-style listing.
+func firstDirName(listing string) string {
+	for _, line := range strings.Split(listing, "\n") {
+		if i := strings.Index(line, "<DIR>"); i >= 0 {
+			name := strings.TrimSpace(line[i+len("<DIR>"):])
+			if name != "" && name != "." && name != ".." {
+				return name
+			}
+		}
+	}
+	return ""
 }
 
 func TestFTPRejectsUnauthed(t *testing.T) {

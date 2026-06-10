@@ -439,12 +439,12 @@ func TestVFSStateMachine(t *testing.T) {
 		t.Fatalf("close: want 0, got %#x", respStatus(resp))
 	}
 
-	// 13. CREATE unknown path → maze resolves it → STATUS_SUCCESS
-	// (Maze generates a node for any unknown path when enabled.)
+	// 13. CREATE unknown path under the static default tree → NOT_FOUND.
+	// (No maze share here; guessed names are not fabricated.)
 	resp = sendRecv(t, conn, buildTestPacket(CmdCreate, sessionID, treeID, nextMsg(),
 		buildCreateBody(`nosuchthing\nope.txt`)))
-	if respStatus(resp) != StatusSuccess {
-		t.Fatalf("create maze path: want 0, got %#x", respStatus(resp))
+	if respStatus(resp) != StatusObjectNotFound {
+		t.Fatalf("create unknown path: want %#x, got %#x", StatusObjectNotFound, respStatus(resp))
 	}
 
 	// 14. QUERY_DIRECTORY on exhausted dir → STATUS_NO_MORE_FILES
@@ -485,20 +485,14 @@ func TestVFSResolve(t *testing.T) {
 		{"C$", `Windows\System32`, true},
 		{"C$", `Windows\System32\ntoskrnl.exe`, true},
 		{"C$", `Users\Administrator\Documents\passwords.txt`, true},
-		// maze-generated paths (unknown to static tree) — resolved by maze
-		{"C$", `Users\Administrator\Documents\notexist.txt`, true},
-		{"C$", `notexist`, true},
+		// nonexistent paths under the static default tree → NOT_FOUND (no maze share here)
+		{"C$", `Users\Administrator\Documents\notexist.txt`, false},
+		{"C$", `notexist`, false},
 		{"ADMIN$", "", true},
 		{"ADMIN$", `System32`, true},
 		{"IPC$", "", true},
-		// non-existent share is still nil regardless of maze
+		// non-existent share is nil
 		{"NOSUCHARSHARE", "", false},
-	}
-
-	// Verify that the maze-generated nodes actually carry a mazePath marker.
-	mazeExpected := map[string]bool{
-		`Users\Administrator\Documents\notexist.txt`: true,
-		`notexist`: true,
 	}
 
 	for _, tc := range cases {
@@ -506,11 +500,6 @@ func TestVFSResolve(t *testing.T) {
 		got := node != nil
 		if got != tc.want {
 			t.Errorf("resolve(%q, %q) = %v; want %v", tc.share, tc.path, got, tc.want)
-			continue
-		}
-		if node != nil && mazeExpected[tc.path] && node.mazePath == "" {
-			t.Errorf("resolve(%q, %q): expected maze node (mazePath set), got static node",
-				tc.share, tc.path)
 		}
 	}
 }

@@ -408,10 +408,7 @@ func (s *Server) handleList(sess *session, arg string, long bool) {
 		s.reply(c, 425, "Can't open data connection.")
 		return
 	}
-	children := node.Children
-	if node.MazePath != "" {
-		children = s.tree.MazeChildren(node)
-	}
+	children := s.tree.Children(node)
 	var sb strings.Builder
 	for _, ch := range children {
 		if long {

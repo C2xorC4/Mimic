@@ -84,10 +84,15 @@ func BaseTime() time.Time {
 	return time.Date(2024, 9, 14, 8, 23, 11, 0, time.UTC)
 }
 
-// Resolve walks rootName + filePath (either separator, case-insensitive),
-// falling through to the maze for paths outside the static tree when the maze is
-// enabled. Returns nil for an unknown root or a static miss with the maze off.
-// This is the protocol-neutral resolution logic; adapters (SMB VFS, FTP) reuse it.
+// Resolve walks rootName + filePath (either separator, case-insensitive) by
+// membership: at each step the name must be among the current directory's
+// effective children — its explicit children plus, for a generative (maze) node,
+// its deterministically generated set. A name that is not present returns nil
+// (NOT_FOUND); there is NO fabrication of arbitrary names. This makes a guessed
+// path under a real directory fail exactly like a real filesystem, while a
+// generative subtree (reached by navigating into an advertised maze share/dir)
+// is infinitely deep because every generated subdirectory is itself generative.
+// This is the protocol-neutral resolution logic; SMB VFS and FTP reuse it.
 func (t *Tree) Resolve(rootName, filePath string) *Node {
 	root := t.Roots[strings.ToUpper(rootName)]
 	if root == nil {
@@ -100,42 +105,51 @@ func (t *Tree) Resolve(rootName, filePath string) *Node {
 	parts := strings.FieldsFunc(filePath, func(r rune) bool { return r == '\\' || r == '/' })
 
 	cur := root
-	pathBuf := strings.ToUpper(rootName)
-	for i, part := range parts {
+	for _, part := range parts {
 		if part == "." || part == ".." {
 			continue // '..' is resolved by callers at the command layer
 		}
-		pathBuf += `\` + part
-
-		if child := cur.FindChild(part); child != nil {
-			cur = child
-			continue
+		child := t.findChild(cur, part)
+		if child == nil {
+			return nil // NOT_FOUND — no fabrication
 		}
-		// Static miss — fall through to the maze if enabled.
-		if t.Maze == nil || !t.Maze.Enabled {
-			return nil
-		}
-		nextDepth := cur.MazeDepth + 1
-		if t.Maze.MaxDepth > 0 && nextDepth > t.Maze.MaxDepth {
-			return nil
-		}
-		isLast := i == len(parts)-1
-		if isLast && strings.Contains(part, ".") {
-			cur = MazeFileNode(pathBuf, part)
-		} else {
-			cur = MazeDirNode(pathBuf, part, nextDepth)
-		}
+		cur = child
 	}
 	return cur
 }
 
-// MazeChildren returns the deterministic child list for a maze directory node,
-// or nil for a static node / disabled maze.
-func (t *Tree) MazeChildren(n *Node) []*Node {
-	if t.Maze == nil || !t.Maze.Enabled || n == nil || n.MazePath == "" {
+// findChild looks up name among cur's effective children: explicit children
+// first, then (for a generative node) the deterministically generated set.
+func (t *Tree) findChild(cur *Node, name string) *Node {
+	if c := cur.FindChild(name); c != nil {
+		return c
+	}
+	if cur.MazePath != "" {
+		for _, gc := range MazeChildren(cur.MazePath, cur.MazeDepth, t.Maze) {
+			if strings.EqualFold(gc.Name, name) {
+				return gc
+			}
+		}
+	}
+	return nil
+}
+
+// Children returns the directory's effective children to enumerate: explicit
+// children, plus the generated set for a generative (maze) node. The two are
+// combined so specific bait planted inside a generative share is listed alongside
+// the generated entries.
+func (t *Tree) Children(n *Node) []*Node {
+	if n == nil {
 		return nil
 	}
-	return MazeChildren(n.MazePath, n.MazeDepth, t.Maze)
+	if n.MazePath == "" {
+		return n.Children
+	}
+	gen := MazeChildren(n.MazePath, n.MazeDepth, t.Maze)
+	if len(n.Children) == 0 {
+		return gen
+	}
+	return append(append([]*Node{}, n.Children...), gen...)
 }
 
 // --- node constructors (mirror the previous smb dirNode/fileNode behavior) ---
@@ -231,38 +245,44 @@ func DefaultTree(maze MazeConfig) *Tree {
 	}
 }
 
-// BuildTree constructs a Tree from declarative config, handling the explicit (a),
-// seeded (b), and random-but-plausible (c) modes. The runtime infinite-maze mode
-// (d) is the resolve-time fall-through governed by cfg.Maze. store interpolates
-// {{cred:id.field}} placeholders in inline file content; baseDir resolves relative
-// seed_file paths.
+// BuildTree constructs a Tree from declarative config: explicit (a), seeded (b),
+// finite-materialized (c, GenSpec), and generative-tarpit (Maze flag) modes. A
+// Maze-flagged share or directory becomes a generative root (MazePath set) whose
+// contents are produced lazily by the resolve/Children membership logic. store
+// interpolates {{cred:id.field}} placeholders in inline file content; baseDir
+// resolves relative seed_file paths.
 func BuildTree(cfg TreeConfig, store *CredStore, baseDir string) (*Tree, error) {
 	roots := make(map[string]*Node, len(cfg.Shares))
 	for _, sd := range cfg.Shares {
 		if sd.Name == "" {
 			return nil, fmt.Errorf("share with empty name")
 		}
+		shareKey := strings.ToUpper(sd.Name)
 		root := DirNode("")
 		if sd.Root != nil {
-			kids, err := buildGroup(*sd.Root, store, baseDir)
+			kids, err := buildGroup(*sd.Root, store, baseDir, shareKey)
 			if err != nil {
 				return nil, fmt.Errorf("share %s: %w", sd.Name, err)
 			}
 			root.Children = append(root.Children, kids...)
 		}
 		if sd.Generate != nil {
-			root.Children = append(root.Children, generateChildren(strings.ToUpper(sd.Name), sd.Generate, 1)...)
+			root.Children = append(root.Children, generateChildren(shareKey, sd.Generate, 1)...)
 		}
-		roots[strings.ToUpper(sd.Name)] = root
+		if sd.Maze {
+			root.MazePath = shareKey // generative tarpit root (maze depth starts here)
+			root.MazeDepth = 0
+		}
+		roots[shareKey] = root
 	}
 	m := cfg.Maze
 	return &Tree{Roots: roots, Maze: &m}, nil
 }
 
-func buildGroup(g NodeDefGroup, store *CredStore, baseDir string) ([]*Node, error) {
+func buildGroup(g NodeDefGroup, store *CredStore, baseDir, pathPrefix string) ([]*Node, error) {
 	var out []*Node
 	for _, d := range g.Dirs {
-		n, err := buildDir(d, store, baseDir)
+		n, err := buildDir(d, store, baseDir, pathPrefix)
 		if err != nil {
 			return nil, err
 		}
@@ -278,13 +298,18 @@ func buildGroup(g NodeDefGroup, store *CredStore, baseDir string) ([]*Node, erro
 	return out, nil
 }
 
-func buildDir(d DirDef, store *CredStore, baseDir string) (*Node, error) {
+func buildDir(d DirDef, store *CredStore, baseDir, pathPrefix string) (*Node, error) {
 	n := DirNode(d.Name)
-	kids, err := buildGroup(NodeDefGroup{Dirs: d.Dirs, Files: d.Files}, store, baseDir)
+	myPath := pathPrefix + `\` + d.Name
+	kids, err := buildGroup(NodeDefGroup{Dirs: d.Dirs, Files: d.Files}, store, baseDir, myPath)
 	if err != nil {
 		return nil, err
 	}
 	n.Children = kids
+	if d.Maze {
+		n.MazePath = myPath // generative tarpit root at this directory
+		n.MazeDepth = 0
+	}
 	return n, nil
 }
 

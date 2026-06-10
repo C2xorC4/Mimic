@@ -146,35 +146,27 @@ func (v *VFS) resolve(shareName, filePath string) *VFSNode {
 	parts := strings.FieldsFunc(filePath, func(r rune) bool { return r == '\\' || r == '/' })
 
 	cur := root
-	pathBuf := shareUpper // canonical path accumulated as we descend
-
-	for i, part := range parts {
-		if part == "." {
+	for _, part := range parts {
+		if part == "." || part == ".." {
 			continue
 		}
-		pathBuf += `\` + part
-
+		// Membership check: the name must be an explicit child or, for a generative
+		// (maze) node, in its deterministically generated set. No fabrication — a
+		// guessed name under a real directory returns nil (NOT_FOUND), exactly like
+		// a real share.
 		child := cur.findChild(part)
-		if child != nil {
-			cur = child
-			continue
+		if child == nil && cur.mazePath != "" {
+			for _, gc := range buildMazeChildren(cur.mazePath, cur.mazeDepth, v.maze) {
+				if strings.EqualFold(gc.name, part) {
+					child = gc
+					break
+				}
+			}
 		}
-
-		// Static miss — fall through to maze if enabled.
-		if v.maze == nil || !v.maze.Enabled {
+		if child == nil {
 			return nil
 		}
-		nextDepth := cur.mazeDepth + 1
-		if v.maze.MaxDepth > 0 && nextDepth > v.maze.MaxDepth {
-			return nil
-		}
-
-		isLast := i == len(parts)-1
-		if isLast && strings.Contains(part, ".") {
-			cur = newMazeFileNode(pathBuf, part)
-		} else {
-			cur = newMazeDirNode(pathBuf, part, nextDepth)
-		}
+		cur = child
 	}
 	return cur
 }
@@ -229,13 +221,15 @@ type FileHandle struct {
 // effectiveChildren returns the child list to enumerate.
 // For maze dirs it is generated once and cached; for static dirs it is node.children.
 func (h *FileHandle) effectiveChildren(v *VFS) []*VFSNode {
-	if h.node.mazePath != "" {
-		if h.mazeChildren == nil {
-			h.mazeChildren = v.listMazeChildren(h.node)
-		}
-		return h.mazeChildren
+	if h.node.mazePath == "" {
+		return h.node.children // static directory
 	}
-	return h.node.children
+	// Generative directory: explicit children (planted bait) + generated set,
+	// generated once and cached for this handle's enumeration.
+	if h.mazeChildren == nil {
+		h.mazeChildren = append(append([]*VFSNode{}, h.node.children...), v.listMazeChildren(h.node)...)
+	}
+	return h.mazeChildren
 }
 
 // nextChild returns the next (name, node) pair for directory enumeration.

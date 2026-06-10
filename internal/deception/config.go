@@ -15,7 +15,12 @@ type ShareDef struct {
 	Type     string        `yaml:"type"`     // disk | disk_special | ipc
 	Remark   string        `yaml:"remark"`   // share comment shown in enumeration
 	Root     *NodeDefGroup `yaml:"root"`     // mode (a)/(b): explicit dirs/files
-	Generate *GenSpec      `yaml:"generate"` // mode (c): random-but-plausible
+	Generate *GenSpec      `yaml:"generate"` // mode (c): finite materialized random structure
+	// Maze marks the whole share as a generative tarpit: advertised and listable,
+	// contents generated lazily/deterministically, every generated subdir itself
+	// generative (infinite, discovered by normal navigation). Explicit Root
+	// children (if any) are listed alongside generated ones.
+	Maze bool `yaml:"maze"`
 }
 
 // NodeDefGroup is a directory's declared contents.
@@ -24,11 +29,14 @@ type NodeDefGroup struct {
 	Files []FileDef `yaml:"files"`
 }
 
-// DirDef is an explicit directory with nested contents.
+// DirDef is an explicit directory with nested contents. Maze marks this directory
+// as a generative tarpit root (same semantics as ShareDef.Maze) so a believable
+// static skeleton can host a generative subtree at a chosen depth.
 type DirDef struct {
 	Name  string    `yaml:"name"`
 	Dirs  []DirDef  `yaml:"dirs"`
 	Files []FileDef `yaml:"files"`
+	Maze  bool      `yaml:"maze"`
 }
 
 // FileDef is an explicit file. Content (inline, supports {{cred:id.field}}

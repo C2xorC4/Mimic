@@ -3,192 +3,150 @@ package smb
 import (
 	"encoding/binary"
 	"testing"
+
+	"github.com/c2xorc4/mimic/internal/deception"
 )
 
-// TestMazeResolution verifies that paths outside the static tree resolve to
-// maze-generated nodes rather than nil.
-func TestMazeResolution(t *testing.T) {
-	v := newDefaultVFS(defaultMazeConfig())
-
-	cases := []struct {
-		share string
-		path  string
-		isDir bool
-	}{
-		// Unknown dir under static parent
-		{"C$", `Program Files\FakeVendor`, true},
-		// Two levels deep into the maze
-		{"C$", `Program Files\FakeVendor\Configs`, true},
-		// File with extension → maze file node
-		{"C$", `Program Files\FakeVendor\config.xml`, false},
-		// ADMIN$ (Windows dir) maze miss
-		{"ADMIN$", `FakeSubsystem`, true},
-		// IPC$ miss
-		{"IPC$", `notexist`, true},
+// mazeVFS builds a VFS with a static C$ skeleton plus a generative ("maze: true")
+// share FILES — the plausible, advertised tarpit entry point an attacker reaches
+// by navigating into a listed share rather than guessing nonexistent paths.
+func mazeVFS(t *testing.T) *VFS {
+	t.Helper()
+	tc := deception.TreeConfig{
+		Shares: []deception.ShareDef{
+			{Name: "C$", Type: "disk_special", Root: &deception.NodeDefGroup{
+				Dirs: []deception.DirDef{{Name: "Windows"}, {Name: "Users"}},
+			}},
+			{Name: "FILES", Type: "disk", Maze: true},
+		},
+		Maze: deception.MazeConfig{Enabled: true, MaxDepth: 0, MinDirs: 3, MaxDirs: 5, MinFiles: 2, MaxFiles: 4},
 	}
+	v, err := newVFSFromConfig(tc, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
 
-	for _, tc := range cases {
-		node := v.resolve(tc.share, tc.path)
-		if node == nil {
-			t.Errorf("resolve(%q, %q) = nil; want maze node", tc.share, tc.path)
-			continue
-		}
-		if node.mazePath == "" {
-			t.Errorf("resolve(%q, %q): expected maze node (mazePath set), got static node",
-				tc.share, tc.path)
-		}
-		if tc.isDir != node.isDir() {
-			t.Errorf("resolve(%q, %q): isDir=%v; want %v", tc.share, tc.path, node.isDir(), tc.isDir)
+// TestMazeStaticMiss404 — a name not present in a real directory's listing returns
+// nil (NOT_FOUND), exactly like a real share. No fabrication of guessed names.
+func TestMazeStaticMiss404(t *testing.T) {
+	v := mazeVFS(t)
+	for _, p := range []string{`Windows\NoSuchThing`, `Users\Nobody`, `NoSuchTop`, `Windows\a\b\c`} {
+		if n := v.resolve("C$", p); n != nil {
+			t.Errorf("resolve(C$, %q) = %+v; want nil (NOT_FOUND)", p, n)
 		}
 	}
 }
 
-// TestMazeDeterminism verifies that the same path always produces the same children.
+// TestMazeGenerativeDiscoverable — the generative share lists children, exactly those
+// listed children resolve (membership), a non-listed name 404s, and descent is
+// infinite (a listed subdir is itself generative and lists more).
+func TestMazeGenerativeDiscoverable(t *testing.T) {
+	v := mazeVFS(t)
+	root := v.resolve("FILES", "")
+	if root == nil || root.mazePath == "" {
+		t.Fatal("FILES root should be a generative node")
+	}
+	kids := buildMazeChildren(root.mazePath, root.mazeDepth, v.maze)
+	if len(kids) == 0 {
+		t.Fatal("generative share produced no children")
+	}
+	var aDir *VFSNode
+	for _, c := range kids {
+		if v.resolve("FILES", c.name) == nil {
+			t.Errorf("listed child %q did not resolve", c.name)
+		}
+		if c.isDir() && aDir == nil {
+			aDir = c
+		}
+	}
+	if v.resolve("FILES", "zzz_not_listed_zzz") != nil {
+		t.Error("non-listed name resolved under generative share (should 404)")
+	}
+	if aDir == nil {
+		t.Fatal("expected at least one generated subdir")
+	}
+	sub := v.resolve("FILES", aDir.name)
+	if sub == nil || sub.mazePath == "" {
+		t.Fatal("generated subdir should itself be generative")
+	}
+	if len(buildMazeChildren(sub.mazePath, sub.mazeDepth, v.maze)) == 0 {
+		t.Error("generated subdir lists no children (tarpit bottomed out)")
+	}
+}
+
+// TestMazeDeterminism — same generative path yields identical listings; siblings differ.
 func TestMazeDeterminism(t *testing.T) {
-	v := newDefaultVFS(defaultMazeConfig())
-
-	path := `Program Files\FakeApp`
-	node := v.resolve("C$", path)
-	if node == nil || node.mazePath == "" {
-		t.Fatal("expected maze node")
+	v := mazeVFS(t)
+	a := buildMazeChildren(`FILES\Alpha`, 1, v.maze)
+	b := buildMazeChildren(`FILES\Alpha`, 1, v.maze)
+	if len(a) != len(b) {
+		t.Fatalf("non-deterministic: %d vs %d", len(a), len(b))
 	}
-
-	// Generate children twice and compare names.
-	list1 := buildMazeChildren(node.mazePath, node.mazeDepth, v.maze)
-	list2 := buildMazeChildren(node.mazePath, node.mazeDepth, v.maze)
-
-	if len(list1) != len(list2) {
-		t.Fatalf("non-deterministic: got %d vs %d children", len(list1), len(list2))
-	}
-	for i := range list1 {
-		if list1[i].name != list2[i].name {
-			t.Errorf("child[%d] name mismatch: %q vs %q", i, list1[i].name, list2[i].name)
+	for i := range a {
+		if a[i].name != b[i].name {
+			t.Errorf("child[%d]: %q vs %q", i, a[i].name, b[i].name)
 		}
 	}
-}
-
-// TestMazeDifferentPaths verifies that sibling paths produce different listings.
-func TestMazeDifferentPaths(t *testing.T) {
-	v := newDefaultVFS(defaultMazeConfig())
-
-	n1 := v.resolve("C$", `Program Files\VendorA`)
-	n2 := v.resolve("C$", `Program Files\VendorB`)
-	if n1 == nil || n2 == nil {
-		t.Fatal("expected maze nodes")
-	}
-
-	list1 := buildMazeChildren(n1.mazePath, n1.mazeDepth, v.maze)
-	list2 := buildMazeChildren(n2.mazePath, n2.mazeDepth, v.maze)
-
-	// At least one child should differ (overwhelmingly likely for different seeds).
-	allSame := len(list1) == len(list2)
-	if allSame {
-		for i := range list1 {
-			if list1[i].name != list2[i].name {
-				allSame = false
+	c := buildMazeChildren(`FILES\Beta`, 1, v.maze)
+	same := len(a) == len(c)
+	if same {
+		for i := range a {
+			if a[i].name != c[i].name {
+				same = false
 				break
 			}
 		}
 	}
-	if allSame {
-		t.Error("different paths produced identical children — seed not working")
+	if same {
+		t.Error("different paths produced identical children")
 	}
 }
 
-// TestMazeDepthLimit verifies that MaxDepth is enforced.
+// TestMazeDepthLimit — a finite MaxDepth terminates the tarpit (no subdirs past the cap).
 func TestMazeDepthLimit(t *testing.T) {
-	cfg := MazeConfig{Enabled: true, MaxDepth: 2, MinDirs: 2, MaxDirs: 2, MinFiles: 1, MaxFiles: 1}
-	v := newDefaultVFS(cfg)
-
-	// depth 1 — should work
-	n1 := v.resolve("C$", `Program Files\A`)
-	if n1 == nil || !n1.isDir() {
-		t.Fatal("expected maze dir at depth 1")
+	tc := deception.TreeConfig{
+		Shares: []deception.ShareDef{{Name: "FILES", Type: "disk", Maze: true}},
+		Maze:   deception.MazeConfig{Enabled: true, MaxDepth: 2, MinDirs: 2, MaxDirs: 2, MinFiles: 1, MaxFiles: 1},
 	}
-	if n1.mazeDepth != 1 {
-		t.Errorf("depth 1 node has mazeDepth=%d", n1.mazeDepth)
+	v, err := newVFSFromConfig(tc, nil, "")
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	// depth 2 — should work
-	n2 := v.resolve("C$", `Program Files\A\B`)
-	if n2 == nil || !n2.isDir() {
-		t.Fatal("expected maze dir at depth 2")
-	}
-	if n2.mazeDepth != 2 {
-		t.Errorf("depth 2 node has mazeDepth=%d", n2.mazeDepth)
-	}
-
-	// depth 3 — should be blocked
-	n3 := v.resolve("C$", `Program Files\A\B\C`)
-	if n3 != nil {
-		t.Errorf("expected nil at depth 3 (MaxDepth=2), got node: %+v", n3)
-	}
-
-	// depth 2 listing should have NO subdirectories
-	children := buildMazeChildren(n2.mazePath, n2.mazeDepth, v.maze)
-	for _, c := range children {
+	for _, c := range buildMazeChildren(`FILES\A\B`, 2, v.maze) {
 		if c.isDir() {
-			t.Errorf("MaxDepth=2 node at depth 2 generated a subdirectory: %q", c.name)
+			t.Errorf("MaxDepth=2: subdir generated past cap: %q", c.name)
 		}
 	}
 }
 
-// TestMazeBaitFiles verifies that bait-named maze files carry content.
+// TestMazeBaitFiles — sensitive-looking generated names carry bait content.
 func TestMazeBaitFiles(t *testing.T) {
-	cases := []struct {
+	for _, tc := range []struct {
 		name string
-		want bool // true = non-empty content expected
+		want bool
 	}{
-		{"passwords.txt", true},
-		{"credentials.txt", true},
-		{"accounts.txt", true},
-		{"id_rsa", true},
-		{"private.key", true},
-		{"error.log", false},
-		{"config.xml", false},
-	}
-	for _, tc := range cases {
-		content := mazeFileContent(tc.name)
-		got := len(content) > 0
-		if got != tc.want {
-			t.Errorf("mazeFileContent(%q): non-empty=%v; want %v", tc.name, got, tc.want)
+		{"passwords.txt", true}, {"credentials.txt", true}, {"id_rsa", true},
+		{"error.log", false}, {"config.xml", false},
+	} {
+		if got := len(mazeFileContent(tc.name)) > 0; got != tc.want {
+			t.Errorf("mazeFileContent(%q)=%v want %v", tc.name, got, tc.want)
 		}
 	}
 }
 
-// TestMazeChildrenCountRange verifies that generated child counts respect MinDirs/MaxDirs.
-func TestMazeChildrenCountRange(t *testing.T) {
-	cfg := &MazeConfig{Enabled: true, MaxDepth: 0, MinDirs: 2, MaxDirs: 4, MinFiles: 1, MaxFiles: 3}
-
-	// Sample several different paths and check counts.
-	paths := []string{
-		`C$\FolderAlpha`, `C$\FolderBeta`, `C$\FolderGamma`,
-		`C$\FolderDelta`, `C$\FolderEpsilon`,
-	}
-	for _, p := range paths {
-		depth := 1
-		children := buildMazeChildren(p, depth, cfg)
-		var nDirs, nFiles int
-		for _, c := range children {
-			if c.isDir() {
-				nDirs++
-			} else {
-				nFiles++
-			}
-		}
-		if nDirs < cfg.MinDirs || nDirs > cfg.MaxDirs {
-			t.Errorf("path %q: nDirs=%d outside [%d,%d]", p, nDirs, cfg.MinDirs, cfg.MaxDirs)
-		}
-		if nFiles < cfg.MinFiles || nFiles > cfg.MaxFiles {
-			t.Errorf("path %q: nFiles=%d outside [%d,%d]", p, nFiles, cfg.MinFiles, cfg.MaxFiles)
-		}
-	}
-}
-
-// TestMazeStateMachine tests the full flow: negotiate → auth → tree → CREATE maze dir
-// → QUERY_DIRECTORY (gets maze children) → CREATE maze subdirectory → more maze children.
+// TestMazeStateMachine — full wire flow into the generative share: connect to FILES,
+// descend into a *listed* generated subdirectory, and enumerate it (infinite descent).
 func TestMazeStateMachine(t *testing.T) {
-	srv := New(Config{ComputerName: "TESTBOX", DomainName: "TESTDOM"})
+	mc := deception.MazeConfig{Enabled: true, MaxDepth: 0, MinDirs: 3, MaxDirs: 5, MinFiles: 2, MaxFiles: 4}
+	srv := New(Config{ComputerName: "TESTBOX", DomainName: "TESTDOM", Filesystem: &deception.TreeConfig{
+		Shares: []deception.ShareDef{
+			{Name: "FILES", Type: "disk", Maze: true},
+			{Name: "IPC$", Type: "ipc"},
+		},
+		Maze: mc,
+	}})
 
 	ln, err := newFreeListener()
 	if err != nil {
@@ -196,10 +154,7 @@ func TestMazeStateMachine(t *testing.T) {
 	}
 	addr := ln.Addr().String()
 	ln.Close()
-
-	port := extractPort(addr)
-	srv.cfg.Port = uint16(port)
-
+	srv.cfg.Port = uint16(extractPort(addr))
 	if err := srv.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -211,83 +166,39 @@ func TestMazeStateMachine(t *testing.T) {
 	}
 	t.Cleanup(func() { conn.Close() })
 
-	sessionID, treeID := doAuth(t, conn, `\\TESTBOX\C$`)
-
+	sessionID, treeID := doAuth(t, conn, `\\TESTBOX\FILES`)
 	var msgID uint64
-	nextMsg := func() uint64 { msgID += 10; return msgID }
+	next := func() uint64 { msgID += 10; return msgID }
 
-	// Open a path that doesn't exist in the static tree → maze dir.
-	resp := sendRecv(t, conn, buildTestPacket(CmdCreate, sessionID, treeID, nextMsg(),
-		buildCreateBody(`Program Files\UnknownVendor`)))
-	if respStatus(resp) != StatusSuccess {
-		t.Fatalf("create maze dir: want 0, got %#x", respStatus(resp))
-	}
-	mazeHandle := extractVolatileID(resp)
-
-	// QUERY_DIRECTORY on the maze dir → must return entries.
-	resp = sendRecv(t, conn, buildTestPacket(CmdQueryDirectory, sessionID, treeID, nextMsg(),
-		buildQueryDirBody(3, mazeHandle)))
-	if respStatus(resp) != StatusSuccess {
-		t.Fatalf("query_dir maze: want 0, got %#x", respStatus(resp))
-	}
-	outputLen := binary.LittleEndian.Uint32(resp[68+4 : 68+8])
-	if outputLen == 0 {
-		t.Fatal("maze QUERY_DIRECTORY returned empty buffer")
-	}
-
-	// Drain the maze listing to StatusNoMoreFiles.
-	for {
-		resp = sendRecv(t, conn, buildTestPacket(CmdQueryDirectory, sessionID, treeID, nextMsg(),
-			buildQueryDirBody(3, mazeHandle)))
-		if respStatus(resp) == StatusNoMoreFiles {
+	// Pick a generated subdirectory name deterministically (what LIST would show).
+	var childDir string
+	for _, c := range buildMazeChildren("FILES", 0, &mc) {
+		if c.isDir() {
+			childDir = c.name
 			break
 		}
-		if respStatus(resp) != StatusSuccess {
-			t.Fatalf("drain maze dir: unexpected %#x", respStatus(resp))
-		}
+	}
+	if childDir == "" {
+		t.Fatal("no generated subdir at FILES root")
 	}
 
-	// SL_RESTART_SCAN (flags=1) should re-enumerate from the start.
-	restartBody := buildQueryDirBody(3, mazeHandle)
-	restartBody[3] = 0x01 // SL_RESTART_SCAN
-	resp = sendRecv(t, conn, buildTestPacket(CmdQueryDirectory, sessionID, treeID, nextMsg(), restartBody))
+	// CREATE that listed child → resolves (membership), QUERY_DIRECTORY → entries.
+	resp := sendRecv(t, conn, buildTestPacket(CmdCreate, sessionID, treeID, next(), buildCreateBody(childDir)))
 	if respStatus(resp) != StatusSuccess {
-		t.Fatalf("restart scan: want 0, got %#x", respStatus(resp))
+		t.Fatalf("create listed maze dir %q: want 0, got %#x", childDir, respStatus(resp))
 	}
-
-	// Descend one level deeper — resolve a child of the maze dir.
-	// We don't know the child name, so use a fresh unknown path two levels deep.
-	resp = sendRecv(t, conn, buildTestPacket(CmdCreate, sessionID, treeID, nextMsg(),
-		buildCreateBody(`Program Files\UnknownVendor\DeepConfig`)))
+	dh := extractVolatileID(resp)
+	resp = sendRecv(t, conn, buildTestPacket(CmdQueryDirectory, sessionID, treeID, next(), buildQueryDirBody(3, dh)))
 	if respStatus(resp) != StatusSuccess {
-		t.Fatalf("create maze subdir: want 0, got %#x", respStatus(resp))
-	}
-	deepHandle := extractVolatileID(resp)
-
-	resp = sendRecv(t, conn, buildTestPacket(CmdQueryDirectory, sessionID, treeID, nextMsg(),
-		buildQueryDirBody(37, deepHandle))) // FileIdBothDirectoryInformation
-	if respStatus(resp) != StatusSuccess {
-		t.Fatalf("query_dir deep: want 0, got %#x", respStatus(resp))
+		t.Fatalf("query maze dir: want 0, got %#x", respStatus(resp))
 	}
 	if binary.LittleEndian.Uint32(resp[68+4:68+8]) == 0 {
-		t.Fatal("deep maze QUERY_DIRECTORY returned empty buffer")
+		t.Fatal("generative subdir QUERY_DIRECTORY returned empty buffer")
 	}
 
-	// A maze file path with extension → resolvable and readable.
-	resp = sendRecv(t, conn, buildTestPacket(CmdCreate, sessionID, treeID, nextMsg(),
-		buildCreateBody(`Program Files\UnknownVendor\passwords.txt`)))
-	if respStatus(resp) != StatusSuccess {
-		t.Fatalf("create maze file: want 0, got %#x", respStatus(resp))
-	}
-	fileHandle := extractVolatileID(resp)
-
-	resp = sendRecv(t, conn, buildTestPacket(CmdRead, sessionID, treeID, nextMsg(),
-		buildReadBody(fileHandle, 0, 512)))
-	if respStatus(resp) != StatusSuccess {
-		t.Fatalf("read maze bait file: want 0, got %#x", respStatus(resp))
-	}
-	dataLen := binary.LittleEndian.Uint32(resp[68+4 : 68+8])
-	if dataLen == 0 {
-		t.Fatal("bait file returned 0 bytes")
+	// A guessed name NOT in the listing must 404 (no fabrication).
+	resp = sendRecv(t, conn, buildTestPacket(CmdCreate, sessionID, treeID, next(), buildCreateBody(`zzz_not_listed_zzz`)))
+	if respStatus(resp) != StatusObjectNotFound {
+		t.Fatalf("guessed name: want %#x, got %#x", StatusObjectNotFound, respStatus(resp))
 	}
 }

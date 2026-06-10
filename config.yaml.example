@@ -129,21 +129,25 @@ smb_honeypot:
                         # config file's directory)
                         - name: notes.txt
                           seed_file: seeds/notes.txt
+      # (d) GENERATIVE TARPIT share: advertised and listable like any real share,
+      # but its contents are generated lazily/deterministically and every generated
+      # subdirectory is itself generative — infinitely deep, discovered by NORMAL
+      # navigation (ls a share -> cd a listed folder -> ls -> ...). Guessing a name
+      # that wasn't listed returns NOT_FOUND, exactly like a real share, so there is
+      # no "nonexistent path returns data" tell.
       - name: BACKUPS
         type: disk
         remark: "Backup storage"
-        # (c) random-but-plausible layout; fixed seed => stable across restarts
-        generate:
-          seed: "backups-share-v1"
-          dirs: { min: 4, max: 8 }
-          files: { min: 2, max: 6 }
-          depth: 2
+        maze: true
       - name: IPC$
         type: ipc
 
-    # (d) runtime infinite maze for any path not in the static tree. max_depth: 0
-    # is an unlimited tarpit (hangs recursive spiders); set a finite depth (e.g. 8)
-    # so ordinary tools still complete.
+    # Generation parameters for maze:true shares/dirs (the `maze: true` flag marks
+    # WHERE the tarpit is rooted; this block tunes HOW it generates).
+    # max_depth: 0 = unlimited tarpit (a full recursive crawl never terminates —
+    # maximal time-waste); set a finite depth (e.g. 8) so ordinary tools complete.
+    # `maze: true` can also be set on any directory (DirDef) to root a generative
+    # subtree inside an otherwise-static, believable share.
     maze:
       enabled: true
       max_depth: 0

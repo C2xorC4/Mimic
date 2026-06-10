@@ -30,15 +30,19 @@ func sharesFromTreeConfig(tc deception.TreeConfig) []ShareInfo {
 	out := make([]ShareInfo, 0, len(tc.Shares))
 	for _, sd := range tc.Shares {
 		var typ uint32
+		remark := sd.Remark
 		switch strings.ToLower(sd.Type) {
 		case "ipc":
 			typ = ShareTypeIPC | ShareTypeSpecial
+			if remark == "" {
+				remark = "Remote IPC" // match a real Windows IPC$ remark
+			}
 		case "disk_special":
 			typ = ShareTypeDisk | ShareTypeSpecial
 		default: // "disk" or unset
 			typ = ShareTypeDisk
 		}
-		out = append(out, ShareInfo{Name: sd.Name, Type: typ, Remark: sd.Remark})
+		out = append(out, ShareInfo{Name: sd.Name, Type: typ, Remark: remark})
 	}
 	return out
 }
