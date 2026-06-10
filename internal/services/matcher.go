@@ -18,6 +18,7 @@ type compiledProbe struct {
 	hexPrefix   []byte   // Hex-decoded prefix bytes for matching
 	hasWildcard bool     // Whether pattern contains wildcards
 	segments    [][]byte // For patterns with wildcards: segments between wildcards
+	contains    []byte   // If set, match when data contains these bytes anywhere
 }
 
 // NewProbeMatcher creates a new probe matcher from probe configurations.
@@ -36,6 +37,10 @@ func NewProbeMatcher(probes []config.ProbeConfig, options map[string]string) (*P
 		}
 
 		cp := compiledProbe{config: probe}
+
+		if probe.Signature.Contains != "" {
+			cp.contains = parseHexPattern(probe.Signature.Contains)
+		}
 
 		if probe.Signature.Pattern != "" {
 			// Parse pattern - supports hex escapes and '.' as single-byte wildcard
@@ -139,6 +144,12 @@ func (pm *ProbeMatcher) matchProbe(probe *compiledProbe, data []byte) bool {
 		return false
 	}
 
+	// Substring match (ignores offset) — for protocols where the discriminator
+	// appears mid-stream (e.g. a command inside RESP framing).
+	if len(probe.contains) > 0 {
+		return bytes.Contains(data, probe.contains)
+	}
+
 	// Apply offset
 	searchData := data
 	if sig.Offset > 0 {
@@ -155,7 +166,14 @@ func (pm *ProbeMatcher) matchProbe(probe *compiledProbe, data []byte) bool {
 		return bytes.HasPrefix(searchData, probe.hexPrefix)
 	}
 
-	// No pattern = match by length only
+	// No pattern. A probe with no pattern AND no minimum length is a connect
+	// banner (server-speaks-first greeting): it matches only the empty connect
+	// buffer, never real client data — so it can't shadow command probes or get
+	// re-sent when a client speaks after the banner. A no-pattern probe WITH a
+	// min/max length still matches by length (e.g. a fixed-size binary record).
+	if sig.MinLength == 0 && len(data) > 0 {
+		return false
+	}
 	return true
 }
 

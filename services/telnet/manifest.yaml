@@ -1,0 +1,26 @@
+# Telnet service — Tier 1 (server-first banner + login prompt; per-OS).
+#
+# Sends IAC option negotiation + a login banner + "login: " on connect. That is
+# the recon surface (banner grab); the interactive login loop / fake shell is a
+# Tier-2 follow-on. Banner probes are empty-pattern connect banners (the matcher
+# treats no-pattern/no-min-length probes as connect-only, so post-banner client
+# input is not echoed the banner back).
+
+name: telnet
+port: 23
+protocol: tcp
+stateful: false
+speaks_first: true
+
+probes:
+  - name: telnet_banner_linux
+    signature: { pattern: '', offset: 0, min_length: 0 }
+    response_file: responses/banner_linux.bin
+    requires: { os_family: "linux" }
+  - name: telnet_banner_windows
+    signature: { pattern: '', offset: 0, min_length: 0 }
+    response_file: responses/banner_windows.bin
+    requires: { os_family: "windows" }
+  - name: telnet_banner_generic
+    signature: { pattern: '', offset: 0, min_length: 0 }
+    response_file: responses/banner_generic.bin

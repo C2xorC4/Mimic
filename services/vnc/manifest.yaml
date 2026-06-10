@@ -1,0 +1,38 @@
+# VNC service — Tier 1 (RFB 6143 handshake; not OS-specific — VNC-server-specific).
+#
+# Server-speaks-first: on connect the server sends its RFB ProtocolVersion. The
+# client echoes its version; the server offers security types (VNC Authentication).
+# If the client selects VNC auth it gets a 16-byte challenge (randomized per
+# connection) and then an authentication-failure SecurityResult. This covers what
+# recon (nmap vnc-info) and auth-attempt tools (vncviewer/hydra) exercise.
+#
+# Empty-pattern connect-banner probe is ordered LAST so it only fires on connect.
+
+name: vnc
+port: 5900
+protocol: tcp
+stateful: true
+speaks_first: true
+
+probes:
+  # client echoes "RFB 003.00x\n" -> offer security types
+  - name: vnc_client_version
+    signature: { pattern: 'RFB ', offset: 0, min_length: 12 }
+    response_file: responses/security_types.bin
+
+  # client selects VNC Authentication (single byte 0x02) -> send 16-byte challenge
+  - name: vnc_sectype_select
+    signature: { pattern: '\x02', offset: 0, min_length: 1, max_length: 1 }
+    response_file: responses/challenge.bin
+    rewrite_rules:
+      - { offset: 0, length: 16, type: random }
+
+  # client DES auth response (16 bytes) -> SecurityResult: failure
+  - name: vnc_auth_response
+    signature: { offset: 0, min_length: 16, max_length: 16 }
+    response_file: responses/authfail.bin
+
+  # connect banner (server ProtocolVersion) — EMPTY pattern, must be last
+  - name: vnc_version_banner
+    signature: { pattern: '', offset: 0, min_length: 0 }
+    response_file: responses/version.bin

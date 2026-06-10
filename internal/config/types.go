@@ -79,7 +79,8 @@ type ProbeConfig struct {
 
 // SignatureConfig defines how to identify an incoming probe
 type SignatureConfig struct {
-	Pattern   string `yaml:"pattern"`    // Regex pattern
+	Pattern   string `yaml:"pattern"`    // Hex/wildcard pattern matched at Offset (prefix)
+	Contains  string `yaml:"contains"`   // Match if data contains these bytes anywhere (\xNN ok); ignores Offset
 	Offset    int    `yaml:"offset"`     // Byte offset to start matching
 	MinLength int    `yaml:"min_length"` // Minimum packet length
 	MaxLength int    `yaml:"max_length"` // Maximum packet length

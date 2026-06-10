@@ -1,0 +1,12 @@
+$208
+# Server
+redis_version:7.0.11
+redis_git_sha1:00000000
+redis_mode:standalone
+os:Linux 5.15.0-91-generic x86_64
+arch_bits:64
+multiplexing_api:epoll
+process_id:1
+tcp_port:6379
+uptime_in_seconds:482913
+

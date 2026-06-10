@@ -1,0 +1,38 @@
+# Redis service — Tier 1 (client-first RESP command loop).
+#
+# Redis is client-speaks-first, so no connect banner; the listener reads the
+# client's command and replies, looping (stateful). Commands are matched by
+# `contains` because the verb sits inside RESP framing (e.g. *1\r\n$4\r\nINFO\r\n)
+# as well as inline ("INFO\r\n"). Presents as an UNAUTHENTICATED Redis (AUTH ->
+# "no password is set") — classic exposed-Redis bait. INFO is per-OS.
+#
+# Tier-2 later: a fake keyspace (GET/SET/KEYS/SCAN) to deepen the rabbit hole.
+
+name: redis
+port: 6379
+protocol: tcp
+stateful: true
+speaks_first: false
+
+probes:
+  - name: redis_ping
+    signature: { contains: 'PING' }
+    response_file: responses/pong.bin
+  - name: redis_info_linux
+    signature: { contains: 'INFO' }
+    response_file: responses/info_linux.bin
+    requires: { os_family: "linux" }
+  - name: redis_info_windows
+    signature: { contains: 'INFO' }
+    response_file: responses/info_windows.bin
+    requires: { os_family: "windows" }
+  - name: redis_info_generic
+    signature: { contains: 'INFO' }
+    response_file: responses/info_linux.bin
+  - name: redis_auth
+    signature: { contains: 'AUTH' }
+    response_file: responses/auth.bin
+  # catch-all for any other command (min_length 1 => not a connect banner)
+  - name: redis_unknown
+    signature: { min_length: 1 }
+    response_file: responses/unknown.bin
