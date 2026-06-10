@@ -1,5 +1,7 @@
 package config
 
+import "github.com/c2xorc4/mimic/internal/deception"
+
 // OSProfile defines the TCP/IP stack characteristics for a specific OS
 type OSProfile struct {
 	Name        string      `yaml:"name"`
@@ -80,7 +82,8 @@ type SignatureConfig struct {
 type RewriteRule struct {
 	Offset int    `yaml:"offset"`
 	Length int    `yaml:"length"`
-	Type   string `yaml:"type"` // timestamp, guid, seq, ip, port, random
+	Type   string `yaml:"type"`  // timestamp, guid, seq, ip, port, random, leak
+	Token  string `yaml:"token"` // for type=leak: the credential id to emit at Offset
 }
 
 // SMBConfig defines protocol-level SMB behavior for an OS profile
@@ -117,8 +120,40 @@ type SMBCredential struct {
 type SMBHoneypotConfig struct {
 	// AllowGuestEnum controls whether guest/null sessions may enumerate shares.
 	// Pointer so an unset value can default to true (engagement) rather than false.
-	AllowGuestEnum *bool           `yaml:"allow_guest_enum"`
-	Credentials    []SMBCredential `yaml:"credentials"`
+	AllowGuestEnum *bool `yaml:"allow_guest_enum"`
+
+	// Credentials is the legacy inline list of accounts that authenticate against
+	// the honeypot. Prefer the top-level shared pool referenced by AcceptCredentials;
+	// this is retained for backward compatibility and merged with the pool.
+	Credentials []SMBCredential `yaml:"credentials"`
+
+	// AcceptCredentials lists ids from the top-level Credentials pool that should
+	// authenticate against this honeypot. Empty means "all pool credentials".
+	AcceptCredentials []string `yaml:"accept_credentials"`
+
+	// Filesystem is the config-driven share/VFS definition. When nil, the built-in
+	// default Windows-like tree is used.
+	Filesystem *deception.TreeConfig `yaml:"filesystem"`
+}
+
+// CredentialDef is one account in the shared, top-level credential pool. The same
+// credential can authenticate against a honeypot and be "leaked" by another
+// service (see CredentialLeaks), keeping the planted and accepted values in sync.
+type CredentialDef struct {
+	ID       string `yaml:"id"`
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
+	Domain   string `yaml:"domain"`
+}
+
+// LeakDef wires a pool credential to a service that surfaces it. It validates the
+// intended leak path and lets the orchestrator inject the credential store only
+// into the services that need it; the actual emission point is a {{leak:<id>}}
+// placeholder (text) or a type=leak rewrite rule (binary) in that service.
+type LeakDef struct {
+	Cred     string `yaml:"cred"`     // CredentialDef.ID to leak
+	Via      string `yaml:"via"`      // service name that surfaces it
+	Location string `yaml:"location"` // body | header | banner | file (informational)
 }
 
 // LogConfig contains logging configuration
@@ -140,6 +175,12 @@ type AppConfig struct {
 	Logging        LogConfig         `yaml:"logging"`         // Logging configuration
 	ProfilesDir    string            `yaml:"profiles_dir"`    // Path to profiles directory
 	ServicesDir    string            `yaml:"services_dir"`    // Path to services directory
+
+	// Credentials is the shared, protocol-neutral pool of fake accounts. Honeypots
+	// reference these by id (e.g. SMBHoneypot.AcceptCredentials) and services leak
+	// them (CredentialLeaks), keeping planted and accepted values in sync.
+	Credentials     []CredentialDef `yaml:"credentials"`
+	CredentialLeaks []LeakDef       `yaml:"credential_leaks"`
 
 	// Deprecated: Use Logging.LogDir instead
 	ProbeLogFile string `yaml:"probe_log_file"` // Legacy: Path to log unmatched probes

@@ -6,20 +6,48 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/c2xorc4/mimic/internal/config"
+	"github.com/c2xorc4/mimic/internal/deception"
 )
 
 // Responder handles loading and rewriting response templates
 type Responder struct {
-	baseDir  string
-	cache    map[string][]byte
-	options  map[string]string
-	mu       sync.RWMutex
-	bootTime time.Time // fixed fake boot time for this run (used by timestamp_past)
+	baseDir   string
+	cache     map[string][]byte
+	options   map[string]string
+	mu        sync.RWMutex
+	bootTime  time.Time            // fixed fake boot time for this run (used by timestamp_past)
+	credStore *deception.CredStore // shared pool for credential-leak emission (nil = disabled)
+}
+
+// SetCredStore injects the shared credential store used to resolve {{leak:<id>}}
+// placeholders (text responses) and type=leak rewrite rules (binary slots).
+func (r *Responder) SetCredStore(s *deception.CredStore) { r.credStore = s }
+
+// leakPlaceholder matches {{leak:<id>}} in a (text) response template.
+var leakPlaceholder = regexp.MustCompile(`\{\{leak:([A-Za-z0-9_-]+)\}\}`)
+
+// applyLeak substitutes {{leak:<id>}} placeholders with "username:password" from
+// the credential store. It is length-changing, so callers must run it BEFORE any
+// fixed-offset rewrite rules — only use it on text responses (HTTP body, banners),
+// never on length-prefixed binary templates.
+func (r *Responder) applyLeak(response []byte) []byte {
+	if r.credStore == nil || !strings.Contains(string(response), "{{leak:") {
+		return response
+	}
+	out := leakPlaceholder.ReplaceAllStringFunc(string(response), func(m string) string {
+		sub := leakPlaceholder.FindStringSubmatch(m)
+		if ls, ok := r.credStore.LeakString(sub[1]); ok {
+			return ls
+		}
+		return m // unknown id: leave placeholder untouched
+	})
+	return []byte(out)
 }
 
 // NewResponder creates a new responder
@@ -60,6 +88,10 @@ func (r *Responder) GetResponse(filename string, originalProbe []byte, rules []c
 	// Make a copy to modify
 	response := make([]byte, len(template))
 	copy(response, template)
+
+	// Credential-leak substitution (text responses). Length-changing, so it runs
+	// before any fixed-offset rewrite rules.
+	response = r.applyLeak(response)
 
 	// Apply rewrite rules
 	for _, rule := range rules {
@@ -233,6 +265,26 @@ func (r *Responder) applyRule(response, probe []byte, rule *config.RewriteRule) 
 		if rule.Length >= 16 {
 			copy(response[rule.Offset:], domainBytes[:16])
 		}
+
+	case "leak":
+		// Write "username:password" for the credential id (rule.Token) into a
+		// fixed-width binary slot. Truncated to rule.Length; remaining slot bytes
+		// are zeroed. For text responses prefer the {{leak:<id>}} placeholder.
+		if r.credStore == nil {
+			return nil
+		}
+		ls, ok := r.credStore.LeakString(rule.Token)
+		if !ok {
+			return fmt.Errorf("leak: unknown credential id %q", rule.Token)
+		}
+		b := []byte(ls)
+		if len(b) > rule.Length {
+			b = b[:rule.Length]
+		}
+		for i := rule.Offset; i < end; i++ {
+			response[i] = 0
+		}
+		copy(response[rule.Offset:end], b)
 
 	default:
 		return fmt.Errorf("unknown rewrite type: %s", rule.Type)

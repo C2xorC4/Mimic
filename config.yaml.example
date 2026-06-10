@@ -66,3 +66,88 @@ profiles_dir: ./profiles
 
 # Path to services directory (default: ./services)
 services_dir: ./services
+
+# --- Shared credential pool (protocol-neutral) ---------------------------------
+# A single source of truth for fake accounts. Honeypots accept these by id, and
+# services "leak" them, so a credential discovered in (say) an HTTP body is the
+# same one that authenticates against SMB.
+credentials:
+  - id: backup_svc
+    username: svc_backup
+    password: V33m@Backup!23
+    domain: CORP
+  - id: sql_sa
+    username: sa
+    password: Adm1n@SQL2019!
+
+# --- Cross-service credential-leak wiring --------------------------------------
+# Each entry: leak this pool credential via this service at this location. The
+# emission point is a {{leak:<id>}} placeholder in the service's response (text
+# services) or a type=leak rewrite rule (binary). Location is informational.
+credential_leaks:
+  - cred: backup_svc
+    via: http
+    location: body
+  - cred: sql_sa
+    via: ssh
+    location: banner
+
+# --- Stateful SMB honeypot -----------------------------------------------------
+smb_honeypot:
+  # Allow guest/null sessions to enumerate shares (default: true).
+  allow_guest_enum: true
+
+  # Pool credential ids that authenticate against SMB. Empty => all pool creds.
+  accept_credentials: [backup_svc, sql_sa]
+
+  # Config-driven virtual filesystem. Omit this block entirely to use the built-in
+  # default Windows-like tree. Four modes can be combined:
+  #   (a) explicit shares/dirs/files   (b) seeded files (inline or from disk)
+  #   (c) randomly-generated structure  (d) runtime infinite maze (fall-through)
+  filesystem:
+    shares:
+      - name: C$
+        type: disk_special
+        remark: "Default share"
+        root:
+          dirs:
+            - name: Users
+              dirs:
+                - name: Administrator
+                  dirs:
+                    - name: Documents
+                      files:
+                        # (b) inline content with leaked-cred interpolation —
+                        # the planted cred is the SAME one SMB accepts.
+                        - name: backup_credentials.txt
+                          content: |
+                            Veeam Backup Service Account
+                            Domain: {{cred:backup_svc.domain}}
+                            Username: {{cred:backup_svc.username}}
+                            Password: {{cred:backup_svc.password}}
+                        # (b) seeded file, real content from disk (relative to the
+                        # config file's directory)
+                        - name: notes.txt
+                          seed_file: seeds/notes.txt
+      - name: BACKUPS
+        type: disk
+        remark: "Backup storage"
+        # (c) random-but-plausible layout; fixed seed => stable across restarts
+        generate:
+          seed: "backups-share-v1"
+          dirs: { min: 4, max: 8 }
+          files: { min: 2, max: 6 }
+          depth: 2
+      - name: IPC$
+        type: ipc
+
+    # (d) runtime infinite maze for any path not in the static tree. max_depth: 0
+    # is an unlimited tarpit (hangs recursive spiders); set a finite depth (e.g. 8)
+    # so ordinary tools still complete.
+    maze:
+      enabled: true
+      max_depth: 0
+      min_dirs: 3
+      max_dirs: 7
+      min_files: 2
+      max_files: 5

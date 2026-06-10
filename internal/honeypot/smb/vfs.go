@@ -5,11 +5,14 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/c2xorc4/mimic/internal/deception"
 )
 
 // File attribute constants (MS-FSCC 2.6)
 const (
 	FileAttrReadOnly  = uint32(0x00000001)
+	FileAttrHidden    = uint32(0x00000002)
 	FileAttrSystem    = uint32(0x00000004)
 	FileAttrDirectory = uint32(0x00000010)
 	FileAttrArchive   = uint32(0x00000020)
@@ -36,95 +39,92 @@ type VFS struct {
 	maze   *MazeConfig
 }
 
-// --- constructors ---
+// --- construction from the neutral deception tree ---
 
-func dirNode(name string, children ...*VFSNode) *VFSNode {
-	t := vfsBaseTime()
-	return &VFSNode{name: name, attrs: FileAttrDirectory, children: children, created: t, modified: t}
-}
-
-func fileNode(name string, attrs uint32, content []byte) *VFSNode {
-	t := vfsBaseTime()
-	if content == nil {
-		attrs |= FileAttrNormal
-	}
-	return &VFSNode{name: name, attrs: attrs, content: content, created: t, modified: t}
-}
-
-// vfsBaseTime returns a plausible Windows installation timestamp.
-func vfsBaseTime() time.Time {
-	return time.Date(2024, 9, 14, 8, 23, 11, 0, time.UTC)
-}
-
-// newDefaultVFS builds a realistic-looking Windows VFS tree.
-// mazeCfg is stored and used by resolve() for paths that fall outside the static tree.
+// newDefaultVFS builds the default Windows-like VFS by converting the neutral
+// default deception tree. mazeCfg governs resolve() fall-through for paths
+// outside the static tree.
 func newDefaultVFS(mazeCfg MazeConfig) *VFS {
-	cRoot := dirNode("",
-		dirNode("Windows",
-			dirNode("System32",
-				fileNode("ntoskrnl.exe", FileAttrSystem, nil),
-				fileNode("kernel32.dll", FileAttrSystem, nil),
-				fileNode("advapi32.dll", FileAttrSystem, nil),
-				dirNode("drivers"),
-				dirNode("config",
-					fileNode("SAM", FileAttrSystem|FileAttrReadOnly, nil),
-					fileNode("SYSTEM", FileAttrSystem|FileAttrReadOnly, nil),
-					fileNode("SECURITY", FileAttrSystem|FileAttrReadOnly, nil),
-				),
-			),
-			dirNode("Temp"),
-			dirNode("SysWOW64"),
-			dirNode("Logs",
-				dirNode("CBS"),
-				fileNode("WindowsUpdate.log", FileAttrArchive, nil),
-			),
-		),
-		dirNode("Users",
-			dirNode("Administrator",
-				dirNode("Desktop"),
-				dirNode("Documents",
-					fileNode("passwords.txt", FileAttrArchive, baitPasswords),
-					fileNode("backup_credentials.txt", FileAttrArchive, baitBackupCreds),
-				),
-				dirNode("Downloads"),
-				dirNode("AppData",
-					dirNode("Roaming"),
-					dirNode("Local"),
-				),
-			),
-			dirNode("Public",
-				dirNode("Desktop"),
-				dirNode("Documents"),
-				dirNode("Downloads"),
-			),
-		),
-		dirNode("Program Files",
-			dirNode("Common Files"),
-			dirNode("Internet Explorer"),
-			dirNode("Windows Defender"),
-			dirNode("Windows NT",
-				dirNode("Accessories"),
-			),
-		),
-		dirNode("Program Files (x86)"),
-		dirNode("ProgramData",
-			dirNode("Microsoft"),
-		),
-		fileNode("pagefile.sys", FileAttrSystem|FileAttrReadOnly, nil),
-		fileNode("hiberfil.sys", FileAttrSystem|FileAttrReadOnly, nil),
-	)
+	return vfsFromTree(deception.DefaultTree(mazeCfg))
+}
 
-	winNode := cRoot.findChild("Windows")
-
-	maze := &mazeCfg // store pointer; caller owns the value
-	return &VFS{
-		shares: map[string]*VFSNode{
-			"C$":     cRoot,
-			"ADMIN$": winNode,
-			"IPC$":   dirNode(""),
-		},
-		maze: maze,
+// newVFSFromConfig builds a config-driven VFS. store interpolates {{cred:...}}
+// placeholders in seeded file content; baseDir resolves relative seed_file paths.
+func newVFSFromConfig(tc deception.TreeConfig, store *deception.CredStore, baseDir string) (*VFS, error) {
+	tree, err := deception.BuildTree(tc, store, baseDir)
+	if err != nil {
+		return nil, err
 	}
+	return vfsFromTree(tree), nil
+}
+
+// vfsFromTree converts a neutral deception.Tree into the SMB VFS representation.
+func vfsFromTree(tree *deception.Tree) *VFS {
+	shares := make(map[string]*VFSNode, len(tree.Roots))
+	for name, root := range tree.Roots {
+		shares[name] = vfsNodeFrom(root)
+	}
+	return &VFS{shares: shares, maze: tree.Maze}
+}
+
+// vfsNodeFrom converts a neutral node (and its children, recursively) into a
+// *VFSNode, mapping the generic attribute booleans onto the SMB FILE_ATTRIBUTE_*
+// bitfield. This converter is the template a future stateful service would mirror
+// to reuse the same deception core.
+func vfsNodeFrom(n *deception.Node) *VFSNode {
+	if n == nil {
+		return nil
+	}
+	vn := &VFSNode{
+		name:      n.Name,
+		attrs:     smbAttrs(n),
+		content:   n.Content,
+		created:   n.Created,
+		modified:  n.Modified,
+		mazePath:  n.MazePath,
+		mazeDepth: n.MazeDepth,
+	}
+	if len(n.Children) > 0 {
+		vn.children = make([]*VFSNode, 0, len(n.Children))
+		for _, c := range n.Children {
+			vn.children = append(vn.children, vfsNodeFrom(c))
+		}
+	}
+	return vn
+}
+
+// vfsNodesFrom converts a slice of neutral nodes (used for maze child lists).
+func vfsNodesFrom(ns []*deception.Node) []*VFSNode {
+	out := make([]*VFSNode, 0, len(ns))
+	for _, n := range ns {
+		out = append(out, vfsNodeFrom(n))
+	}
+	return out
+}
+
+// smbAttrs maps the neutral attribute booleans onto the SMB FILE_ATTRIBUTE_*
+// bitfield, reproducing the original per-node attributes exactly.
+func smbAttrs(n *deception.Node) uint32 {
+	var a uint32
+	if n.Dir {
+		a |= FileAttrDirectory
+	}
+	if n.ReadOnly {
+		a |= FileAttrReadOnly
+	}
+	if n.System {
+		a |= FileAttrSystem
+	}
+	if n.Archive {
+		a |= FileAttrArchive
+	}
+	if n.Hidden {
+		a |= FileAttrHidden
+	}
+	if n.Normal {
+		a |= FileAttrNormal
+	}
+	return a
 }
 
 // --- tree navigation ---
@@ -200,8 +200,8 @@ func (n *VFSNode) findChild(name string) *VFSNode {
 	return nil
 }
 
-func (n *VFSNode) isDir() bool  { return n.attrs&FileAttrDirectory != 0 }
-func (n *VFSNode) size() int64  { return int64(len(n.content)) }
+func (n *VFSNode) isDir() bool { return n.attrs&FileAttrDirectory != 0 }
+func (n *VFSNode) size() int64 { return int64(len(n.content)) }
 func (n *VFSNode) allocSize() int64 {
 	if n.isDir() {
 		return 0
@@ -272,18 +272,30 @@ func nextHandleID() uint64 { return atomic.AddUint64(&globalHandleSeq, 1) }
 // --- directory entry serialization ---
 
 // buildDirEntry serializes a single directory entry for QUERY_DIRECTORY.
-// Supports FileInformationClass 3 (FileBothDirectoryInformation) and
-// 37 (FileIdBothDirectoryInformation); defaults to 3-style for others.
+// The fixed fields through FileNameLength (offset 64) are identical across the
+// FileXxxDirectoryInformation classes; only the offset of the FileName field
+// differs (the optional EaSize / ShortName / FileId blocks). We honor whichever
+// class the client requested so the FileName lands where the client parses it.
+//
+//	class 1  FileDirectoryInformation        FileName @ 64
+//	class 2  FileFullDirectoryInformation     FileName @ 68  (EaSize, no ShortName)
+//	class 3  FileBothDirectoryInformation     FileName @ 94  (EaSize + ShortName)
+//	class 37 FileIdBothDirectoryInformation   FileName @ 104 (+ Reserved2 + FileId)
+//
+// impacket's listPath (and thus netexec/smbclient/smbmap) requests class 2, so
+// defaulting non-37 classes to the class-3 offset produced blank filenames there.
 func buildDirEntry(name string, node *VFSNode, infoClass byte) []byte {
 	nameBuf := utf16LE(name)
 
-	// Fixed bytes before FileName:
-	//   class 3  (FileBothDir):   94 bytes
-	//   class 37 (FileIdBothDir): 104 bytes
 	var nameOff int
-	if infoClass == 37 {
+	switch infoClass {
+	case 1: // FileDirectoryInformation
+		nameOff = 64
+	case 2: // FileFullDirectoryInformation
+		nameOff = 68
+	case 37: // FileIdBothDirectoryInformation
 		nameOff = 104
-	} else {
+	default: // FileBothDirectoryInformation (3)
 		nameOff = 94
 	}
 
@@ -311,40 +323,3 @@ func buildDirEntry(name string, node *VFSNode, infoClass byte) []byte {
 	copy(b[nameOff:], nameBuf)
 	return b
 }
-
-// --- bait file content ---
-
-var baitPasswords = []byte(`# Network Credentials - CONFIDENTIAL
-# Last updated: 2024-09-14
-
-[Database]
-host=10.0.1.50
-user=sa
-password=Adm1n@SQL2019!
-
-[Backup Service]
-host=10.0.1.20
-user=backup_svc
-password=Backup$ecure99
-
-[vCenter]
-host=10.0.1.10
-user=administrator@vsphere.local
-password=VMware1!
-
-[Firewall]
-host=10.0.1.1
-user=admin
-password=F!rewall2024
-`)
-
-var baitBackupCreds = []byte(`Veeam Backup Service Account
-Domain: CORP
-Username: svc_backup
-Password: V33m@Backup!23
-
-SQL Backup Job
-Server: SQL-PROD-01
-User: sa
-Pass: Adm1n@SQL2019!
-`)

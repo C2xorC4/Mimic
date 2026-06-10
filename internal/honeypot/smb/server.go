@@ -17,6 +17,7 @@ import (
 	"time"
 	"unicode/utf16"
 
+	"github.com/c2xorc4/mimic/internal/deception"
 	"github.com/c2xorc4/mimic/internal/logging"
 )
 
@@ -38,6 +39,11 @@ type Config struct {
 	// Authentication model.
 	AllowGuestEnum *bool        // accept guest/null sessions and serve shares; nil → default allow
 	Credentials    []Credential // seeded fake credentials that authenticate successfully
+
+	// Config-driven content (Phase 1 deception depth).
+	Filesystem *deception.TreeConfig // nil → built-in default Windows-like tree
+	CredStore  *deception.CredStore  // shared pool; interpolates {{cred:...}} in seeded files
+	ConfigDir  string                // base dir for resolving relative seed_file paths
 }
 
 // Stats holds per-server counters.
@@ -94,6 +100,34 @@ func New(cfg Config) *Server {
 	if mazeCfg.MinDirs == 0 {
 		mazeCfg = defaultMazeConfig()
 	}
+
+	log := logging.Component("smb-honeypot")
+
+	// Build the VFS: config-driven when a Filesystem is provided, otherwise the
+	// built-in default Windows-like tree. A bad config falls back to the default
+	// rather than failing the honeypot.
+	var vfs *VFS
+	if cfg.Filesystem != nil {
+		if cfg.Filesystem.Maze.MinDirs == 0 {
+			cfg.Filesystem.Maze = mazeCfg // inherit resolved maze defaults
+		}
+		v, err := newVFSFromConfig(*cfg.Filesystem, cfg.CredStore, cfg.ConfigDir)
+		if err != nil {
+			if log != nil {
+				log.Error("config-driven VFS failed; using default tree", map[string]interface{}{"error": err.Error()})
+			}
+			vfs = newDefaultVFS(mazeCfg)
+		} else {
+			vfs = v
+			// Advertise exactly the configured shares unless the caller set them.
+			if len(cfg.Shares) == 0 {
+				cfg.Shares = sharesFromTreeConfig(*cfg.Filesystem)
+			}
+		}
+	} else {
+		vfs = newDefaultVFS(mazeCfg)
+	}
+
 	if len(cfg.Shares) == 0 {
 		cfg.Shares = defaultShares()
 	}
@@ -102,8 +136,8 @@ func New(cfg Config) *Server {
 		cfg:        cfg,
 		allowGuest: cfg.AllowGuestEnum == nil || *cfg.AllowGuestEnum, // default: allow
 		bootTime:   fakeBootTime(),
-		vfs:        newDefaultVFS(mazeCfg),
-		log:        logging.Component("smb-honeypot"),
+		vfs:        vfs,
+		log:        log,
 	}
 	s.serverGUID = generateGUID()
 	return s

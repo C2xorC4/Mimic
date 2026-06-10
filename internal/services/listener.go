@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/c2xorc4/mimic/internal/config"
+	"github.com/c2xorc4/mimic/internal/deception"
 	"github.com/c2xorc4/mimic/internal/logging"
 )
 
@@ -84,6 +85,14 @@ func NewListenerWithOptions(cfg *config.ServiceConfig, baseDir string, options m
 		jitterMaxMs: jitterMax,
 		log:         logging.Component(cfg.Name),
 	}, nil
+}
+
+// SetCredStore forwards the shared credential store to this listener's responder
+// so it can emit leaked credentials in matched responses.
+func (l *Listener) SetCredStore(s *deception.CredStore) {
+	if l.responder != nil {
+		l.responder.SetCredStore(s)
+	}
 }
 
 // SetJitter sets response timing jitter (milliseconds)

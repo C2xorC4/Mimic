@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"strings"
 	"unicode/utf16"
+
+	"github.com/c2xorc4/mimic/internal/deception"
 )
 
 // Share type flags (MS-SRVS 2.2.2.4)
@@ -18,6 +20,27 @@ type ShareInfo struct {
 	Name   string
 	Type   uint32
 	Remark string
+}
+
+// sharesFromTreeConfig derives the SRVSVC share advertisement list from the
+// config-driven filesystem, mapping each share's declared type onto the SMB share
+// type flags. This keeps NetShareEnum, isKnownShare, and lookupShareInfo consistent
+// with the VFS roots by construction.
+func sharesFromTreeConfig(tc deception.TreeConfig) []ShareInfo {
+	out := make([]ShareInfo, 0, len(tc.Shares))
+	for _, sd := range tc.Shares {
+		var typ uint32
+		switch strings.ToLower(sd.Type) {
+		case "ipc":
+			typ = ShareTypeIPC | ShareTypeSpecial
+		case "disk_special":
+			typ = ShareTypeDisk | ShareTypeSpecial
+		default: // "disk" or unset
+			typ = ShareTypeDisk
+		}
+		out = append(out, ShareInfo{Name: sd.Name, Type: typ, Remark: sd.Remark})
+	}
+	return out
 }
 
 // defaultShares returns the standard Windows administrative shares.
@@ -121,19 +144,20 @@ func encodeNetShareEnumLevel1(shares []ShareInfo) []byte {
 // Level-0 (SHARE_INFO_0): name-only — compatible with nmap's msrpctypes.lua parser.
 //
 // Wire layout (all values little-endian):
-//   Level(4)=0 + discriminant(4)=0 + ptr_container(4)
-//   [container:] count(4) + ptr_array(4)
-//   [array:] max_count(4) + N×{ptr_name(4)}
-//   [deferred name strings]
-//   TotalEntries(4) + ptr_resume(4)=0 + return_code(4)=0
+//
+//	Level(4)=0 + discriminant(4)=0 + ptr_container(4)
+//	[container:] count(4) + ptr_array(4)
+//	[array:] max_count(4) + N×{ptr_name(4)}
+//	[deferred name strings]
+//	TotalEntries(4) + ptr_resume(4)=0 + return_code(4)=0
 func encodeNetShareEnumLevel0(shares []ShareInfo) []byte {
 	var b []byte
 	ref := uint32(0x00020000)
 	nextRef := func() uint32 { r := ref; ref += 4; return r }
 
-	b = appendU32(b, 0)           // Level = 0
-	b = appendU32(b, 0)           // union discriminant = 0
-	b = appendU32(b, nextRef())   // ptr to SHARE_INFO_0_CONTAINER
+	b = appendU32(b, 0)         // Level = 0
+	b = appendU32(b, 0)         // union discriminant = 0
+	b = appendU32(b, nextRef()) // ptr to SHARE_INFO_0_CONTAINER
 
 	// SHARE_INFO_0_CONTAINER: count + pointer to array
 	b = appendU32(b, uint32(len(shares)))
@@ -209,16 +233,19 @@ func buildNetrShareGetInfoResp(sh ShareInfo, callID uint32, ctxID uint16) []byte
 // encodeNetShareGetInfoLevel1 builds the NDR stub for a NetrShareGetInfo level-1 response.
 //
 // nmap's unmarshall_srvsvc_NetShareInfo1 uses the standard NDR HEAD/BODY split:
-//   HEAD: ptr_name(4) + sharetype(4) + ptr_comment(4)
-//   BODY: deferred name string, then deferred comment string
+//
+//	HEAD: ptr_name(4) + sharetype(4) + ptr_comment(4)
+//	BODY: deferred name string, then deferred comment string
+//
 // So strings are NOT inline after each pointer — they follow all HEAD fields.
 //
 // Wire layout:
-//   Level(4)=1
-//   outer_ptr(4)=1 (non-null, referent for SHARE_INFO_1)
-//   ptr_name(4)=1  sharetype(4)  ptr_comment(4)=1|0
-//   name_wstring   [comment_wstring if comment non-empty]
-//   return_value(4)=0
+//
+//	Level(4)=1
+//	outer_ptr(4)=1 (non-null, referent for SHARE_INFO_1)
+//	ptr_name(4)=1  sharetype(4)  ptr_comment(4)=1|0
+//	name_wstring   [comment_wstring if comment non-empty]
+//	return_value(4)=0
 func encodeNetShareGetInfoLevel1(sh ShareInfo) []byte {
 	var b []byte
 	b = appendU32(b, 1) // Level = 1
@@ -246,9 +273,10 @@ func encodeNetShareGetInfoLevel1(sh ShareInfo) []byte {
 // parseNetShareGetInfoStub extracts the share name from a NetrShareGetInfo request stub.
 //
 // nmap encodes the request as:
-//   marshall_unicode_ptr(server) → ptr(4) + MaxCount(4)+Offset(4)+ActualCount(4)+chars+pad
-//   marshall_unicode(share)      → MaxCount(4)+Offset(4)+ActualCount(4)+chars+pad  (no ptr prefix)
-//   marshall_int32(level)        → Level(4)
+//
+//	marshall_unicode_ptr(server) → ptr(4) + MaxCount(4)+Offset(4)+ActualCount(4)+chars+pad
+//	marshall_unicode(share)      → MaxCount(4)+Offset(4)+ActualCount(4)+chars+pad  (no ptr prefix)
+//	marshall_int32(level)        → Level(4)
 func parseNetShareGetInfoStub(stub []byte) (shareName string, level uint32) {
 	if len(stub) < 4 {
 		return "", 0

@@ -9,6 +9,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/c2xorc4/mimic/internal/config"
+	"github.com/c2xorc4/mimic/internal/deception"
 	"github.com/c2xorc4/mimic/internal/logging"
 )
 
@@ -33,8 +34,17 @@ type Manager struct {
 	servicesDir string
 	services    map[string]*ServiceEmulator
 	options     map[string]string
+	credStore   *deception.CredStore // shared pool for credential-leak emission
 	mu          sync.RWMutex
 	log         *logging.Logger
+}
+
+// SetCredStore sets the shared credential store forwarded to each service's
+// responder, enabling {{leak:<id>}} / type=leak credential emission.
+func (m *Manager) SetCredStore(s *deception.CredStore) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.credStore = s
 }
 
 // ServiceEmulator handles emulation for a single service
@@ -123,6 +133,13 @@ func (m *Manager) StartService(name string) error {
 	listener, err := NewListenerWithOptions(svc.config, svc.responsesDir, options)
 	if err != nil {
 		return fmt.Errorf("creating listener: %w", err)
+	}
+
+	m.mu.RLock()
+	store := m.credStore
+	m.mu.RUnlock()
+	if store != nil {
+		listener.SetCredStore(store)
 	}
 
 	if err := listener.Start(); err != nil {

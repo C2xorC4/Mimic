@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/c2xorc4/mimic/internal/config"
+	"github.com/c2xorc4/mimic/internal/deception"
 	"github.com/c2xorc4/mimic/internal/ebpf"
 	honeysmb "github.com/c2xorc4/mimic/internal/honeypot/smb"
 	"github.com/c2xorc4/mimic/internal/logging"
@@ -163,6 +165,16 @@ func runMimic(cmd *cobra.Command, args []string) error {
 		profile = p
 	}
 
+	// Build the shared credential pool (used by the SMB honeypot to accept creds
+	// and by leaking services to emit them) and validate the leak wiring. seed_file
+	// paths in the SMB filesystem config resolve relative to the config file.
+	credStore := buildCredStore(appCfg.Credentials)
+	validateLeaks(appCfg)
+	configDir := "."
+	if cfgFile != "" {
+		configDir = filepath.Dir(cfgFile)
+	}
+
 	// Channel to collect errors from goroutines
 	errChan := make(chan error, 2)
 
@@ -257,6 +269,8 @@ func runMimic(cmd *cobra.Command, args []string) error {
 			defer wg.Done()
 
 			svcMgr = services.NewManager(appCfg.ServicesDir)
+			// Shared credential store so services can emit leaked creds.
+			svcMgr.SetCredStore(credStore)
 
 			// Set service options if available
 			if appCfg.ServiceOptions.NetBIOSName != "" {
@@ -306,11 +320,19 @@ func runMimic(cmd *cobra.Command, args []string) error {
 					}
 					// Auth model: guest-enum knob (nil → default allow) + seeded fake creds.
 					cfg.AllowGuestEnum = appCfg.SMBHoneypot.AllowGuestEnum
+					// Legacy inline credentials.
 					for _, c := range appCfg.SMBHoneypot.Credentials {
 						cfg.Credentials = append(cfg.Credentials, honeysmb.Credential{
 							Username: c.Username, Password: c.Password, Domain: c.Domain,
 						})
 					}
+					// Shared-pool credentials accepted by this honeypot.
+					cfg.Credentials = append(cfg.Credentials, acceptedSMBCreds(appCfg)...)
+					// Config-driven VFS + shared store for {{cred:...}} interpolation in
+					// seeded files; ConfigDir resolves relative seed_file paths.
+					cfg.Filesystem = appCfg.SMBHoneypot.Filesystem
+					cfg.CredStore = credStore
+					cfg.ConfigDir = configDir
 					honeypotSMB = honeysmb.New(cfg)
 					if err := honeypotSMB.Start(); err != nil {
 						errChan <- fmt.Errorf("starting smb_honeypot: %w", err)
@@ -403,6 +425,59 @@ func runMimic(cmd *cobra.Command, args []string) error {
 			return nil
 		}
 	}
+}
+
+// buildCredStore converts the config credential pool into the neutral store
+// shared by the SMB honeypot (accept side) and leaking services (emit side).
+func buildCredStore(defs []config.CredentialDef) *deception.CredStore {
+	creds := make([]deception.Credential, 0, len(defs))
+	for _, d := range defs {
+		creds = append(creds, deception.Credential{
+			ID: d.ID, Username: d.Username, Password: d.Password, Domain: d.Domain,
+		})
+	}
+	return deception.NewCredStore(creds)
+}
+
+// acceptedSMBCreds returns the pool credentials the SMB honeypot should accept:
+// the ids listed in AcceptCredentials, or all pool credentials when none listed.
+func acceptedSMBCreds(appCfg *config.AppConfig) []honeysmb.Credential {
+	want := appCfg.SMBHoneypot.AcceptCredentials
+	var out []honeysmb.Credential
+	for _, d := range appCfg.Credentials {
+		if len(want) > 0 && !containsStr(want, d.ID) {
+			continue
+		}
+		out = append(out, honeysmb.Credential{Username: d.Username, Password: d.Password, Domain: d.Domain})
+	}
+	return out
+}
+
+// validateLeaks logs warnings for credential_leaks that reference an unknown
+// credential id or a service that is not enabled. Leaks are advisory wiring; a
+// misconfiguration warns rather than fails.
+func validateLeaks(appCfg *config.AppConfig) {
+	ids := make(map[string]bool, len(appCfg.Credentials))
+	for _, c := range appCfg.Credentials {
+		ids[c.ID] = true
+	}
+	for _, l := range appCfg.CredentialLeaks {
+		if !ids[l.Cred] {
+			logging.Warn("credential_leak references unknown credential id", map[string]interface{}{"cred": l.Cred, "via": l.Via})
+		}
+		if !containsStr(appCfg.Services, l.Via) {
+			logging.Warn("credential_leak via a service that is not enabled", map[string]interface{}{"cred": l.Cred, "via": l.Via})
+		}
+	}
+}
+
+func containsStr(ss []string, s string) bool {
+	for _, x := range ss {
+		if x == s {
+			return true
+		}
+	}
+	return false
 }
 
 func logRunStats(mgr *services.Manager, serviceNames []string) {

@@ -37,6 +37,16 @@
   verification against config-seeded fake accounts. Intent: other services
   "leak" creds an attacker reuses against SMB. Verified: `netexec` seeded cred →
   `[+] WORKGROUP\backupadmin:...`.
+- **Phase 1 deception depth (2026-06-10):** neutral `internal/deception` core
+  (content tree, maze, shared credential store, config) extracted from the SMB
+  VFS — reusable by future stateful services. Config-driven shares/dirs/seeded
+  files (inline `{{cred:…}}` + on-disk `seed_file`), random-but-plausible
+  `generate`, runtime infinite `maze`; cross-service credential-leak loop
+  (`{{leak:<id>}}` in any text service → same cred authenticates SMB). Live-
+  validated on argus-lab (impacket SMB2: shares, seeded-file download, maze
+  determinism, cred auth; curl HTTP leak; nmap fingerprint preserved). Caught +
+  fixed a dir-listing bug — see LJM `net_smb2_query_directory_filename_offsets`
+  (impacket `listPath` uses FileFullDirectoryInformation, FileName@68).
 
 ## Known Gaps / Next Priority
 
