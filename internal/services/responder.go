@@ -2,6 +2,7 @@ package services
 
 import (
 	"bytes"
+	cryptorand "crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
@@ -174,9 +175,11 @@ func (r *Responder) applyRule(response, probe []byte, rule *config.RewriteRule) 
 		copy(response[rule.Offset:], guid[:])
 
 	case "random":
-		// Fill with random bytes
-		for i := 0; i < rule.Length; i++ {
-			response[rule.Offset+i] = byte(time.Now().UnixNano() >> (i * 8))
+		// Fill with cryptographically-random bytes (salts, challenges, nonces).
+		// Must be true random, not time-derived — a time-derived value leaves the
+		// high bytes near-constant across connections (a replay/predictability tell).
+		if _, err := cryptorand.Read(response[rule.Offset : rule.Offset+rule.Length]); err != nil {
+			return fmt.Errorf("random rewrite: %w", err)
 		}
 
 	case "seq":

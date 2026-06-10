@@ -1,0 +1,37 @@
+# MySQL service — Tier 1, capture-driven (server-first handshake).
+#
+# Built from a real MariaDB 10.11 server greeting captured on argus-lab (the
+# `mimic capture` pcap pipeline pairs client-first request/response and does not
+# yet capture server-first greetings, so the handshake bytes were taken from a
+# direct socket grab of the live server — still a real capture, not fabricated).
+#
+# MySQL is server-speaks-first: the server sends its handshake (protocol 10,
+# version, salt, capabilities, auth plugin) on connect — this is what nmap
+# mysql-info parses. The thread id and the two salt segments are randomized per
+# connection so repeated scans don't see an identical handshake (replay tell).
+# A post-greeting client packet gets a "Bad handshake" error (the honeypot does
+# not implement the auth handshake).
+#
+# This is the Linux/MariaDB greeting. A Windows MySQL (8.0.x) variant needs its
+# own capture; gate by os_family when available.
+
+name: mysql
+port: 3306
+protocol: tcp
+stateful: true
+speaks_first: true
+
+probes:
+  # client handshake-response / any post-greeting data -> Bad handshake error
+  - name: mysql_login
+    signature: { offset: 0, min_length: 1 }
+    response_file: responses/bad_handshake.bin
+
+  # server-first handshake greeting — empty pattern => connect-only, ordered last
+  - name: mysql_greeting
+    signature: { pattern: '', offset: 0, min_length: 0 }
+    response_file: responses/greeting.bin
+    rewrite_rules:
+      - { offset: 45, length: 4, type: random }   # thread id (connection id)
+      - { offset: 49, length: 8, type: random }   # auth-plugin-data part 1 (salt)
+      - { offset: 76, length: 12, type: random }  # auth-plugin-data part 2 (salt), null at 88 preserved
