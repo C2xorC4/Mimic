@@ -1,0 +1,32 @@
+# MSSQL service — Tier 1, capture-driven (TDS, client-first).
+#
+# Built from a real Microsoft SQL Server 2022 (16.0.4255) captured on argus-lab
+# via the `mimic capture` pcap pipeline (TDS is client-first — client PRELOGIN ->
+# server response — so the pipeline paired it cleanly, unlike server-first MySQL).
+#
+# Two exchanges: the client PRELOGIN (TDS type 0x12) gets the server PRELOGIN
+# response carrying the version (what nmap ms-sql-info parses); a subsequent
+# LOGIN7 (type 0x10) gets a "Login failed" error. The captured login error leaked
+# the real lab hostname in its ServerName field — scrubbed to WIN-SQLPROD01
+# (same byte length, packet still valid). Generated probe patterns over-fit the
+# exact PRELOGIN length, so they are loosened here to the TDS type byte.
+#
+# SQL Server's TDS responses are host-OS-independent (same on Windows/Linux), so
+# no os_family gating; presents as SQL Server 2022.
+
+name: mssql
+port: 1433
+protocol: tcp
+stateful: true
+speaks_first: false
+
+probes:
+  # client PRELOGIN (TDS type 0x12) -> server PRELOGIN response (version 16.0.4255)
+  - name: mssql_prelogin
+    signature: { pattern: '\x12', offset: 0, min_length: 8 }
+    response_file: responses/prelogin_response.bin
+
+  # client LOGIN7 (TDS type 0x10) -> Login failed error
+  - name: mssql_login7
+    signature: { pattern: '\x10', offset: 0, min_length: 8 }
+    response_file: responses/login_failed.bin
