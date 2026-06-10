@@ -151,3 +151,14 @@ smb_honeypot:
       max_dirs: 7
       min_files: 2
       max_files: 5
+
+# --- Stateful FTP honeypot (second service on the shared deception core) -------
+# Reuses the same neutral content tree + credential pool as smb_honeypot. With no
+# `filesystem:` here it inherits smb_honeypot.filesystem, so one definition drives
+# both services (navigate the same shares/maze, download the same seeded files,
+# and the same leaked credential authenticates here too).
+ftp_honeypot:
+  allow_anonymous: true
+  accept_credentials: [backup_svc]
+  root_share: C$
+  # filesystem: omitted => inherit smb_honeypot.filesystem

@@ -84,6 +84,60 @@ func BaseTime() time.Time {
 	return time.Date(2024, 9, 14, 8, 23, 11, 0, time.UTC)
 }
 
+// Resolve walks rootName + filePath (either separator, case-insensitive),
+// falling through to the maze for paths outside the static tree when the maze is
+// enabled. Returns nil for an unknown root or a static miss with the maze off.
+// This is the protocol-neutral resolution logic; adapters (SMB VFS, FTP) reuse it.
+func (t *Tree) Resolve(rootName, filePath string) *Node {
+	root := t.Roots[strings.ToUpper(rootName)]
+	if root == nil {
+		return nil
+	}
+	filePath = strings.TrimLeft(filePath, `\/`)
+	if filePath == "" {
+		return root
+	}
+	parts := strings.FieldsFunc(filePath, func(r rune) bool { return r == '\\' || r == '/' })
+
+	cur := root
+	pathBuf := strings.ToUpper(rootName)
+	for i, part := range parts {
+		if part == "." || part == ".." {
+			continue // '..' is resolved by callers at the command layer
+		}
+		pathBuf += `\` + part
+
+		if child := cur.FindChild(part); child != nil {
+			cur = child
+			continue
+		}
+		// Static miss — fall through to the maze if enabled.
+		if t.Maze == nil || !t.Maze.Enabled {
+			return nil
+		}
+		nextDepth := cur.MazeDepth + 1
+		if t.Maze.MaxDepth > 0 && nextDepth > t.Maze.MaxDepth {
+			return nil
+		}
+		isLast := i == len(parts)-1
+		if isLast && strings.Contains(part, ".") {
+			cur = MazeFileNode(pathBuf, part)
+		} else {
+			cur = MazeDirNode(pathBuf, part, nextDepth)
+		}
+	}
+	return cur
+}
+
+// MazeChildren returns the deterministic child list for a maze directory node,
+// or nil for a static node / disabled maze.
+func (t *Tree) MazeChildren(n *Node) []*Node {
+	if t.Maze == nil || !t.Maze.Enabled || n == nil || n.MazePath == "" {
+		return nil
+	}
+	return MazeChildren(n.MazePath, n.MazeDepth, t.Maze)
+}
+
 // --- node constructors (mirror the previous smb dirNode/fileNode behavior) ---
 
 // DirNode builds a directory node with the given children.

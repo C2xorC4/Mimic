@@ -136,6 +136,16 @@ type SMBHoneypotConfig struct {
 	Filesystem *deception.TreeConfig `yaml:"filesystem"`
 }
 
+// FtpHoneypotConfig configures the stateful FTP honeypot. Its Filesystem reuses
+// the protocol-neutral deception tree; when nil it falls back to the SMB
+// honeypot's filesystem (so one definition can drive both services).
+type FtpHoneypotConfig struct {
+	AllowAnonymous    *bool                 `yaml:"allow_anonymous"`    // nil => default allow
+	AcceptCredentials []string              `yaml:"accept_credentials"` // pool ids; empty => all
+	RootShare         string                `yaml:"root_share"`         // tree root exposed as FTP root; default C$
+	Filesystem        *deception.TreeConfig `yaml:"filesystem"`         // nil => reuse smb_honeypot.filesystem
+}
+
 // CredentialDef is one account in the shared, top-level credential pool. The same
 // credential can authenticate against a honeypot and be "leaked" by another
 // service (see CredentialLeaks), keeping the planted and accepted values in sync.
@@ -172,6 +182,7 @@ type AppConfig struct {
 	ClosedPorts    []uint16          `yaml:"closed_ports"`    // Ports that appear closed (RST on connect)
 	ServiceOptions ServiceOptions    `yaml:"service_options"` // Per-service configuration
 	SMBHoneypot    SMBHoneypotConfig `yaml:"smb_honeypot"`    // Stateful SMB honeypot settings
+	FtpHoneypot    FtpHoneypotConfig `yaml:"ftp_honeypot"`    // Stateful FTP honeypot settings
 	Logging        LogConfig         `yaml:"logging"`         // Logging configuration
 	ProfilesDir    string            `yaml:"profiles_dir"`    // Path to profiles directory
 	ServicesDir    string            `yaml:"services_dir"`    // Path to services directory

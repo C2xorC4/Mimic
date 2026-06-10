@@ -14,6 +14,7 @@ import (
 	"github.com/c2xorc4/mimic/internal/config"
 	"github.com/c2xorc4/mimic/internal/deception"
 	"github.com/c2xorc4/mimic/internal/ebpf"
+	honeyftp "github.com/c2xorc4/mimic/internal/honeypot/ftp"
 	honeysmb "github.com/c2xorc4/mimic/internal/honeypot/smb"
 	"github.com/c2xorc4/mimic/internal/logging"
 	"github.com/c2xorc4/mimic/internal/services"
@@ -297,6 +298,7 @@ func runMimic(cmd *cobra.Command, args []string) error {
 
 			// Load and start services
 			var honeypotSMB *honeysmb.Server
+			var honeypotFTP *honeyftp.Server
 			for _, svcName := range appCfg.Services {
 				if svcName == "smb_honeypot" {
 					cfg := honeysmb.Config{
@@ -341,6 +343,38 @@ func runMimic(cmd *cobra.Command, args []string) error {
 					continue
 				}
 
+				if svcName == "ftp_honeypot" {
+					allowAnon := appCfg.FtpHoneypot.AllowAnonymous == nil || *appCfg.FtpHoneypot.AllowAnonymous
+					// Filesystem falls back to the SMB honeypot's tree so one
+					// definition can drive both services.
+					fsCfg := appCfg.FtpHoneypot.Filesystem
+					if fsCfg == nil {
+						fsCfg = appCfg.SMBHoneypot.Filesystem
+					}
+					fcfg := honeyftp.Config{
+						CredStore:         credStore,
+						AcceptCredentials: appCfg.FtpHoneypot.AcceptCredentials,
+						RootShare:         appCfg.FtpHoneypot.RootShare,
+						Filesystem:        fsCfg,
+						ConfigDir:         configDir,
+						AllowAnonymous:    allowAnon,
+					}
+					if profile != nil {
+						fcfg.OSName = profile.Name
+					}
+					ftpSrv, err := honeyftp.New(fcfg)
+					if err != nil {
+						errChan <- fmt.Errorf("creating ftp_honeypot: %w", err)
+						return
+					}
+					honeypotFTP = ftpSrv
+					if err := honeypotFTP.Start(); err != nil {
+						errChan <- fmt.Errorf("starting ftp_honeypot: %w", err)
+						return
+					}
+					continue
+				}
+
 				if err := svcMgr.LoadService(svcName); err != nil {
 					errChan <- fmt.Errorf("loading service %s: %w", svcName, err)
 					return
@@ -358,6 +392,9 @@ func runMimic(cmd *cobra.Command, args []string) error {
 			svcMgr.StopAll()
 			if honeypotSMB != nil {
 				honeypotSMB.Stop()
+			}
+			if honeypotFTP != nil {
+				honeypotFTP.Stop()
 			}
 		}()
 	}
