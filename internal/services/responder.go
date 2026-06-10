@@ -1,6 +1,7 @@
 package services
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
@@ -265,6 +266,16 @@ func (r *Responder) applyRule(response, probe []byte, rule *config.RewriteRule) 
 		if rule.Length >= 16 {
 			copy(response[rule.Offset:], domainBytes[:16])
 		}
+
+	case "http_date":
+		// Overwrite the value of the HTTP Date header with the current time
+		// (RFC1123/GMT, fixed 29 bytes). Search-based, so Offset/Length are
+		// ignored — works regardless of where Date sits in the response.
+		now := time.Now().UTC().Format("Mon, 02 Jan 2006 15:04:05") + " GMT" // 29 chars
+		if idx := bytes.Index(response, []byte("Date: ")); idx >= 0 && idx+6+len(now) <= len(response) {
+			copy(response[idx+6:idx+6+len(now)], now)
+		}
+		return nil
 
 	case "leak":
 		// Write "username:password" for the credential id (rule.Token) into a

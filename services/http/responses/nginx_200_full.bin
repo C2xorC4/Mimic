@@ -1,0 +1,16 @@
+HTTP/1.1 200 OK
+Server: nginx/1.18.0 (Ubuntu)
+Date: Xxx, 00 Xxx 0000 00:00:00 GMT
+Content-Type: text/html
+Content-Length: 286
+Connection: keep-alive
+
+<!DOCTYPE html>
+<html>
+<head><title>Welcome to nginx!</title></head>
+<body>
+<h1>Welcome to nginx!</h1>
+<p>If you see this page, the nginx web server is successfully installed and working. Further configuration is required.</p>
+<p><em>Thank you for using nginx.</em></p>
+</body>
+</html>
