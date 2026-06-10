@@ -1,0 +1,73 @@
+# SMTP service — Tier 1 (variable canned, multi-verb command loop).
+#
+# Server-speaks-first (220 greeting on connect) + stateful so the listener handles
+# the SMTP command loop (EHLO/MAIL/RCPT/DATA/QUIT/...). Per-OS banner + EHLO
+# capabilities are gated by os_family (Windows -> Microsoft ESMTP; Linux -> Postfix)
+# so the mailer matches the emulated OS.
+#
+# Ordering matters: verb probes (non-empty patterns) come FIRST; the connect-banner
+# probes have an EMPTY pattern (match any data) and MUST be last, so they only fire
+# for the empty-buffer connect match and never shadow a real command.
+
+name: smtp
+port: 25
+protocol: tcp
+stateful: true
+speaks_first: true
+
+probes:
+  # --- command verbs (matched per exchange) ---
+  - name: smtp_ehlo_windows
+    signature: { pattern: 'EHLO', offset: 0, min_length: 4 }
+    response_file: responses/ehlo_windows.bin
+    requires: { os_family: "windows" }
+  - name: smtp_ehlo_linux
+    signature: { pattern: 'EHLO', offset: 0, min_length: 4 }
+    response_file: responses/ehlo_linux.bin
+    requires: { os_family: "linux" }
+  - name: smtp_ehlo_generic
+    signature: { pattern: 'EHLO', offset: 0, min_length: 4 }
+    response_file: responses/ehlo_linux.bin
+  - name: smtp_helo
+    signature: { pattern: 'HELO', offset: 0, min_length: 4 }
+    response_file: responses/helo_ok.bin
+  - name: smtp_mail
+    signature: { pattern: 'MAIL', offset: 0, min_length: 4 }
+    response_file: responses/ok_250.bin
+  - name: smtp_rcpt
+    signature: { pattern: 'RCPT', offset: 0, min_length: 4 }
+    response_file: responses/ok_250.bin
+  - name: smtp_data
+    signature: { pattern: 'DATA', offset: 0, min_length: 4 }
+    response_file: responses/data_354.bin
+  - name: smtp_data_end
+    signature: { pattern: '\x2e\x0d\x0a', offset: 0, min_length: 3, max_length: 3 }
+    response_file: responses/queued_250.bin
+  - name: smtp_rset
+    signature: { pattern: 'RSET', offset: 0, min_length: 4 }
+    response_file: responses/ok_250.bin
+  - name: smtp_noop
+    signature: { pattern: 'NOOP', offset: 0, min_length: 4 }
+    response_file: responses/ok_250.bin
+  - name: smtp_vrfy
+    signature: { pattern: 'VRFY', offset: 0, min_length: 4 }
+    response_file: responses/vrfy_252.bin
+  - name: smtp_auth
+    signature: { pattern: 'AUTH', offset: 0, min_length: 4 }
+    response_file: responses/auth_535.bin
+  - name: smtp_quit
+    signature: { pattern: 'QUIT', offset: 0, min_length: 4 }
+    response_file: responses/quit_221.bin
+
+  # --- connect banner (EMPTY pattern — must remain last) ---
+  - name: smtp_banner_windows
+    signature: { pattern: '', offset: 0, min_length: 0 }
+    response_file: responses/banner_windows.bin
+    requires: { os_family: "windows" }
+  - name: smtp_banner_linux
+    signature: { pattern: '', offset: 0, min_length: 0 }
+    response_file: responses/banner_linux.bin
+    requires: { os_family: "linux" }
+  - name: smtp_banner_generic
+    signature: { pattern: '', offset: 0, min_length: 0 }
+    response_file: responses/banner_generic.bin

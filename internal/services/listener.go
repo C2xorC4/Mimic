@@ -369,6 +369,8 @@ func (l *Listener) handleStatefulConversation(conn net.Conn, remoteAddr string) 
 
 		atomic.AddUint64(&l.stats.ProbesMatched, 1)
 		logging.LogProbeMatched(l.config.Name, l.config.Port, l.config.Protocol, remoteAddr, match.Name, probe)
+		l.emit(remoteAddr, events.Event{Type: events.Probe, Message: l.config.Name + " command",
+			Fields: map[string]interface{}{"probe": match.Name}})
 
 		response, err := l.responder.GetResponse(match.ResponseFile, probe, match.RewriteRules)
 		if err != nil || len(response) == 0 {
