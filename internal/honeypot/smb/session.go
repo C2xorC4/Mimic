@@ -8,29 +8,39 @@ import "sync"
 type SessionState int
 
 const (
-	StateNew          SessionState = iota // TCP connected, no SMB exchange yet
-	StateNegotiated                       // NEGOTIATE complete
-	StateSetupPending                     // SESSION_SETUP round 1 sent (challenge issued)
-	StateAuthenticated                    // SESSION_SETUP round 2 accepted
+	StateNew           SessionState = iota // TCP connected, no SMB exchange yet
+	StateNegotiated                        // NEGOTIATE complete
+	StateSetupPending                      // SESSION_SETUP round 1 sent (challenge issued)
+	StateAuthenticated                     // SESSION_SETUP round 2 accepted
 )
 
 // Session tracks the SMB2 state for a single TCP connection.
 // One connection = one session (multi-session per connection is not emulated).
 type Session struct {
-	id        uint64               // assigned on SESSION_SETUP round 1
+	id        uint64 // assigned on SESSION_SETUP round 1
 	state     SessionState
-	challenge [8]byte              // server challenge sent in round 1
-	trees     map[uint32]string    // treeID → UNC path
-	nextTree  uint32               // monotonically incrementing tree ID counter
+	dialect   uint16                 // negotiated SMBv2 dialect (set during NEGOTIATE)
+	challenge [8]byte                // server challenge sent in round 1
+	trees     map[uint32]string      // SMBv2 treeID → UNC path
+	nextTree  uint32                 // monotonically incrementing tree ID counter
 	handles   map[uint64]*FileHandle // volatile FileId → open handle
-	mu        sync.Mutex
+
+	// SMBv1 state (TID=uint16, FID=uint16 by protocol spec)
+	smb1Trees   map[uint16]string
+	smb1Handles map[uint16]*PipeState
+	smb1NextTID uint16
+	smb1NextFID uint16
+
+	mu sync.Mutex
 }
 
 func newSession() *Session {
 	return &Session{
-		trees:   make(map[uint32]string),
-		handles: make(map[uint64]*FileHandle),
-		state:   StateNew,
+		trees:       make(map[uint32]string),
+		handles:     make(map[uint64]*FileHandle),
+		smb1Trees:   make(map[uint16]string),
+		smb1Handles: make(map[uint16]*PipeState),
+		state:       StateNew,
 	}
 }
 
@@ -50,6 +60,12 @@ func (s *Session) setChallenge(c [8]byte) {
 	s.mu.Lock()
 	s.challenge = c
 	s.mu.Unlock()
+}
+
+func (s *Session) getChallenge() [8]byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.challenge
 }
 
 // allocTree registers a new tree connection and returns the assigned tree ID.
@@ -80,6 +96,16 @@ func (s *Session) treePathFor(treeID uint32) string {
 func (s *Session) allocHandle(node *VFSNode, shareName string) uint64 {
 	id := nextHandleID()
 	h := &FileHandle{node: node, shareName: shareName}
+	s.mu.Lock()
+	s.handles[id] = h
+	s.mu.Unlock()
+	return id
+}
+
+// allocPipeHandle registers a named-pipe handle and returns its volatile FileId.
+func (s *Session) allocPipeHandle(pipe *PipeState) uint64 {
+	id := nextHandleID()
+	h := &FileHandle{pipe: pipe}
 	s.mu.Lock()
 	s.handles[id] = h
 	s.mu.Unlock()

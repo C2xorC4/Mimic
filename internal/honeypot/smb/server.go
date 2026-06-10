@@ -22,10 +22,22 @@ import (
 
 // Config holds honeypot server configuration.
 type Config struct {
-	Port         uint16     // default 445
-	ComputerName string     // NTLM target name / NetBIOS computer name
-	DomainName   string     // NTLM domain / workgroup
-	Maze         MazeConfig // zero value → defaultMazeConfig() applied
+	Port         uint16      // default 445
+	ComputerName string      // NTLM target name / NetBIOS computer name
+	DomainName   string      // NTLM domain / workgroup
+	Maze         MazeConfig  // zero value → defaultMazeConfig() applied
+	Shares       []ShareInfo // shares advertised via SRVSVC; nil → defaultShares()
+
+	// Protocol behaviour, driven by the emulated OS profile.
+	MaxDialect      uint16 // highest SMB2 dialect to negotiate; 0 → dialect311. dialectSMB1 → SMBv1 only.
+	SMB1Enabled     bool   // whether the legacy SMBv1 stack answers (XP–8.1, Win10 w/ SMB1 feature)
+	SigningRequired bool   // advertise SMB2_NEGOTIATE_SIGNING_REQUIRED (advertisement only)
+	OSName          string // e.g. "Windows 11" — for NativeOS strings
+	OSVersion       string // e.g. "10.0.22000" — for NativeOS strings
+
+	// Authentication model.
+	AllowGuestEnum *bool        // accept guest/null sessions and serve shares; nil → default allow
+	Credentials    []Credential // seeded fake credentials that authenticate successfully
 }
 
 // Stats holds per-server counters.
@@ -38,10 +50,12 @@ type Stats struct {
 
 // Server is the SMB2 honeypot TCP listener.
 type Server struct {
-	cfg          Config
-	serverGUID   [16]byte
-	bootTime     time.Time
+	cfg           Config
+	serverGUID    [16]byte
+	bootTime      time.Time
 	nextSessionID uint64 // atomic
+
+	allowGuest bool // resolved from cfg.AllowGuestEnum (nil → true)
 
 	vfs *VFS
 	log *logging.Logger
@@ -72,16 +86,24 @@ func New(cfg Config) *Server {
 		cfg.DomainName = "WORKGROUP"
 	}
 
+	if cfg.MaxDialect == 0 {
+		cfg.MaxDialect = dialect311 // default to a modern Windows 10/11 host
+	}
+
 	mazeCfg := cfg.Maze
 	if mazeCfg.MinDirs == 0 {
 		mazeCfg = defaultMazeConfig()
 	}
+	if len(cfg.Shares) == 0 {
+		cfg.Shares = defaultShares()
+	}
 
 	s := &Server{
-		cfg:      cfg,
-		bootTime: fakeBootTime(),
-		vfs:      newDefaultVFS(mazeCfg),
-		log:      logging.Component("smb-honeypot"),
+		cfg:        cfg,
+		allowGuest: cfg.AllowGuestEnum == nil || *cfg.AllowGuestEnum, // default: allow
+		bootTime:   fakeBootTime(),
+		vfs:        newDefaultVFS(mazeCfg),
+		log:        logging.Component("smb-honeypot"),
 	}
 	s.serverGUID = generateGUID()
 	return s
@@ -185,6 +207,53 @@ func (s *Server) handleConn(conn net.Conn) {
 			return
 		}
 
+		// SMBv1 dispatch — covers negotiate/session-setup (for smb-os-discovery) and
+		// the full post-auth path (tree-connect, NT-create, write, read) needed by
+		// smb-enum-shares and other tools that stay on the SMBv1 protocol.
+		if len(frame) >= 9 && frame[4] == 0xFF && frame[5] == 'S' && frame[6] == 'M' && frame[7] == 'B' {
+			h1, ok1 := parseSMB1Header(frame)
+			if !ok1 {
+				continue
+			}
+			var resp []byte
+			switch h1.command {
+			case 0x72: // COM_NEGOTIATE
+				resp = s.handleSMBv1Negotiate(sess, frame)
+			case 0x73: // COM_SESSION_SETUP_ANDX
+				resp = s.handleSMBv1SessionSetup(sess)
+			case smb1CmdTreeConnect:
+				resp = s.handleSMBv1TreeConnect(sess, frame, h1.uid)
+			case smb1CmdNTCreateAndX:
+				resp = s.handleSMBv1NTCreateAndX(sess, frame, h1)
+			case smb1CmdWriteAndX:
+				resp = s.handleSMBv1WriteAndX(sess, frame, h1)
+			case smb1CmdReadAndX:
+				resp = s.handleSMBv1ReadAndX(sess, frame, h1)
+			case smb1CmdClose:
+				resp = s.handleSMBv1Close(sess, frame, h1)
+			case smb1CmdTreeDisconnect:
+				resp = s.handleSMBv1TreeDisconnect(sess, frame, h1)
+			case 0x74: // COM_LOGOFF_ANDX
+				resp = buildSMB1Response(0x74, 0, h1.tid, h1.uid, []byte{0xFF, 0x00, 0x00, 0x00}, nil)
+			case 0x06: // COM_DELETE — return OBJECT_NAME_NOT_FOUND (pipes can't be deleted as files)
+				resp = buildSMB1Response(0x06, 0xC0000034, h1.tid, h1.uid, nil, nil)
+			case 0x25: // COM_TRANSACTION — used by impacket for TransactNamedPipe (write+read combined)
+				resp = s.handleSMBv1Transaction(sess, frame, h1)
+			default:
+				if s.log != nil {
+					s.log.Debug("SMBv1 unhandled command", map[string]interface{}{
+						"cmd": fmt.Sprintf("0x%02x", h1.command), "tid": h1.tid,
+					})
+				}
+				resp = buildSMB1Response(h1.command, 0xC0000002, h1.tid, h1.uid, nil, nil) // STATUS_NOT_IMPLEMENTED
+			}
+			if resp != nil {
+				conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+				conn.Write(resp) //nolint:errcheck
+			}
+			continue
+		}
+
 		if len(frame) < pktHdrLen {
 			continue // keep-alive or stub
 		}
@@ -199,7 +268,7 @@ func (s *Server) handleConn(conn net.Conn) {
 
 		switch hdr.Command {
 		case CmdNegotiate:
-			response = s.handleNegotiate(sess, hdr)
+			response = s.handleNegotiate(sess, hdr, body)
 
 		case CmdSessionSetup:
 			response = s.handleSessionSetup(sess, hdr, body, frame)
@@ -231,6 +300,12 @@ func (s *Server) handleConn(conn net.Conn) {
 		case CmdRead:
 			response = s.handleRead(sess, hdr, body)
 
+		case CmdWrite:
+			response = s.handleWrite(sess, hdr, body, frame)
+
+		case CmdIOCtl:
+			response = s.handleIOCtl(sess, hdr, body, frame)
+
 		default:
 			response = buildPacket(hdr, StatusAccessDenied, sess.id, hdr.TreeID, buildErrorBody())
 		}
@@ -246,34 +321,7 @@ func (s *Server) handleConn(conn net.Conn) {
 	}
 }
 
-// handleNegotiate builds an SMB 2.1 NEGOTIATE response.
-// We advertise dialect 0x0210 for simplicity (no NegotiateContexts required).
-func (s *Server) handleNegotiate(sess *Session, req smb2Header) []byte {
-	sess.setState(StateNegotiated)
-	spnego := buildSPNEGONegotiateToken()
-
-	// Body: 64 bytes fixed + security buffer
-	body := make([]byte, 64+len(spnego))
-
-	binary.LittleEndian.PutUint16(body[0:2], 65)     // StructureSize (must be 65)
-	binary.LittleEndian.PutUint16(body[2:4], 0x0210) // DialectRevision: SMB 2.1
-	// [4:6]  NegotiateContextCount = 0 (reserved in 2.1)
-	// [6:8]  Reserved
-	copy(body[8:24], s.serverGUID[:])
-	binary.LittleEndian.PutUint32(body[24:28], 0x00000079) // Capabilities
-	binary.LittleEndian.PutUint32(body[28:32], 8388608)    // MaxTransactSize
-	binary.LittleEndian.PutUint32(body[32:36], 8388608)    // MaxReadSize
-	binary.LittleEndian.PutUint32(body[36:40], 8388608)    // MaxWriteSize
-	copy(body[40:48], windowsFiletime(time.Now()))         // SystemTime
-	copy(body[48:56], windowsFiletime(s.bootTime))         // ServerStartTime
-	// SecurityBufferOffset: from SMB2 header start (64) + body fixed (64) = 128
-	binary.LittleEndian.PutUint16(body[56:58], 128)
-	binary.LittleEndian.PutUint16(body[58:60], uint16(len(spnego)))
-	// [60:64] NegotiateContextOffset = 0
-	copy(body[64:], spnego)
-
-	return buildPacket(req, StatusSuccess, 0, 0, body)
-}
+// handleNegotiate and handleSMBv1Negotiate are in negotiate.go.
 
 // handleSessionSetup dispatches to round-1 (NTLM negotiate → challenge) or
 // round-2 (NTLM auth → accept) based on the NTLMSSP message type embedded in
@@ -283,8 +331,13 @@ func (s *Server) handleSessionSetup(sess *Session, req smb2Header, body []byte, 
 	ntlm := findNTLMBlob(secBuf)
 
 	if ntlm == nil || len(ntlm) < 12 {
-		// No recognizable NTLMSSP — return logon failure
-		return buildPacket(req, StatusLogonFailure, sess.id, 0, buildSessionSetupBody(nil))
+		// No NTLMSSP magic found.  If the security buffer is empty the client
+		// is doing an anonymous/null bind (smbmap -u '' with some impacket paths,
+		// older SMB clients).  Accept as guest so the session proceeds.
+		if len(secBuf) == 0 {
+			return s.doAnonymous(sess, req)
+		}
+		return buildPacket(req, StatusLogonFailure, sess.id, 0, buildSessionSetupBody(0, nil))
 	}
 
 	msgType := binary.LittleEndian.Uint32(ntlm[8:12])
@@ -294,7 +347,7 @@ func (s *Server) handleSessionSetup(sess *Session, req smb2Header, body []byte, 
 	case 3: // NTLMSSP_AUTH
 		return s.doAccept(sess, req, ntlm)
 	default:
-		return buildPacket(req, StatusLogonFailure, sess.id, 0, buildSessionSetupBody(nil))
+		return buildPacket(req, StatusLogonFailure, sess.id, 0, buildSessionSetupBody(0, nil))
 	}
 }
 
@@ -316,11 +369,17 @@ func (s *Server) doChallenge(sess *Session, req smb2Header) []byte {
 	ntlmChallenge := buildNTLMChallenge(s.cfg.ComputerName, s.cfg.DomainName, challenge)
 	spnego := buildSPNEGOChallengeToken(ntlmChallenge)
 
-	return buildPacket(req, StatusMoreProcessing, sessID, 0, buildSessionSetupBody(spnego))
+	return buildPacket(req, StatusMoreProcessing, sessID, 0, buildSessionSetupBody(0, spnego))
 }
 
-// doAccept handles SESSION_SETUP round 2: parse credentials, log them, and
-// return STATUS_SUCCESS with an empty security buffer.
+// doAccept handles SESSION_SETUP round 2 (NTLMSSP_AUTH). It always logs the
+// captured NTLM material (a honeypot feature), then decides the session outcome:
+//
+//   - A username that matches a seeded credential AND whose NTLMv2 proof verifies →
+//     a real authenticated session (no guest flag).
+//   - A null/empty username, or a username with no/failed credential match → guest
+//     session when AllowGuestEnum is set (plausibly-misconfigured host that serves the
+//     maze); otherwise STATUS_LOGON_FAILURE, like a locked-down modern Windows box.
 func (s *Server) doAccept(sess *Session, req smb2Header, ntlmBlob []byte) []byte {
 	// Defensive: ensure session ID is assigned even if round 1 was skipped
 	sess.mu.Lock()
@@ -336,14 +395,56 @@ func (s *Server) doAccept(sess *Session, req smb2Header, ntlmBlob []byte) []byte
 			s.log.Warn("NTLM parse error", map[string]interface{}{"error": err.Error()})
 		}
 	} else {
-		s.logCreds(sessID, creds)
+		s.logCreds(sessID, creds) // capture the hash regardless of the auth outcome
 		atomic.AddUint64(&s.stats.credentials, 1)
 	}
 
+	// Seeded-credential check: a real username with a verifying NTLMv2 proof gets a
+	// genuine (non-guest) session.
+	if creds != nil && creds.Username != "" {
+		if cred := matchCredential(s.cfg.Credentials, creds.Username); cred != nil {
+			if verifyCredential(*cred, creds.Username, creds.Domain, sess.getChallenge(), creds.NTResponse) {
+				atomic.AddUint64(&s.stats.authentications, 1)
+				sess.setState(StateAuthenticated)
+				if s.log != nil {
+					s.log.Info("Seeded credential accepted", map[string]interface{}{
+						"session_id": sessID, "username": creds.Username,
+					})
+				}
+				return buildPacket(req, StatusSuccess, sessID, 0,
+					buildSessionSetupBody(0, buildSPNEGOAcceptToken())) // SessionFlags=0 (real user)
+			}
+		}
+	}
+
+	// No matching credential → guest if allowed, else deny.
+	if !s.allowGuest {
+		return buildPacket(req, StatusLogonFailure, sessID, 0, buildSessionSetupBody(0, nil))
+	}
 	atomic.AddUint64(&s.stats.authentications, 1)
 	sess.setState(StateAuthenticated)
+	// SessionFlags IS_GUEST (0x0001) so clients count the session as authenticated.
+	// SPNEGO accept-completed token finalises the GSSAPI handshake (without it
+	// impacket's SMBConnection sends an immediate LOGOFF).
+	return buildPacket(req, StatusSuccess, sessID, 0, buildSessionSetupBody(0x0001, buildSPNEGOAcceptToken()))
+}
 
-	return buildPacket(req, StatusSuccess, sessID, 0, buildSessionSetupBody(nil))
+// doAnonymous handles SESSION_SETUP for clients that send an empty security buffer
+// (null/anonymous bind). Accepts as guest when AllowGuestEnum is set, else denies.
+func (s *Server) doAnonymous(sess *Session, req smb2Header) []byte {
+	sess.mu.Lock()
+	if sess.id == 0 {
+		sess.id = atomic.AddUint64(&s.nextSessionID, 1)
+	}
+	sessID := sess.id
+	sess.mu.Unlock()
+
+	if !s.allowGuest {
+		return buildPacket(req, StatusLogonFailure, sessID, 0, buildSessionSetupBody(0, nil))
+	}
+	atomic.AddUint64(&s.stats.authentications, 1)
+	sess.setState(StateAuthenticated)
+	return buildPacket(req, StatusSuccess, sessID, 0, buildSessionSetupBody(0x0001, buildSPNEGOAcceptToken()))
 }
 
 // handleTreeConnect parses the share path and returns STATUS_SUCCESS with a
@@ -355,6 +456,18 @@ func (s *Server) handleTreeConnect(sess *Session, req smb2Header, body []byte, f
 	}
 
 	sharePath := extractTreePath(body, frame)
+	shareName := shareFromTree(sharePath)
+	if !s.isKnownShare(shareName) {
+		if s.log != nil {
+			s.log.Warn("Tree connect rejected", map[string]interface{}{
+				"session_id": sess.id,
+				"raw_path":   sharePath,
+				"share_name": shareName,
+			})
+		}
+		return buildPacket(req, 0xC00000CC, sess.id, 0, buildErrorBody()) // STATUS_BAD_NETWORK_NAME
+	}
+
 	treeID := sess.allocTree(sharePath)
 	atomic.AddUint64(&s.stats.treeConnects, 1)
 
@@ -366,9 +479,14 @@ func (s *Server) handleTreeConnect(sess *Session, req smb2Header, body []byte, f
 		})
 	}
 
+	shareType := byte(0x01) // DISK
+	if strings.EqualFold(shareName, "IPC$") {
+		shareType = 0x02 // PIPE
+	}
+
 	tcBody := make([]byte, 16)
-	binary.LittleEndian.PutUint16(tcBody[0:2], 16)       // StructureSize
-	tcBody[2] = 0x01                                       // ShareType = DISK
+	binary.LittleEndian.PutUint16(tcBody[0:2], 16) // StructureSize
+	tcBody[2] = shareType
 	binary.LittleEndian.PutUint32(tcBody[4:8], 0x00000800) // ShareFlags
 	// Capabilities = 0
 	binary.LittleEndian.PutUint32(tcBody[12:16], 0x001f01ff) // MaximalAccess (full access advertised)
@@ -380,8 +498,10 @@ func (s *Server) handleTreeConnect(sess *Session, req smb2Header, body []byte, f
 
 // extractSecBuf reads the security buffer from a SESSION_SETUP request body.
 // SESSION_SETUP body: StructureSize(2) Flags(1) SecurityMode(1) Capabilities(4)
-//                     Channel(4) SecurityBufferOffset(2) SecurityBufferLength(2)
-//                     PreviousSessionId(8) Buffer(...)
+//
+//	Channel(4) SecurityBufferOffset(2) SecurityBufferLength(2)
+//	PreviousSessionId(8) Buffer(...)
+//
 // SecurityBufferOffset is from the start of the SMB2 header (packet[4]).
 func extractSecBuf(body []byte, frame []byte) []byte {
 	if len(body) < 16 {
@@ -428,11 +548,12 @@ func extractTreePath(body []byte, frame []byte) string {
 // --- response body builders ---
 
 // buildSessionSetupBody builds a SESSION_SETUP response body.
+// sessionFlags: 0x0000=normal, 0x0001=IS_GUEST, 0x0002=IS_NULL (anonymous).
 // secBuf may be nil for an empty security buffer (STATUS_SUCCESS round 2).
-func buildSessionSetupBody(secBuf []byte) []byte {
+func buildSessionSetupBody(sessionFlags uint16, secBuf []byte) []byte {
 	body := make([]byte, 8)
-	binary.LittleEndian.PutUint16(body[0:2], 9) // StructureSize
-	// SessionFlags = 0
+	binary.LittleEndian.PutUint16(body[0:2], 9)            // StructureSize
+	binary.LittleEndian.PutUint16(body[2:4], sessionFlags) // SessionFlags
 	// SecurityBufferOffset: from SMB2 header start = 64 (header) + 8 (fixed body) = 72
 	binary.LittleEndian.PutUint16(body[4:6], 72)
 	binary.LittleEndian.PutUint16(body[6:8], uint16(len(secBuf)))
@@ -476,12 +597,12 @@ func (s *Server) logCreds(sessionID uint64, c *NTLMCredentials) {
 		return
 	}
 	s.log.Info("Credentials captured", map[string]interface{}{
-		"session_id":   sessionID,
-		"domain":       c.Domain,
-		"username":     c.Username,
-		"workstation":  c.Workstation,
-		"nt_response":  hex.EncodeToString(c.NTResponse),
-		"lm_response":  hex.EncodeToString(c.LMResponse),
+		"session_id":  sessionID,
+		"domain":      c.Domain,
+		"username":    c.Username,
+		"workstation": c.Workstation,
+		"nt_response": hex.EncodeToString(c.NTResponse),
+		"lm_response": hex.EncodeToString(c.LMResponse),
 	})
 }
 
@@ -495,6 +616,20 @@ func shareFromTree(uncPath string) string {
 		return strings.ToUpper(s)
 	}
 	return strings.ToUpper(s[idx+1:])
+}
+
+// isKnownShare returns true if name matches one of the configured shares (case-insensitive).
+// IPC$ is always valid (required for MSRPC regardless of share config).
+func (srv *Server) isKnownShare(name string) bool {
+	if strings.EqualFold(name, "IPC$") {
+		return true
+	}
+	for _, sh := range srv.cfg.Shares {
+		if strings.EqualFold(sh.Name, name) {
+			return true
+		}
+	}
+	return false
 }
 
 // handleCreate opens a file or directory handle from the VFS.
@@ -525,6 +660,32 @@ func (s *Server) handleCreate(sess *Session, req smb2Header, body []byte, frame 
 	}
 
 	shareName := shareFromTree(sess.treePathFor(req.TreeID))
+
+	// Named pipes live on IPC$; bypass the VFS and allocate a pipe handle directly.
+	if strings.EqualFold(shareName, "IPC$") {
+		pipeName := canonicalizePipeName(filePath)
+		if pipeName == "" {
+			pipeName = "srvsvc" // default to SRVSVC if path is empty
+		}
+		ps := newPipeState(pipeName)
+		volatileID := sess.allocPipeHandle(ps)
+		b := make([]byte, 88)
+		binary.LittleEndian.PutUint16(b[0:2], 89)
+		binary.LittleEndian.PutUint32(b[4:8], 1) // CreateAction=FILE_OPENED
+		copy(b[8:16], windowsFiletime(s.bootTime))
+		copy(b[16:24], windowsFiletime(s.bootTime))
+		copy(b[24:32], windowsFiletime(s.bootTime))
+		copy(b[32:40], windowsFiletime(s.bootTime))
+		binary.LittleEndian.PutUint32(b[56:60], 0x00000080) // FILE_ATTRIBUTE_NORMAL
+		binary.LittleEndian.PutUint64(b[72:80], volatileID)
+		if s.log != nil {
+			s.log.Debug("Pipe open", map[string]interface{}{
+				"session_id": sess.id, "pipe": pipeName, "handle": volatileID,
+			})
+		}
+		return buildPacket(req, StatusSuccess, sess.id, req.TreeID, b)
+	}
+
 	node := s.vfs.resolve(shareName, filePath)
 	if node == nil {
 		return buildPacket(req, StatusObjectNotFound, sess.id, req.TreeID, buildErrorBody())
@@ -578,14 +739,22 @@ func (s *Server) handleClose(sess *Session, req smb2Header, body []byte) []byte 
 	// CLOSE response: StructureSize=60, fixed = 60 bytes
 	b := make([]byte, 60)
 	binary.LittleEndian.PutUint16(b[0:2], 60)
-	// Flags=0, Reserved=0
-	copy(b[8:16], windowsFiletime(node.created))
-	copy(b[16:24], windowsFiletime(node.modified))
-	copy(b[24:32], windowsFiletime(node.modified))
-	copy(b[32:40], windowsFiletime(node.modified))
-	binary.LittleEndian.PutUint64(b[40:48], uint64(node.allocSize()))
-	binary.LittleEndian.PutUint64(b[48:56], uint64(node.size()))
-	binary.LittleEndian.PutUint32(b[56:60], node.attrs)
+	if node != nil {
+		copy(b[8:16], windowsFiletime(node.created))
+		copy(b[16:24], windowsFiletime(node.modified))
+		copy(b[24:32], windowsFiletime(node.modified))
+		copy(b[32:40], windowsFiletime(node.modified))
+		binary.LittleEndian.PutUint64(b[40:48], uint64(node.allocSize()))
+		binary.LittleEndian.PutUint64(b[48:56], uint64(node.size()))
+		binary.LittleEndian.PutUint32(b[56:60], node.attrs)
+	} else {
+		// Pipe handle — node is nil; return current time as timestamps.
+		now := windowsFiletime(time.Now())
+		copy(b[8:16], now)
+		copy(b[16:24], now)
+		copy(b[24:32], now)
+		copy(b[32:40], now)
+	}
 
 	return buildPacket(req, StatusSuccess, sess.id, req.TreeID, b)
 }
@@ -712,8 +881,8 @@ func (s *Server) handleQueryInfo(sess *Session, req smb2Header, body []byte) []b
 		case 1: // FileFsVolumeInformation
 			label := utf16LE("Windows")
 			b := make([]byte, 18+len(label))
-			copy(b[0:8], windowsFiletime(vfsBaseTime()))         // VolumeCreationTime
-			binary.LittleEndian.PutUint32(b[8:12], 0x12345678)  // VolumeSerialNumber
+			copy(b[0:8], windowsFiletime(vfsBaseTime()))                // VolumeCreationTime
+			binary.LittleEndian.PutUint32(b[8:12], 0x12345678)          // VolumeSerialNumber
 			binary.LittleEndian.PutUint32(b[12:16], uint32(len(label))) // VolumeLabelLength
 			// SupportsObjects[16]=0, Reserved[17]=0
 			copy(b[18:], label)
@@ -730,8 +899,8 @@ func (s *Server) handleQueryInfo(sess *Session, req smb2Header, body []byte) []b
 		case 5: // FileFsAttributeInformation
 			fsName := utf16LE("NTFS")
 			b := make([]byte, 12+len(fsName))
-			binary.LittleEndian.PutUint32(b[0:4], 0x0002003F)        // FileSystemAttributes (NTFS)
-			binary.LittleEndian.PutUint32(b[4:8], 255)               // MaximumComponentNameLength
+			binary.LittleEndian.PutUint32(b[0:4], 0x0002003F) // FileSystemAttributes (NTFS)
+			binary.LittleEndian.PutUint32(b[4:8], 255)        // MaximumComponentNameLength
 			binary.LittleEndian.PutUint32(b[8:12], uint32(len(fsName)))
 			copy(b[12:], fsName)
 			infoBuf = b
@@ -778,6 +947,21 @@ func (s *Server) handleRead(sess *Session, req smb2Header, body []byte) []byte {
 	if h == nil {
 		return buildPacket(req, StatusInvalidParam, sess.id, req.TreeID, buildErrorBody())
 	}
+
+	// Named pipe read: return queued DCE/RPC response.
+	if h.pipe != nil {
+		data := h.pipe.Read()
+		if len(data) == 0 {
+			return buildPacket(req, StatusEndOfFile, sess.id, req.TreeID, buildErrorBody())
+		}
+		resp := make([]byte, 16)
+		binary.LittleEndian.PutUint16(resp[0:2], 17)
+		resp[2] = 80
+		binary.LittleEndian.PutUint32(resp[4:8], uint32(len(data)))
+		resp = append(resp, data...)
+		return buildPacket(req, StatusSuccess, sess.id, req.TreeID, resp)
+	}
+
 	if h.node.isDir() {
 		return buildPacket(req, StatusInvalidParam, sess.id, req.TreeID, buildErrorBody())
 	}
@@ -804,11 +988,210 @@ func (s *Server) handleRead(sess *Session, req smb2Header, body []byte) []byte {
 
 	// READ response: StructureSize=17, DataOffset=80 (64 hdr + 16 fixed body)
 	resp := make([]byte, 16)
-	binary.LittleEndian.PutUint16(resp[0:2], 17) // StructureSize
-	resp[2] = 80                                  // DataOffset (from SMB2 header start)
+	binary.LittleEndian.PutUint16(resp[0:2], 17)                // StructureSize
+	resp[2] = 80                                                // DataOffset (from SMB2 header start)
 	binary.LittleEndian.PutUint32(resp[4:8], uint32(len(data))) // DataLength
 	// DataRemaining[8:12]=0, Reserved2[12:16]=0
 	resp = append(resp, data...)
 
 	return buildPacket(req, StatusSuccess, sess.id, req.TreeID, resp)
+}
+
+// handleWrite accepts data for named-pipe handles (DCE/RPC) or silently discards
+// file writes. Returns a WRITE_RESPONSE with the byte count acknowledged.
+// WRITE request: [2:4]=DataOffset [4:8]=Length [8:16]=Offset
+//
+//	[16:24]=FileId.Persistent [24:32]=FileId.Volatile [44:48]=Flags
+//	DataOffset is from SMB2 header start (frame[4]).
+func (s *Server) handleWrite(sess *Session, req smb2Header, body []byte, frame []byte) []byte {
+	if len(body) < 48 {
+		return buildPacket(req, StatusInvalidParam, sess.id, req.TreeID, buildErrorBody())
+	}
+	writeLen := binary.LittleEndian.Uint32(body[4:8])
+	volatileID := binary.LittleEndian.Uint64(body[24:32]) // FileId.Volatile (not Persistent)
+	dataOff := binary.LittleEndian.Uint16(body[2:4])      // DataOffset relative to SMB2 header start (frame[4])
+
+	h := sess.getHandle(volatileID)
+	if h == nil {
+		return buildPacket(req, StatusInvalidParam, sess.id, req.TreeID, buildErrorBody())
+	}
+
+	if h.pipe != nil {
+		start := int(4) + int(dataOff)
+		end := start + int(writeLen)
+		if end <= len(frame) {
+			h.pipe.Write(frame[start:end], s.cfg.Shares)
+		}
+	}
+
+	// WRITE response: StructureSize=17, Count=writeLen
+	resp := make([]byte, 16)
+	binary.LittleEndian.PutUint16(resp[0:2], 17)
+	binary.LittleEndian.PutUint32(resp[4:8], writeLen)
+	return buildPacket(req, StatusSuccess, sess.id, req.TreeID, resp)
+}
+
+// handleIOCtl dispatches IOCTL requests. The only code we handle is
+// FSCTL_PIPE_TRANSCEIVE (0x0011C017) which combines a pipe write + read.
+// IOCTL request body: StructureSize(2) Reserved(2) CtlCode(4) FileId(16)
+//
+//	InputOffset(4) InputCount(4) MaxInputResponse(4)
+//	OutputOffset(4) OutputCount(4) MaxOutputResponse(4)
+//	Flags(4) Reserved2(4) [Buffer…]
+func (s *Server) handleIOCtl(sess *Session, req smb2Header, body []byte, frame []byte) []byte {
+	if len(body) < 56 {
+		return buildPacket(req, StatusInvalidParam, sess.id, req.TreeID, buildErrorBody())
+	}
+	ctlCode := binary.LittleEndian.Uint32(body[4:8])
+	volatileID := binary.LittleEndian.Uint64(body[24:32]) // FileId.Volatile
+
+	const fsctlPipeTransceive = uint32(0x0011C017)
+	if ctlCode != fsctlPipeTransceive {
+		// Unsupported IOCTL — return not supported
+		return buildPacket(req, StatusNotSupported, sess.id, req.TreeID, buildErrorBody())
+	}
+
+	h := sess.getHandle(volatileID)
+	if h == nil || h.pipe == nil {
+		return buildPacket(req, StatusInvalidParam, sess.id, req.TreeID, buildErrorBody())
+	}
+
+	inputOff := binary.LittleEndian.Uint32(body[32:36])
+	inputCount := binary.LittleEndian.Uint32(body[36:40])
+	var input []byte
+	if inputCount > 0 {
+		start := int(4) + int(inputOff)
+		end := start + int(inputCount)
+		if end <= len(frame) {
+			input = frame[start:end]
+		}
+	}
+
+	output := h.pipe.Transceive(input, s.cfg.Shares)
+
+	// IOCTL response: StructureSize=49, fixed body 48 bytes
+	// OutputOffset = 64 (SMB2 header) + 48 (fixed body) = 112
+	resp := make([]byte, 48)
+	binary.LittleEndian.PutUint16(resp[0:2], 49)
+	binary.LittleEndian.PutUint32(resp[4:8], ctlCode)
+	binary.LittleEndian.PutUint64(resp[16:24], volatileID) // FileId.Volatile
+	if len(output) > 0 {
+		binary.LittleEndian.PutUint32(resp[36:40], 112)                 // OutputOffset
+		binary.LittleEndian.PutUint32(resp[40:44], uint32(len(output))) // OutputCount
+	}
+	resp = append(resp, output...)
+	return buildPacket(req, StatusSuccess, sess.id, req.TreeID, resp)
+}
+
+// --- SMBv1 compatibility layer (for nmap smb.lua scripts) ---
+
+// buildSMBv1Frame constructs a NetBIOS-framed SMBv1 response packet.
+// params must be an even number of bytes (WordCount = len(params)/2).
+func buildSMBv1Frame(command byte, status uint32, uid uint16, params []byte, data []byte) []byte {
+	wordCount := byte(len(params) / 2)
+	payloadLen := 32 + 1 + len(params) + 2 + len(data)
+	buf := make([]byte, 4+payloadLen)
+
+	// NetBIOS session header (4 bytes)
+	buf[1] = byte(payloadLen >> 16)
+	buf[2] = byte(payloadLen >> 8)
+	buf[3] = byte(payloadLen)
+
+	// SMBv1 header (32 bytes starting at buf[4])
+	off := 4
+	buf[off], buf[off+1], buf[off+2], buf[off+3] = 0xFF, 'S', 'M', 'B'
+	buf[off+4] = command
+	binary.LittleEndian.PutUint32(buf[off+5:off+9], status)
+	buf[off+9] = 0x98                                         // flags: REPLY(0x80) | CANONICAL_PATHS(0x10) | CASE_INSENSITIVE(0x08)
+	binary.LittleEndian.PutUint16(buf[off+10:off+12], 0x4001) // flags2: UNICODE | LONG_NAMES
+	binary.LittleEndian.PutUint16(buf[off+28:off+30], uid)    // uid
+	off += 32
+
+	buf[off] = wordCount
+	off++
+	copy(buf[off:off+len(params)], params)
+	off += len(params)
+	binary.LittleEndian.PutUint16(buf[off:off+2], uint16(len(data)))
+	copy(buf[off+2:], data)
+
+	return buf
+}
+
+// buildSMBv1NegotiateResponse builds a legacy SMBv1 NEGOTIATE response (NT LM 0.12 selected).
+// Called for pure SMBv1-only clients that don't advertise any SMBv2 dialect.
+// Data section carries domain + server as UTF-16LE null-terminated strings (required by smb.lua).
+func (s *Server) buildSMBv1NegotiateResponse(sess *Session) []byte {
+	sess.setState(StateNegotiated)
+
+	// Parameters: 17 words = 34 bytes
+	params := make([]byte, 34)
+	binary.LittleEndian.PutUint16(params[0:2], 0)            // DialectIndex = 0
+	params[2] = 0x03                                         // SecurityMode: user-level + challenge
+	binary.LittleEndian.PutUint16(params[3:5], 50)           // MaxMPX
+	binary.LittleEndian.PutUint16(params[5:7], 1)            // MaxVC
+	binary.LittleEndian.PutUint32(params[7:11], 16644)       // MaxBufferSize
+	binary.LittleEndian.PutUint32(params[11:15], 65536)      // MaxRawBuffer
+	binary.LittleEndian.PutUint32(params[15:19], 0)          // SessionKey
+	binary.LittleEndian.PutUint32(params[19:23], 0x000000B5) // Capabilities — CAP_EXTENDED_SECURITY bit intentionally absent
+	copy(params[23:31], windowsFiletime(time.Now()))         // SystemTime
+	// TimeZone[31:33] = 0 (UTC), KeyLength[33] = 0
+
+	// Data: domain (UTF-16LE + null) + server (UTF-16LE + null).
+	// smb.lua reads these even when key_length=0; fails with [14] if absent.
+	data := append(utf16LE(s.cfg.DomainName), 0x00, 0x00)
+	data = append(data, append(utf16LE(s.cfg.ComputerName), 0x00, 0x00)...)
+
+	return buildSMBv1Frame(0x72, 0, 0, params, data)
+}
+
+// buildSMBv1NegotiateRefusal builds an SMBv1 NEGOTIATE response that accepts none
+// of the offered dialects (DialectIndex = 0xFFFF). This emulates a Windows host
+// with SMB1 removed (Win10 default / Win11 / Server 2019): the SMB1 negotiate fails,
+// and SMBv1-only tools (nmap smb-enum-shares) report "couldn't negotiate a SMBv1
+// connection" — the correct, realistic outcome for those hosts.
+func (s *Server) buildSMBv1NegotiateRefusal(sess *Session) []byte {
+	// WordCount = 1: just the DialectIndex field, set to 0xFFFF (no dialect chosen).
+	params := make([]byte, 2)
+	binary.LittleEndian.PutUint16(params[0:2], 0xFFFF)
+	return buildSMBv1Frame(0x72, 0, 0, params, nil)
+}
+
+// handleSMBv1SessionSetup responds to SMB_COM_SESSION_SETUP_ANDX with OS info strings.
+// nmap's smb-os-discovery reads NativeOS, NativeLanMan, and PrimaryDomain from here.
+func (s *Server) handleSMBv1SessionSetup(sess *Session) []byte {
+	sess.mu.Lock()
+	if sess.id == 0 {
+		sess.id = atomic.AddUint64(&s.nextSessionID, 1)
+	}
+	uid := uint16(sess.id & 0xFFFF)
+	sess.mu.Unlock()
+	sess.setState(StateAuthenticated)
+	atomic.AddUint64(&s.stats.authentications, 1)
+
+	// Parameters: 3 words = 6 bytes
+	// ANDX_CMD(1) ANDX_RSVD(1) ANDX_OFF(2) ACTION(2)
+	params := make([]byte, 6)
+	params[0] = 0xFF                                   // no further ANDX command
+	binary.LittleEndian.PutUint16(params[4:6], 0x0001) // Action = guest
+
+	// Data: NativeOS\0 NativeLanMan\0 PrimaryDomain\0
+	osStr := s.nativeOSString()
+	var data []byte
+	for _, str := range []string{osStr, osStr, s.cfg.DomainName} {
+		data = append(data, []byte(str)...)
+		data = append(data, 0x00)
+	}
+
+	return buildSMBv1Frame(0x73, 0, uid, params, data)
+}
+
+// nativeOSString derives the legacy NativeOS string ("Windows <major>.<minor>")
+// from the profile version, so smb-os-discovery reflects the emulated OS instead of
+// a hardcoded value (e.g. XP 5.1.2600 → "Windows 5.1", Win 7 → "Windows 6.1",
+// Win 11 10.0.22000 → "Windows 10.0").
+func (s *Server) nativeOSString() string {
+	if parts := strings.SplitN(s.cfg.OSVersion, ".", 3); len(parts) >= 2 {
+		return "Windows " + parts[0] + "." + parts[1]
+	}
+	return "Windows 10.0"
 }

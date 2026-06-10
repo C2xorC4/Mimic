@@ -41,6 +41,14 @@ func buildSPNEGONegotiateToken() []byte {
 	return asn1APP(0, app)
 }
 
+// buildSPNEGOAcceptToken returns a SPNEGO negTokenResp with negState=accept-completed.
+// Sent in SESSION_SETUP round 2 response so impacket's GSSAPI layer properly
+// finalises the handshake instead of treating the empty security buffer as an error.
+func buildSPNEGOAcceptToken() []byte {
+	negState := asn1CTX(0, asn1Encode(0x0a, []byte{0x00})) // accept-completed
+	return asn1CTX(1, asn1Encode(0x30, negState))
+}
+
 // buildSPNEGOChallengeToken wraps ntlmChallenge in a SPNEGO negTokenResp
 // with negState=acceptIncomplete (round 1 of NTLM exchange).
 func buildSPNEGOChallengeToken(ntlmChallenge []byte) []byte {

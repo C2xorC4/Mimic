@@ -62,9 +62,13 @@ probes:
       min_length: 50
     response_file: responses/tls_server_hello.bin
     rewrite_rules:
-      # ServerRandom (32 bytes at offset 11 in ServerHello record)
+      # ServerRandom: first 4 bytes = Unix timestamp (nmap ssl-date reads this),
+      # remaining 28 bytes = random
       - offset: 11
-        length: 32
+        length: 4
+        type: timestamp_unix
+      - offset: 15
+        length: 28
         type: random
 
   # TLS ClientHello with TLS 1.2 record version
@@ -76,5 +80,8 @@ probes:
     response_file: responses/tls_server_hello.bin
     rewrite_rules:
       - offset: 11
-        length: 32
+        length: 4
+        type: timestamp_unix
+      - offset: 15
+        length: 28
         type: random

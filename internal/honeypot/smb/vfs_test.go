@@ -10,6 +10,40 @@ import (
 	"unicode/utf16"
 )
 
+// buildSMBv1SessionSetupFrame builds a minimal SMBv1 SESSION_SETUP_ANDX frame.
+func buildSMBv1SessionSetupFrame() []byte {
+	// Parameters (13 words = 26 bytes) for SESSION_SETUP_ANDX request:
+	// ANDX_CMD(1) ANDX_RSVD(1) ANDX_OFF(2) MaxBuffer(2) MaxMPX(2) VCNum(2) SessionKey(4) LMPassLen(2) NTPassLen(2) Reserved(4) Capabilities(4)
+	params := make([]byte, 26)
+	params[0] = 0xFF                                   // ANDX no more
+	binary.LittleEndian.PutUint16(params[4:6], 0xFFFF) // MaxBuffer
+	binary.LittleEndian.PutUint16(params[6:8], 1)      // MaxMPX
+	binary.LittleEndian.PutUint16(params[8:10], 1)     // VCNum
+	binary.LittleEndian.PutUint32(params[22:26], 0x50) // Capabilities
+
+	// Data: empty LM password + empty NTLM password + username\0 + domain\0 + OS\0 + LM\0
+	data := []byte("\x00\x00\x00\x00Nmap\x00\x00Native Lanman\x00")
+
+	wordCount := byte(len(params) / 2)
+	payloadLen := 32 + 1 + len(params) + 2 + len(data)
+	buf := make([]byte, 4+payloadLen)
+	buf[1] = byte(payloadLen >> 16)
+	buf[2] = byte(payloadLen >> 8)
+	buf[3] = byte(payloadLen)
+	off := 4
+	buf[off], buf[off+1], buf[off+2], buf[off+3] = 0xFF, 'S', 'M', 'B'
+	buf[off+4] = 0x73 // COM_SESSION_SETUP_ANDX
+	buf[off+9] = 0x18 // flags
+	off += 32
+	buf[off] = wordCount
+	off++
+	copy(buf[off:off+len(params)], params)
+	off += len(params)
+	binary.LittleEndian.PutUint16(buf[off:off+2], uint16(len(data)))
+	copy(buf[off+2:], data)
+	return buf
+}
+
 // --- low-level helpers to build raw SMB2 packets in tests ---
 
 func buildTestPacket(cmd uint16, sessionID uint64, treeID uint32, msgID uint64, body []byte) []byte {
@@ -145,8 +179,8 @@ func buildNTLMType3(domain, user, workstation string, challenge [8]byte) []byte 
 	}
 
 	// LmResponse[12], NtResponse[20], Domain[28], User[36], Workstation[44]
-	putField(12, nil)    // LmResponse
-	putField(20, nil)    // NtResponse
+	putField(12, nil) // LmResponse
+	putField(20, nil) // NtResponse
 	putField(28, domBuf)
 	putField(36, userBuf)
 	putField(44, wsBuf)
@@ -216,12 +250,12 @@ func buildCreateBody(filePath string) []byte {
 	// Actually NameOffset = 64 (SMB2 hdr) + 56 (fixed CREATE body before name) = 120
 	nameBuf := utf16LE2(filePath)
 	body := make([]byte, 56)
-	binary.LittleEndian.PutUint16(body[0:2], 57)            // StructureSize
-	body[3] = 0xff                                           // RequestedOplockLevel = NO_OPLOCK
-	binary.LittleEndian.PutUint32(body[4:8], 2)             // ImpersonationLevel = Impersonation
-	binary.LittleEndian.PutUint32(body[24:28], 0x00120089)  // DesiredAccess = READ_DATA|READ_ATTRIBUTES|...
-	binary.LittleEndian.PutUint32(body[32:36], 1)           // ShareAccess = FILE_SHARE_READ
-	binary.LittleEndian.PutUint32(body[36:40], 1)           // CreateDisposition = FILE_OPEN
+	binary.LittleEndian.PutUint16(body[0:2], 57)           // StructureSize
+	body[3] = 0xff                                         // RequestedOplockLevel = NO_OPLOCK
+	binary.LittleEndian.PutUint32(body[4:8], 2)            // ImpersonationLevel = Impersonation
+	binary.LittleEndian.PutUint32(body[24:28], 0x00120089) // DesiredAccess = READ_DATA|READ_ATTRIBUTES|...
+	binary.LittleEndian.PutUint32(body[32:36], 1)          // ShareAccess = FILE_SHARE_READ
+	binary.LittleEndian.PutUint32(body[36:40], 1)          // CreateDisposition = FILE_OPEN
 	// NameOffset: 64 (SMB2 hdr start) + 56 (fixed body) = 120
 	binary.LittleEndian.PutUint16(body[44:46], 120)
 	binary.LittleEndian.PutUint16(body[46:48], uint16(len(nameBuf)))
@@ -478,6 +512,97 @@ func TestVFSResolve(t *testing.T) {
 			t.Errorf("resolve(%q, %q): expected maze node (mazePath set), got static node",
 				tc.share, tc.path)
 		}
+	}
+}
+
+// TestSMBv1NegotiateUpgrade verifies that, on an SMB1-enabled profile, a pure
+// SMBv1 COM_NEGOTIATE frame yields a native SMBv1 NEGOTIATE response (NT LM 0.12)
+// and that SMBv1 SESSION_SETUP returns OS info strings (smb-os-discovery path).
+func TestSMBv1NegotiateUpgrade(t *testing.T) {
+	// SMB1-enabled OS (e.g. Windows 7); SMB1-disabled profiles refuse this path.
+	srv := New(Config{ComputerName: "TESTBOX", DomainName: "TESTDOM", SMB1Enabled: true})
+
+	ln, err := newFreeListener()
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+
+	port := extractPort(addr)
+	srv.cfg.Port = uint16(port)
+	if err := srv.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(srv.Stop)
+
+	conn, err := dialAddr(addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { conn.Close() })
+
+	// Build a minimal SMBv1 COM_NEGOTIATE frame.
+	// Frame layout: NBT(4) + SMBv1 magic(4) + command(1) + padding(27)
+	payload := make([]byte, 32)
+	payload[0] = 0xFF
+	payload[1] = 'S'
+	payload[2] = 'M'
+	payload[3] = 'B'
+	payload[4] = 0x72 // COM_NEGOTIATE
+	smb1Frame := make([]byte, 4+len(payload))
+	smb1Frame[0] = 0x00
+	smb1Frame[1] = 0
+	smb1Frame[2] = 0
+	smb1Frame[3] = byte(len(payload))
+	copy(smb1Frame[4:], payload)
+
+	resp := sendRecv(t, conn, smb1Frame)
+
+	// Response must be a proper SMBv1 NEGOTIATE response.
+	if len(resp) < 36 {
+		t.Fatalf("SMBv1 NEGOTIATE response too short: %d bytes", len(resp))
+	}
+	if resp[4] != 0xFF || resp[5] != 'S' || resp[6] != 'M' || resp[7] != 'B' {
+		t.Fatalf("SMBv1 NEGOTIATE response has wrong magic: % x", resp[4:8])
+	}
+	if resp[8] != 0x72 {
+		t.Fatalf("SMBv1 NEGOTIATE response wrong command: %#x", resp[8])
+	}
+	if status32 := binary.LittleEndian.Uint32(resp[9:13]); status32 != 0 {
+		t.Fatalf("SMBv1 NEGOTIATE status: want 0, got %#x", status32)
+	}
+	if resp[36] != 17 {
+		t.Errorf("SMBv1 NEGOTIATE WordCount: want 17, got %d", resp[36])
+	}
+
+	// Send SMBv1 SESSION_SETUP_ANDX — server must respond with OS info strings.
+	ssBody := buildSMBv1SessionSetupFrame()
+	ssResp := sendRecv(t, conn, ssBody)
+
+	if len(ssResp) < 36+1+6+2 {
+		t.Fatalf("SMBv1 SESSION_SETUP response too short: %d bytes", len(ssResp))
+	}
+	// Check magic and command
+	if ssResp[4] != 0xFF || ssResp[5] != 'S' || ssResp[6] != 'M' || ssResp[7] != 'B' {
+		t.Fatalf("SESSION_SETUP response wrong magic: % x", ssResp[4:8])
+	}
+	if ssResp[8] != 0x73 {
+		t.Fatalf("SESSION_SETUP response wrong command: %#x", ssResp[8])
+	}
+	// Check NTSTATUS = 0
+	status32 := binary.LittleEndian.Uint32(ssResp[9:13])
+	if status32 != 0 {
+		t.Fatalf("SESSION_SETUP response status: want 0, got %#x", status32)
+	}
+	// Data starts at offset 4(NBT)+32(hdr)+1(wc)+6(params)+2(bc) = 45
+	dataOff := 4 + 32 + 1 + 6 + 2
+	if dataOff >= len(ssResp) {
+		t.Fatal("SESSION_SETUP response missing data section")
+	}
+	dataStr := string(ssResp[dataOff:])
+	if !strings.Contains(dataStr, "Windows 10.0") {
+		t.Errorf("SESSION_SETUP response data doesn't contain OS string: % x", ssResp[dataOff:])
 	}
 }
 

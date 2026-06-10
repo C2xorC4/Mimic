@@ -295,6 +295,22 @@ func runMimic(cmd *cobra.Command, args []string) error {
 					if cfg.DomainName == "" {
 						cfg.DomainName = "WORKGROUP"
 					}
+					// Drive SMB protocol behaviour from the OS profile (dialect, SMB1,
+					// signing, OS strings). nil profile → honeypot defaults (modern Win).
+					if profile != nil {
+						cfg.MaxDialect = honeysmb.DialectFromString(profile.SMB.Dialect)
+						cfg.SMB1Enabled = profile.SMB.SMB1Enabled
+						cfg.SigningRequired = profile.SMB.SigningRequired
+						cfg.OSName = profile.Name
+						cfg.OSVersion = profile.Version
+					}
+					// Auth model: guest-enum knob (nil → default allow) + seeded fake creds.
+					cfg.AllowGuestEnum = appCfg.SMBHoneypot.AllowGuestEnum
+					for _, c := range appCfg.SMBHoneypot.Credentials {
+						cfg.Credentials = append(cfg.Credentials, honeysmb.Credential{
+							Username: c.Username, Password: c.Password, Domain: c.Domain,
+						})
+					}
 					honeypotSMB = honeysmb.New(cfg)
 					if err := honeypotSMB.Start(); err != nil {
 						errChan <- fmt.Errorf("starting smb_honeypot: %w", err)
@@ -388,7 +404,6 @@ func runMimic(cmd *cobra.Command, args []string) error {
 		}
 	}
 }
-
 
 func logRunStats(mgr *services.Manager, serviceNames []string) {
 	for _, name := range serviceNames {

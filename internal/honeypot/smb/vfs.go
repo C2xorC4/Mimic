@@ -215,13 +215,15 @@ func (n *VFSNode) allocSize() int64 {
 
 // --- file handles ---
 
-// FileHandle is an open SMB2 handle (file or directory).
+// FileHandle is an open SMB2 handle (file, directory, or named pipe).
+// Exactly one of node or pipe is non-nil.
 type FileHandle struct {
 	node         *VFSNode
 	shareName    string
 	dirIdx       int        // enumeration cursor: 0=".", 1="..", 2+=children
 	offset       int64      // read offset for files
 	mazeChildren []*VFSNode // lazily populated for maze directory enumeration
+	pipe         *PipeState // non-nil for IPC$ named pipe handles
 }
 
 // effectiveChildren returns the child list to enumerate.
