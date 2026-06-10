@@ -13,6 +13,7 @@ import (
 
 	"github.com/c2xorc4/mimic/internal/config"
 	"github.com/c2xorc4/mimic/internal/deception"
+	"github.com/c2xorc4/mimic/internal/defense"
 	"github.com/c2xorc4/mimic/internal/ebpf"
 	"github.com/c2xorc4/mimic/internal/events"
 	honeyftp "github.com/c2xorc4/mimic/internal/honeypot/ftp"
@@ -147,6 +148,19 @@ func runMimic(cmd *cobra.Command, args []string) error {
 	defer events.CloseGlobal()
 	if evBus != nil {
 		logging.Info("Event pipeline active", map[string]interface{}{"sinks": evBus.Sinks()})
+
+		// Abuse detection + active response. The detector is a sink on the event
+		// bus; the blocker defaults to alert-only (dry-run) and always honors the
+		// whitelist. Enforcement is opt-in via defense.enforce.
+		defCfg := appCfg.Defense
+		defCfg.Enabled = true // detection on by default (alert-only)
+		blocker := defense.NewBlocker(defCfg)
+		evBus.AddSink(defense.NewDetector(defCfg, blocker))
+		defer blocker.Close()
+		logging.Info("Defense active", map[string]interface{}{
+			"enforce":   defCfg.Enforce,
+			"whitelist": len(defCfg.Whitelist),
+		})
 	}
 
 	// Validate required fields

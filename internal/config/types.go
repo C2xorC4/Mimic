@@ -2,6 +2,7 @@ package config
 
 import (
 	"github.com/c2xorc4/mimic/internal/deception"
+	"github.com/c2xorc4/mimic/internal/defense"
 	"github.com/c2xorc4/mimic/internal/events"
 )
 
@@ -188,6 +189,7 @@ type AppConfig struct {
 	FtpHoneypot    FtpHoneypotConfig `yaml:"ftp_honeypot"`    // Stateful FTP honeypot settings
 	Logging        LogConfig         `yaml:"logging"`         // Logging configuration
 	Events         events.Config     `yaml:"events"`          // SIEM-ingestible security-event pipeline
+	Defense        defense.Config    `yaml:"defense"`         // abuse detection + active response (alert-only by default)
 	ProfilesDir    string            `yaml:"profiles_dir"`    // Path to profiles directory
 	ServicesDir    string            `yaml:"services_dir"`    // Path to services directory
 

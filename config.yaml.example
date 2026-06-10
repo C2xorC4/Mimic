@@ -73,6 +73,23 @@ events:
     network: udp             # udp | tcp
     address: "127.0.0.1:514"
 
+# Abuse detection + active response. The detector scores each source IP over a
+# sliding window from the event stream; crossing the threshold triggers a block.
+# DEFAULT IS ALERT-ONLY (enforce: false): it emits a 'block' event ("would block")
+# and logs the intent but does NOT touch the firewall. Set enforce: true to add
+# real nftables drops (auto-expiring after block_ttl) — ALWAYS list your
+# management/SSH subnet in whitelist first to avoid locking yourself out.
+defense:
+  enabled: true
+  enforce: false             # alert-only/dry-run; true => real nft drops
+  block_ttl: "1h"            # enforced-block lifetime (nft element timeout)
+  window: "60s"              # scoring window
+  score: 12                  # score threshold that triggers a block
+  cooldown: "5m"             # minimum interval between re-blocking the same source
+  whitelist:                 # CIDRs / bare IPs never blocked — put mgmt/SSH here
+    - "127.0.0.1"
+    - "10.0.254.0/24"
+
 # Path to profiles directory (default: ./profiles)
 profiles_dir: ./profiles
 
