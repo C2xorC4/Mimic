@@ -1,6 +1,9 @@
 package config
 
-import "github.com/c2xorc4/mimic/internal/deception"
+import (
+	"github.com/c2xorc4/mimic/internal/deception"
+	"github.com/c2xorc4/mimic/internal/events"
+)
 
 // OSProfile defines the TCP/IP stack characteristics for a specific OS
 type OSProfile struct {
@@ -184,6 +187,7 @@ type AppConfig struct {
 	SMBHoneypot    SMBHoneypotConfig `yaml:"smb_honeypot"`    // Stateful SMB honeypot settings
 	FtpHoneypot    FtpHoneypotConfig `yaml:"ftp_honeypot"`    // Stateful FTP honeypot settings
 	Logging        LogConfig         `yaml:"logging"`         // Logging configuration
+	Events         events.Config     `yaml:"events"`          // SIEM-ingestible security-event pipeline
 	ProfilesDir    string            `yaml:"profiles_dir"`    // Path to profiles directory
 	ServicesDir    string            `yaml:"services_dir"`    // Path to services directory
 

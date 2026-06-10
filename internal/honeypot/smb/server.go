@@ -18,6 +18,7 @@ import (
 	"unicode/utf16"
 
 	"github.com/c2xorc4/mimic/internal/deception"
+	"github.com/c2xorc4/mimic/internal/events"
 	"github.com/c2xorc4/mimic/internal/logging"
 )
 
@@ -227,6 +228,8 @@ func (s *Server) handleConn(conn net.Conn) {
 	}
 
 	sess := newSession()
+	sess.remote = remoteAddr
+	s.emit(sess, events.Event{Type: events.Connection, Message: "SMB connection opened"})
 
 	for {
 		select {
@@ -431,6 +434,10 @@ func (s *Server) doAccept(sess *Session, req smb2Header, ntlmBlob []byte) []byte
 	} else {
 		s.logCreds(sessID, creds) // capture the hash regardless of the auth outcome
 		atomic.AddUint64(&s.stats.credentials, 1)
+		s.emit(sess, events.Event{Type: events.CredCapture, Severity: events.SevAlert, Message: "SMB NTLM credential captured",
+			Fields: map[string]interface{}{
+				"username": creds.Username, "domain": creds.Domain, "workstation": creds.Workstation,
+			}})
 	}
 
 	// Seeded-credential check: a real username with a verifying NTLMv2 proof gets a
@@ -445,6 +452,8 @@ func (s *Server) doAccept(sess *Session, req smb2Header, ntlmBlob []byte) []byte
 						"session_id": sessID, "username": creds.Username,
 					})
 				}
+				s.emit(sess, events.Event{Type: events.AuthSuccess, Severity: events.SevWarn, Message: "SMB seeded credential authenticated",
+					Fields: map[string]interface{}{"username": creds.Username, "domain": creds.Domain}})
 				return buildPacket(req, StatusSuccess, sessID, 0,
 					buildSessionSetupBody(0, buildSPNEGOAcceptToken())) // SessionFlags=0 (real user)
 			}
@@ -624,6 +633,16 @@ func fakeBootTime() time.Time {
 	hours := int64(2 + (ns>>32)%24)
 	minutes := int64((ns >> 16) % 60)
 	return time.Now().Add(-time.Duration(hours)*time.Hour - time.Duration(minutes)*time.Minute)
+}
+
+// emit fills the common service/source/dest fields and sends a security event.
+func (s *Server) emit(sess *Session, ev events.Event) {
+	ev.Service = "smb"
+	ev.DstPort = s.cfg.Port
+	if sess != nil {
+		ev.SplitHostPort(sess.remote)
+	}
+	events.Emit(ev)
 }
 
 func (s *Server) logCreds(sessionID uint64, c *NTLMCredentials) {
@@ -1010,6 +1029,11 @@ func (s *Server) handleRead(sess *Session, req smb2Header, body []byte) []byte {
 		end = uint64(len(content))
 	}
 	data := content[offset:end]
+
+	if offset == 0 { // emit once per file, at the start of the read
+		s.emit(sess, events.Event{Type: events.FileDownload, Severity: events.SevNotice, Message: "SMB file read",
+			Fields: map[string]interface{}{"file": h.node.name, "share": h.shareName, "bytes": h.node.size()}})
+	}
 
 	if s.log != nil {
 		s.log.Debug("Read", map[string]interface{}{

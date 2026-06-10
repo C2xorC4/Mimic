@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/c2xorc4/mimic/internal/deception"
+	"github.com/c2xorc4/mimic/internal/events"
 	"github.com/c2xorc4/mimic/internal/logging"
 )
 
@@ -191,6 +192,14 @@ func (s *Server) reply(c net.Conn, code int, msg string) {
 	c.Write([]byte(fmt.Sprintf("%d %s\r\n", code, msg)))
 }
 
+// emit fills the common service/source/dest fields and sends a security event.
+func (s *Server) emit(sess *session, ev events.Event) {
+	ev.Service = "ftp"
+	ev.DstPort = s.cfg.Port
+	ev.SplitHostPort(sess.remote)
+	events.Emit(ev)
+}
+
 func (s *Server) handle(conn net.Conn) {
 	defer conn.Close()
 	sess := &session{conn: conn, r: bufio.NewReader(conn), cwd: "/", remote: conn.RemoteAddr().String()}
@@ -216,6 +225,7 @@ func (s *Server) handle(conn net.Conn) {
 	if s.log != nil {
 		s.log.Debug("FTP connection", map[string]interface{}{"remote": sess.remote})
 	}
+	s.emit(sess, events.Event{Type: events.Connection, Message: "FTP connection opened"})
 	s.reply(conn, 220, s.cfg.Banner)
 
 	for {
@@ -296,8 +306,12 @@ func (s *Server) handlePass(sess *session, pass string) {
 	}
 	if ok {
 		sess.authed = true
+		s.emit(sess, events.Event{Type: events.AuthSuccess, Severity: events.SevWarn, Message: "FTP login success",
+			Fields: map[string]interface{}{"username": sess.user, "password": pass}})
 		s.reply(c, 230, "User logged in.")
 	} else {
+		s.emit(sess, events.Event{Type: events.AuthAttempt, Severity: events.SevNotice, Message: "FTP login failed",
+			Fields: map[string]interface{}{"username": sess.user, "password": pass}})
 		s.reply(c, 530, "Login incorrect.")
 	}
 }
@@ -422,6 +436,12 @@ func (s *Server) handleList(sess *session, arg string, long bool) {
 	if s.log != nil {
 		s.log.Info("FTP list", map[string]interface{}{"remote": sess.remote, "path": target, "entries": len(children)})
 	}
+	etype := events.Enumeration
+	if node.MazePath != "" {
+		etype = events.MazeDescent
+	}
+	s.emit(sess, events.Event{Type: etype, Severity: events.SevNotice, Message: "FTP directory listing",
+		Fields: map[string]interface{}{"path": target, "entries": len(children), "maze": node.MazePath != ""}})
 	s.reply(c, 226, "Transfer complete.")
 }
 
@@ -447,6 +467,8 @@ func (s *Server) handleRetr(sess *session, arg string) {
 	if s.log != nil {
 		s.log.Info("FTP download", map[string]interface{}{"remote": sess.remote, "file": arg, "bytes": node.Size()})
 	}
+	s.emit(sess, events.Event{Type: events.FileDownload, Severity: events.SevNotice, Message: "FTP file download",
+		Fields: map[string]interface{}{"file": arg, "bytes": node.Size()}})
 	s.reply(c, 226, "Transfer complete.")
 }
 

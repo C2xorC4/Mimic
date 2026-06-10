@@ -18,6 +18,7 @@ const (
 // One connection = one session (multi-session per connection is not emulated).
 type Session struct {
 	id        uint64 // assigned on SESSION_SETUP round 1
+	remote    string // client remote address (host:port), for event attribution
 	state     SessionState
 	dialect   uint16                 // negotiated SMBv2 dialect (set during NEGOTIATE)
 	challenge [8]byte                // server challenge sent in round 1

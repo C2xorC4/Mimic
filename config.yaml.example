@@ -61,6 +61,18 @@ logging:
   # Also output logs to stdout (always human-readable for interactive debugging)
   to_stdout: true
 
+# Security-event pipeline — typed honeypot events (connection, auth_attempt,
+# auth_success, cred_capture, enumeration, maze_descent, file_download) fanned out
+# to SIEM-ingestible sinks. On by default with an NDJSON event log; the abuse
+# detector also consumes this stream.
+events:
+  enabled: true
+  json_file: true            # NDJSON to <log_dir>/events.log (Splunk/Filebeat ingest)
+  syslog:
+    enabled: false           # RFC 5424 to a syslog collector
+    network: udp             # udp | tcp
+    address: "127.0.0.1:514"
+
 # Path to profiles directory (default: ./profiles)
 profiles_dir: ./profiles
 

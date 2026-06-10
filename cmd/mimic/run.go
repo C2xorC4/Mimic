@@ -14,6 +14,7 @@ import (
 	"github.com/c2xorc4/mimic/internal/config"
 	"github.com/c2xorc4/mimic/internal/deception"
 	"github.com/c2xorc4/mimic/internal/ebpf"
+	"github.com/c2xorc4/mimic/internal/events"
 	honeyftp "github.com/c2xorc4/mimic/internal/honeypot/ftp"
 	honeysmb "github.com/c2xorc4/mimic/internal/honeypot/smb"
 	"github.com/c2xorc4/mimic/internal/logging"
@@ -129,6 +130,24 @@ func runMimic(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("initializing logging: %w", err)
 	}
 	defer logging.Shutdown()
+
+	// Security-event pipeline (SIEM ingest + detection feed). On by default with an
+	// NDJSON event log; honeypots emit via the global emitter.
+	evCfg := appCfg.Events
+	evCfg.Enabled = true
+	if !evCfg.JSONFile && !evCfg.Syslog.Enabled {
+		evCfg.JSONFile = true
+	}
+	evBus, err := events.Init(evCfg, logging.GetActiveLogDir(), func(sink string, e error) {
+		logging.Error("event sink failed", map[string]interface{}{"sink": sink, "error": e.Error()})
+	})
+	if err != nil {
+		return fmt.Errorf("initializing events: %w", err)
+	}
+	defer events.CloseGlobal()
+	if evBus != nil {
+		logging.Info("Event pipeline active", map[string]interface{}{"sinks": evBus.Sinks()})
+	}
 
 	// Validate required fields
 	if appCfg.Interface == "" {
