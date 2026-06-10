@@ -213,6 +213,13 @@ func (l *Listener) emit(remoteAddr string, ev events.Event) {
 	events.Emit(ev)
 }
 
+// idleReadTimeout bounds how long a connection waits for client data before the
+// handler gives up and closes. Kept short: a honeypot has no reason to hold a
+// socket open for a slow/idle peer, and long waits let a port scanner (nmap -sV
+// fires ~16 probes per port) pin every connection open, which serializes the scan
+// and times services out into "unrecognized".
+const idleReadTimeout = 3 * time.Second
+
 func (l *Listener) handleTCPConn(conn net.Conn) {
 	defer l.wg.Done()
 	defer conn.Close()
@@ -242,7 +249,7 @@ func (l *Listener) handleTCPConn(conn net.Conn) {
 	}
 
 	// Set read deadline
-	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	conn.SetReadDeadline(time.Now().Add(idleReadTimeout))
 
 	// Read initial probe data
 	buf := make([]byte, 65535)
@@ -340,7 +347,7 @@ func (l *Listener) handleStatefulConversation(conn net.Conn, remoteAddr string) 
 		default:
 		}
 
-		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		conn.SetReadDeadline(time.Now().Add(idleReadTimeout))
 
 		buf := make([]byte, 65535)
 		n, err := conn.Read(buf)

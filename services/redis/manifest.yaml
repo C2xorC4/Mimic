@@ -32,6 +32,11 @@ probes:
   - name: redis_auth
     signature: { contains: 'AUTH' }
     response_file: responses/auth.bin
+  # nmap -sV sends "GET / HTTP/1.0" — real Redis parses GET and replies with this
+  # exact error, which is an nmap redis match line (so -sV identifies the service).
+  - name: redis_get
+    signature: { contains: 'GET' }
+    response_file: responses/get_wrongargs.bin
   # catch-all for any other command (min_length 1 => not a connect banner)
   - name: redis_unknown
     signature: { min_length: 1 }

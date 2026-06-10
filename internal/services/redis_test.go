@@ -39,6 +39,7 @@ func TestRedisCommandLoop(t *testing.T) {
 		"unknown.bin":      "-ERR unknown command\r\n",
 		"info_linux.bin":   "$30\r\nredis_version:7.0.11\r\nos:Linux\r\n",
 		"info_windows.bin": "$32\r\nredis_version:7.0.11\r\nos:Windows\r\n",
+		"getargs.bin":      "-ERR wrong number of arguments for 'get' command\r\n",
 	}
 	for n, b := range files {
 		if err := os.WriteFile(filepath.Join(dir, n), []byte(b), 0o644); err != nil {
@@ -50,6 +51,7 @@ func TestRedisCommandLoop(t *testing.T) {
 		{Name: "info_linux", Signature: config.SignatureConfig{Contains: "INFO"}, ResponseFile: "info_linux.bin", Requires: map[string]string{"os_family": "linux"}},
 		{Name: "info_windows", Signature: config.SignatureConfig{Contains: "INFO"}, ResponseFile: "info_windows.bin", Requires: map[string]string{"os_family": "windows"}},
 		{Name: "auth", Signature: config.SignatureConfig{Contains: "AUTH"}, ResponseFile: "auth.bin"},
+		{Name: "get", Signature: config.SignatureConfig{Contains: "GET"}, ResponseFile: "getargs.bin"},
 		{Name: "unknown", Signature: config.SignatureConfig{MinLength: 1}, ResponseFile: "unknown.bin"},
 	}
 
@@ -74,7 +76,11 @@ func TestRedisCommandLoop(t *testing.T) {
 		if got := send("AUTH secret\r\n"); !strings.HasPrefix(got, "-ERR") || !strings.Contains(got, "no password") {
 			t.Errorf("%s AUTH = %q", fam, got)
 		}
-		if got := send("GET foo\r\n"); !strings.Contains(got, "unknown command") {
+		// nmap -sV probe "GET / HTTP/1.0" -> real Redis "wrong number of arguments"
+		if got := send("GET / HTTP/1.0\r\n"); !strings.Contains(got, "wrong number of arguments for 'get'") {
+			t.Errorf("%s GET = %q; want wrong-args error", fam, got)
+		}
+		if got := send("FLUSHALL\r\n"); !strings.Contains(got, "unknown command") {
 			t.Errorf("%s unknown = %q", fam, got)
 		}
 		conn.Close()
