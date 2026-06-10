@@ -27,6 +27,18 @@ func (m *Manager) SetProfileOptions(profile *config.OSProfile) {
 	if profile.SMB.Dialect != "" {
 		m.SetOption("smb_dialect", profile.SMB.Dialect)
 	}
+	// OS identity so services can select OS-appropriate responses via `requires`
+	// (e.g. an SSH banner per distro). os_name carries the profile name (e.g.
+	// "Ubuntu", "Windows 11"); os_family is windows/linux/macos.
+	if profile.Family != "" {
+		m.SetOption("os_family", profile.Family)
+	}
+	if profile.Name != "" {
+		m.SetOption("os_name", profile.Name)
+	}
+	if profile.Version != "" {
+		m.SetOption("os_version", profile.Version)
+	}
 }
 
 // Manager manages multiple service emulators

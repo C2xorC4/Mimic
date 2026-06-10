@@ -1,32 +1,75 @@
-# SSH Service Template
-# Generated from Windows 11 25H2 OpenSSH for Windows 9.5
-# Source OS: Windows 11 Pro
-# Captured: 2026-02-18 from HMDXIN
+# SSH service — server-speaks-first banner, selected per emulated OS.
+#
+# SSH servers send their identification string immediately on TCP connect, so this
+# service is speaks_first: the listener sends the connect-banner (the probe whose
+# empty pattern matches an empty buffer) before reading. Each banner probe is gated
+# by `requires` on the OS profile (os_name for specific distros, os_family as the
+# fallback), so a Ubuntu profile advertises a Ubuntu OpenSSH string, a Windows
+# profile the Windows build, etc. — instead of one hard-coded banner.
+#
+# Probes are evaluated in order; the first whose `requires` is satisfied wins, so
+# specific os_name probes precede the os_family fallbacks.
 
 name: ssh
 port: 22
 protocol: tcp
 stateful: false
+speaks_first: true
 
 probes:
-  # SSH version exchange - client sends its version string first
-  # Pattern: SSH-2.0- or SSH-1.
-  # Response: Server banner immediately upon connection
-  - name: ssh_version_exchange
-    signature:
-      pattern: 'SSH-'
-      offset: 0
-      min_length: 4
-    response_file: responses/ssh_banner.bin
-    rewrite_rules: []
+  # --- per-distro (os_name exact match) ---
+  - name: ssh_banner_ubuntu
+    signature: { pattern: '', offset: 0, min_length: 0 }
+    response_file: responses/banner_ubuntu.bin
+    requires: { os_name: "Ubuntu" }
 
-  # TCP connection - SSH server sends banner first without waiting for client data
-  # This is the primary probe - SSH servers advertise their banner on connect
-  - name: ssh_connect_banner
-    signature:
-      # Empty pattern - send banner on any TCP connection
-      pattern: ''
-      offset: 0
-      min_length: 0
-    response_file: responses/ssh_banner.bin
-    rewrite_rules: []
+  - name: ssh_banner_debian
+    signature: { pattern: '', offset: 0, min_length: 0 }
+    response_file: responses/banner_debian.bin
+    requires: { os_name: "Debian" }
+
+  - name: ssh_banner_kali
+    signature: { pattern: '', offset: 0, min_length: 0 }
+    response_file: responses/banner_kali.bin
+    requires: { os_name: "Kali Linux" }
+
+  - name: ssh_banner_rhel
+    signature: { pattern: '', offset: 0, min_length: 0 }
+    response_file: responses/banner_rhel.bin
+    requires: { os_name: "RHEL" }
+
+  - name: ssh_banner_rocky
+    signature: { pattern: '', offset: 0, min_length: 0 }
+    response_file: responses/banner_rhel.bin
+    requires: { os_name: "Rocky Linux" }
+
+  - name: ssh_banner_alma
+    signature: { pattern: '', offset: 0, min_length: 0 }
+    response_file: responses/banner_rhel.bin
+    requires: { os_name: "AlmaLinux" }
+
+  - name: ssh_banner_centos_stream
+    signature: { pattern: '', offset: 0, min_length: 0 }
+    response_file: responses/banner_rhel.bin
+    requires: { os_name: "CentOS Stream" }
+
+  # --- per-family fallbacks (os_family) ---
+  - name: ssh_banner_linux
+    signature: { pattern: '', offset: 0, min_length: 0 }
+    response_file: responses/banner_linux.bin
+    requires: { os_family: "linux" }
+
+  - name: ssh_banner_windows
+    signature: { pattern: '', offset: 0, min_length: 0 }
+    response_file: responses/banner_windows.bin
+    requires: { os_family: "windows" }
+
+  - name: ssh_banner_macos
+    signature: { pattern: '', offset: 0, min_length: 0 }
+    response_file: responses/banner_macos.bin
+    requires: { os_family: "macos" }
+
+  # --- last-resort fallback (no profile / unknown family) ---
+  - name: ssh_banner_default
+    signature: { pattern: '', offset: 0, min_length: 0 }
+    response_file: responses/banner_linux.bin

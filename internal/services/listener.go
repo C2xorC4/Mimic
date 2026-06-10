@@ -13,6 +13,7 @@ import (
 
 	"github.com/c2xorc4/mimic/internal/config"
 	"github.com/c2xorc4/mimic/internal/deception"
+	"github.com/c2xorc4/mimic/internal/events"
 	"github.com/c2xorc4/mimic/internal/logging"
 )
 
@@ -204,6 +205,14 @@ func (l *Listener) serveTCP() {
 	}
 }
 
+// emit fills service/source/dest fields and sends a security event to the bus.
+func (l *Listener) emit(remoteAddr string, ev events.Event) {
+	ev.Service = l.config.Name
+	ev.DstPort = l.config.Port
+	ev.SplitHostPort(remoteAddr)
+	events.Emit(ev)
+}
+
 func (l *Listener) handleTCPConn(conn net.Conn) {
 	defer l.wg.Done()
 	defer conn.Close()
@@ -212,6 +221,25 @@ func (l *Listener) handleTCPConn(conn net.Conn) {
 	l.logDebug("Connection accepted", map[string]interface{}{
 		"source_addr": remoteAddr,
 	})
+	l.emit(remoteAddr, events.Event{Type: events.Connection, Message: l.config.Name + " connection"})
+
+	// Server-speaks-first protocols (SSH/SMTP banners): send the connect-banner —
+	// the probe that matches an empty buffer after `requires` gating — immediately,
+	// before waiting for client data the client will never send first.
+	if l.config.SpeaksFirst {
+		if m := l.matcher.Match(nil); m != nil {
+			if resp, err := l.responder.GetResponse(m.ResponseFile, nil, m.RewriteRules); err == nil && len(resp) > 0 {
+				l.applyJitter()
+				conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+				if w, werr := conn.Write(resp); werr == nil {
+					atomic.AddUint64(&l.stats.BytesSent, uint64(w))
+					atomic.AddUint64(&l.stats.ProbesMatched, 1)
+					l.emit(remoteAddr, events.Event{Type: events.Probe, Message: l.config.Name + " banner sent",
+						Fields: map[string]interface{}{"probe": m.Name}})
+				}
+			}
+		}
+	}
 
 	// Set read deadline
 	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
@@ -226,7 +254,7 @@ func (l *Listener) handleTCPConn(conn net.Conn) {
 				"error":       err.Error(),
 			})
 		}
-		return
+		return // for speaks-first, this is the normal path after a banner grab
 	}
 
 	probe := buf[:n]
@@ -257,6 +285,8 @@ func (l *Listener) handleTCPConn(conn net.Conn) {
 	})
 	// Log to probe log
 	logging.LogProbeMatched(l.config.Name, l.config.Port, l.config.Protocol, remoteAddr, match.Name, probe)
+	l.emit(remoteAddr, events.Event{Type: events.Probe, Message: l.config.Name + " probe matched",
+		Fields: map[string]interface{}{"probe": match.Name}})
 
 	// Get response
 	response, err := l.responder.GetResponse(match.ResponseFile, probe, match.RewriteRules)

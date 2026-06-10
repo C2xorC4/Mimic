@@ -53,11 +53,15 @@ type StackConfig struct {
 
 // ServiceConfig defines a fake service listener
 type ServiceConfig struct {
-	Name     string        `yaml:"name"`
-	Port     uint16        `yaml:"port"`
-	Protocol string        `yaml:"protocol"` // tcp, udp
-	Stateful bool          `yaml:"stateful"`
-	Probes   []ProbeConfig `yaml:"probes"`
+	Name     string `yaml:"name"`
+	Port     uint16 `yaml:"port"`
+	Protocol string `yaml:"protocol"` // tcp, udp
+	Stateful bool   `yaml:"stateful"`
+	// SpeaksFirst marks a server-speaks-first protocol (SSH, SMTP, FTP banner):
+	// the listener sends the connect-banner response (the probe matching an empty
+	// buffer, after `requires` gating) immediately on connect, before reading.
+	SpeaksFirst bool          `yaml:"speaks_first"`
+	Probes      []ProbeConfig `yaml:"probes"`
 }
 
 // ProbeConfig defines how to match and respond to a specific probe
