@@ -30,3 +30,10 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Mimic capture artifacts (large binary pcaps + raw ETL — keep out of git)
+captures/proxmox/
+*.etl
+
+# internal lab tooling — keep local, do not track/share
+infra/
