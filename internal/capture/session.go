@@ -111,10 +111,35 @@ func (s *Session) ExtractExchanges() {
 	var currentExchange *Exchange
 	var exchangeIndex int
 
+	// Dedup duplicate captures of the same packet. Windows pktmon records each
+	// packet once per network-stack component (NIC, WFP, Npcap, QoS LWF), so
+	// every packet appears N times; without this, identical payloads get
+	// concatenated N times — inflating probe lengths (so signatures never match
+	// a real single probe) and stacking N copies into each response. We key on
+	// payload bytes per direction so it works for both TCP and UDP (UDP has no
+	// sequence number). Service handshakes/enumerations don't carry legitimately
+	// repeated-identical segments within one session, so content dedup is safe.
+	seenIn := make(map[string]bool)
+	seenOut := make(map[string]bool)
+
 	for _, pkt := range s.Packets {
 		// Skip empty packets (ACKs, etc.)
 		if len(pkt.Data) == 0 {
 			continue
+		}
+
+		// Skip a payload we've already consumed in this direction (duplicate).
+		key := string(pkt.Data)
+		if pkt.Direction == DirectionInbound {
+			if seenIn[key] {
+				continue
+			}
+			seenIn[key] = true
+		} else {
+			if seenOut[key] {
+				continue
+			}
+			seenOut[key] = true
 		}
 
 		if pkt.Direction == DirectionInbound {

@@ -16,6 +16,79 @@
 - **SMB honeypot (`smb_honeypot` service):** full share enumeration to nmap
   (`smb-enum-shares`), netexec, and direct impacket — guest/null **and** seeded
   fake-credential logins (NTLMv2-verified). SMBv1 + SMBv2/3.1.1 negotiation.
+- **Service breadth (Phase 4, 2026-06-10):** SSH/SMTP/VNC/Telnet/Redis/HTTP per-OS
+  + MySQL/MSSQL (capture-driven), all `nmap -sV`-hardened. See LJM
+  `2026-06-10_mimic-phase4-service-breadth-complete` + `_honeypot-nmap-sv-hardening`.
+- **Proxmox Windows capture track (2026-06-11/12):** golden templates for Win10
+  (9010), Win11 (9011), Server 2016/2019/2022/2025 (9116/9119/9122/9125) on node
+  `nexus` (`10.0.240.8`). All 6 templatized + loop-validated; tooled with
+  Wireshark+Npcap, Sysinternals, and capture helpers; `agent=1` self-reporting.
+  - **Automated capture harness** `infra/proxmox/capture.ps1` (+ `lab.py`
+    deploy/ip/prep/destroy). Per run: linked clone → out-of-band `prep` (guest-agent
+    exec: fw-off + Enable-PSRemoting + ExecPolicy bypass, bypasses Public-profile
+    WinRM block) → pktmon capture (dumpcap on Server 2016, no pktmon) → nmap probe
+    from ss-book → pcapng pulled to `captures/proxmox/<os>/` → clone destroyed.
+  - **Captures done (2026-06-12), 6 OSes each (46 pcaps, captures/proxmox/<os>/):**
+    Pass 1 `-sV` service surface; Pass 2 `-O` stack (incl. **Server 2025 raw vector —
+    not yet in nmap's DB**); Pass 3 SMB+RDP NSE (build #s 14393→26100); Pass 3c IIS
+    (`http-*`, Microsoft-IIS/10.0 — NOTE http-enum bloats pcaps with 404s, drop it);
+    Pass 4a discovery (NBNS node-status solid on all 6; **SSDP/mDNS thin — not
+    listening by default, esp. on Server**).
+  - Pass 4b SNMP done on the 4 servers (Install-WindowsFeature SNMP-Service + public
+    community); Pass 4c LLMNR done 6/6 (crafted `infra/proxmox/llmnr_probe.py`).
+    DEFERRED: WSD/3702 + workstation SNMP (FoD-blocked, WU disabled). `capture.ps1
+    -Setup` hook handles role installs.
+  - Access: guest creds servers `Administrator`/workstations `root`; drive Proxmox via
+    python (PS Invoke-RestMethod to Proxmox is Schannel-flaky). **`infra/` is
+    DELIBERATELY LOCAL-ONLY — gitignored and SCRUBBED from git history after a PVE
+    token leak (remediated 2026-06-15, force-pushed clean; token since rotated). DO
+    NOT re-commit `infra/` — it holds the API token + autounattend creds.** Fuller
+    resume state in LJM buffer `2026-06-11_mimic-proxmox-template-track-resume-state`.
+- **systemd daemon lifecycle (2026-06-15, BUILT + validated on argus, UNCOMMITTED):**
+  `mimic stop [--purge]` / `install` / `uninstall [--purge]` + clean-on-start.
+  Stateless content-diff TC teardown (`internal/ebpf/teardown.go`): removes only
+  `deceiver_fingerprint*` filters by BPF name; `--purge` removes the clsact qdisc
+  ONLY if no foreign filters remain (co-tenant-safe). nft tables (mimic_reject/
+  mimic_block) safe by name-isolation. systemd unit: ExecStart=run, ExecStopPost=stop
+  (crash safety net), Restart=on-failure, bounded caps. Validated: restart clean (no
+  dup filter), nmap -O through daemon = Win10|11, co-tenancy keeps qdisc. Files:
+  `cmd/mimic/{stop.go,install.go,run.go,assets/*}`, `internal/ebpf/teardown.go`.
+- **Capture→template pipeline (Track 1, 2026-06-16, IN PROGRESS):** `mimic capture
+  pcap <f> --server-ip <ip> --service <svc> --ports <p> --os <name>` -> manifest.yaml
+  + response .bin + rewrite rules. **FIX (`internal/capture/session.go`, UNCOMMITTED):**
+  ExtractExchanges now dedups duplicate packets by PAYLOAD CONTENT per direction —
+  pktmon records each packet N× (per NIC/WFP/Npcap/QoS component) which was
+  concatenating probes/responses N× (inflating lengths so signatures never matched a
+  real probe). Content-key works for TCP+UDP (UDP has no seq). Batch-generated on
+  argus `/tmp/gen/<os>/<svc>` from the 34 per-service pcaps (NOT pulled to repo):
+  smb 8-9, rdp 12-15, nbns 3-4 = clean; **snmp ~236 (full MIB walk, verbose), http
+  1070+ (http-enum 404 noise), llmnr skipped (python-probe sidecar has no `(IP)` +
+  multicast: probe dest=224.0.0.252 not server, so 0 exchanges).**
+  - **ARCHITECTURE (load-bearing):** `services/<name>/` = stateless template-replay
+    (svcMgr.LoadService); `smb_honeypot`/`ftp_honeypot` = interactive hand-coded
+    (`internal/honeypot/*`, special-cased in run.go). For SMB the **honeypot is the
+    serving path** (does multi-step SESSION_SETUP/TREE_CONNECT/enum/auth that replay
+    can't); captured `services/smb` template = REFERENCE/validation only. Editing
+    captured templates can NOT regress the honeypot (separate code+data+selector).
+
+## Track-1 refinement queue (priority order, handle after restart)
+1. **RDP & SMB enhancements.** RDP: semantic rewrite-typing on `services/rdp` replay
+   template (timestamp/NLA fields → live, not generic `random`). SMB: NOT the replay
+   template (honeypot is primary) — instead use the captured authentic SMB2 negotiate
+   responses to fix the **honeypot build-number gap** (MEMORY.md gap #2; honeypot
+   hardcodes 19041) so build# derives from the profile per-OS.
+2. **http re-capture de-noise.** Re-capture IIS WITHOUT `http-enum` (just
+   http-headers,http-title,http-server-header) -> ~handful of real templates instead
+   of 1070 404s. Capture harness `infra/proxmox/capture.ps1` ready.
+3. **llmnr.** Fix server-IP extraction (sidecar is python-probe output, parse
+   `target=<ip>`), AND handle multicast in the processor (response-without-direct-
+   probe / dest=multicast-group) so the LLMNR response template extracts.
+4. **snmp (last).** 236 per-OID templates valid for OID-keyed replay but heavy;
+   optional collapse/curate.
+
+  Generic rewrite-rule typing limitation: capture generator marks all dynamic fields
+  `type: random` (functional non-static, but SMB2 FILETIME should be `timestamp`,
+  GUID `guid`). Relevant to replay-served protocols (RDP/tail), not SMB.
 
 ## Milestones
 

@@ -1,0 +1,29 @@
+# Mimic configuration — EDIT before enabling the service.
+# Full option reference: config.yaml.example in the source tree.
+
+profile: "Windows 11"          # an OS profile name; see `mimic list`
+interface: eth0                # CHANGE to your NIC (check `ip -br link`)
+
+# Data dirs (installed by `mimic install`; daemon runs with CWD=/ so these are absolute).
+profiles_dir: /etc/mimic/profiles
+services_dir: /etc/mimic/services
+
+services:
+  - smb_honeypot               # SMB share-enum honeypot (TCP 445/139)
+  - msrpc                      # MSRPC endpoint mapper (TCP 135)
+  - netbios                    # NetBIOS session (TCP 139)
+  - nbns                       # NetBIOS name service (UDP 137)
+
+# Ports that should answer as CLOSED (RST) — helps nmap OS detection have an
+# open + closed port to compare. Use ports you are NOT emulating.
+closed_ports:
+  - 8080
+
+service_options:
+  netbios_name: "WORKSTATION"
+  domain: "WORKGROUP"
+
+logging:
+  level: info
+  log_dir: /var/log/mimic
+  json_mode: true

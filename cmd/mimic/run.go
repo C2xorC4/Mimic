@@ -209,6 +209,16 @@ func runMimic(cmd *cobra.Command, args []string) error {
 		configDir = filepath.Dir(cfgFile)
 	}
 
+	// Clean any stale Mimic state from a prior unclean exit (orphaned TC filters
+	// or nft tables) so this run starts from a known-clean stack. Idempotent;
+	// leaves the clsact qdisc in place (purge=false) for co-tenant safety.
+	if rep := teardownStack(appCfg.Interface, false); rep.TC.FiltersRemoved > 0 || len(rep.NftFreed) > 0 {
+		logging.Info("Cleaned stale Mimic state before start", map[string]interface{}{
+			"tc_filters_removed": rep.TC.FiltersRemoved,
+			"nft_tables_removed": rep.NftFreed,
+		})
+	}
+
 	// Channel to collect errors from goroutines
 	errChan := make(chan error, 2)
 

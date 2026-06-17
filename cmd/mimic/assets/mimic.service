@@ -1,0 +1,28 @@
+[Unit]
+Description=Mimic — OS fingerprint deception (eBPF stack + service emulation)
+Documentation=https://github.com/C2xorC4/Mimic
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# nft reject modules for closed-port / T2-T3 fingerprint behavior (best-effort).
+ExecStartPre=-/sbin/modprobe nft_reject
+ExecStartPre=-/sbin/modprobe nft_reject_inet
+ExecStart=/usr/local/bin/mimic run -c /etc/mimic/config.yaml
+# Safety net: strip any orphaned TC filters + nft tables if the main process
+# exits unclean (crash / SIGKILL). `mimic stop` is idempotent and stateless.
+ExecStopPost=/usr/local/bin/mimic stop -c /etc/mimic/config.yaml
+Restart=on-failure
+RestartSec=2
+# Logs to journald: `journalctl -u mimic -f`.
+StandardOutput=journal
+StandardError=journal
+# Modest least-privilege: confine root to the caps the eBPF/TC/nft/low-port
+# layers actually need (blast-radius reduction, NOT host stealth — the threat
+# model is the external observer, not a host inspector). Tune per kernel: on
+# >=5.8, CAP_BPF + CAP_PERFMON can replace CAP_SYS_ADMIN for most BPF ops.
+CapabilityBoundingSet=CAP_BPF CAP_PERFMON CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE CAP_SYS_ADMIN CAP_SYS_RESOURCE CAP_DAC_OVERRIDE
+
+[Install]
+WantedBy=multi-user.target
