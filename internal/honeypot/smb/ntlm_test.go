@@ -54,3 +54,37 @@ func TestNTLMChallengeVersion(t *testing.T) {
 		t.Errorf("NTLMRevisionCurrent = %d, want 15", msg[55])
 	}
 }
+
+// TestNTLMChallengeTimestampAV verifies the CHALLENGE TargetInfo carries an
+// MsvAvTimestamp (0x0007) AV pair of 8 bytes — modern Windows always includes it,
+// and its absence is a tell.
+func TestNTLMChallengeTimestampAV(t *testing.T) {
+	var challenge [8]byte
+	msg := buildNTLMChallenge("TESTBOX", "TESTDOM", challenge, 10, 0, 26200)
+
+	tiLen := int(binary.LittleEndian.Uint16(msg[40:42]))
+	tiOff := int(binary.LittleEndian.Uint32(msg[44:48]))
+	if tiOff+tiLen > len(msg) {
+		t.Fatalf("TargetInfo bounds %d+%d exceed msg len %d", tiOff, tiLen, len(msg))
+	}
+	ti := msg[tiOff : tiOff+tiLen]
+
+	found := false
+	for i := 0; i+4 <= len(ti); {
+		id := binary.LittleEndian.Uint16(ti[i:])
+		l := int(binary.LittleEndian.Uint16(ti[i+2:]))
+		if id == 0x0007 {
+			found = true
+			if l != 8 {
+				t.Errorf("MsvAvTimestamp length = %d, want 8", l)
+			}
+		}
+		if id == 0x0000 { // EOL
+			break
+		}
+		i += 4 + l
+	}
+	if !found {
+		t.Error("MsvAvTimestamp (0x0007) missing from TargetInfo")
+	}
+}

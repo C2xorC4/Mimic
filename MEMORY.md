@@ -147,11 +147,29 @@
 1. **smbmap parity** — smbmap 1.10.4 reports `0 sessions` at 3.1.1 (its own
    signing handling). Full parity needs real SMB2 3.1.1 signing (SP800-108 KDF
    over SessionKey + running preauth SHA-512). Large lift, deferred.
-2. ✅ **Build-number consistency (RESOLVED 2026-06-17)** — NTLM CHALLENGE Version
-   now derived from the profile via `Server.osVersionTriple()` (Win11→10.0.22000,
-   XP→5.1.2600, etc.); fallback 10.0.19041 only when OSVersion unset. **Validated
-   live on argus:** raw SMB2 session-setup probe reads NTLM Version 10.0 build
-   22000 from the Win11 honeypot (was 19041).
+2. ✅ **Build-number / cross-layer OS-identity coherence (RESOLVED 2026-06-17;
+   roadmap Mimic_R_C.md item #7 "self-consistency is the entire value prop").**
+   NTLM CHALLENGE Version derived from the profile via `Server.osVersionTriple()`;
+   fallback 10.0.19041 only when OSVersion unset. All 17 Windows profiles carry a
+   correct `version:` (each emits its own build), so "hardcoded 19041 regardless of
+   profile" is closed. **Cross-layer audit + fixes:**
+   - **Win11 profile was self-contradictory:** `version` said 10.0.22000 (21H2) but
+     the stack block + RDP template were captured from 25H2. Set to **10.0.26200**
+     (25H2) so eBPF stack, SMB/NTLM build, NativeOS, and RDP all agree. Faithful (a
+     real 25H2 box behaves identically, incl. nmap mislabeling it 21H2). Win11 stack
+     has window=65535 + timestamps-ON, vs Win10/2022 8192+off — a real 25H2 change.
+   - **MsvAvTimestamp (0x0007) added** to NTLM TargetInfo (live FILETIME). Modern
+     Windows always includes it; absence was a tell. Safe — NTLMv2 verify uses the
+     client's blob, not our TargetInfo. AV order now 0x2,0x1,0x4,0x3,0x7,0x0.
+   - **Server 2025 profile added** (`profiles/windows/server-2025.yaml`, 10.0.26100)
+     from a real nmap -O capture (proxmox, captures/proxmox/srv2025): WIN=FFFF,
+     OPS M5B4NW8ST11, TS=A — i.e. 25H2-class stack. Closes a captured-but-unprofiled OS.
+   - **Audit clean:** Win10@19041 and all server profiles@RTM builds match their
+     stacks; no other version/capture contradiction found.
+   **Validated live on argus:** raw SMB2 probe reads NTLM Version **10.0 build 26200**
+   from the Win11 honeypot; MsvAvTimestamp present and live (FILETIME delta 0s);
+   Server 2025 profile loads + applies eBPF cleanly. Files:
+   `internal/honeypot/smb/{ntlm.go,ntlm_test.go}`, `profiles/windows/{11.yaml,server-2025.yaml}`.
 3. **JA4S validation** — JARM/JA3S validated; JA4S (FoxIO; Suricata 8.0 / Zeek)
    is the current standard and unmeasured. Byte-faithful replay likely passes;
    confirm with FoxIO ja4 tooling or Suricata 8.0.

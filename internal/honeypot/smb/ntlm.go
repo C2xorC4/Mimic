@@ -4,8 +4,13 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"time"
 	"unicode/utf16"
 )
+
+// ntlmFiletimeEpochDiff is the offset (in 100ns intervals) between the Unix
+// epoch (1970) and the Windows FILETIME epoch (1601).
+const ntlmFiletimeEpochDiff = 116444736000000000
 
 // ntlmFlags are the NTLM negotiate flags returned in our challenge.
 // Matches a typical Windows 10/11 server (version=0xE28A8215).
@@ -119,7 +124,13 @@ func buildTargetInfo(computerName, domainName string) []byte {
 	av(0x0001, utf16LE(computerName)) // MsvAvNbComputerName
 	av(0x0004, utf16LE(domainName))   // MsvAvDnsDomainName
 	av(0x0003, utf16LE(computerName)) // MsvAvDnsComputerName
-	av(0x0000, nil)                   // MsvAvEOL (length=0, no value)
+	// MsvAvTimestamp: current time as Windows FILETIME (100ns since 1601). Every
+	// modern Windows (7+) includes this AV pair in its CHALLENGE; its absence is a
+	// tell to a discerning client. Live value, not static.
+	ts := make([]byte, 8)
+	binary.LittleEndian.PutUint64(ts, uint64(time.Now().UnixNano()/100)+ntlmFiletimeEpochDiff)
+	av(0x0007, ts)  // MsvAvTimestamp
+	av(0x0000, nil) // MsvAvEOL (length=0, no value)
 	return buf
 }
 

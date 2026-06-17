@@ -1,10 +1,12 @@
-name: "Windows 11"
-description: "Windows 11 25H2 TCP/IP stack fingerprint"
+name: "Windows Server 2025"
+description: "Windows Server 2025 TCP/IP stack fingerprint"
 family: windows
-# 25H2 = build 26200. Single source of truth for OS identity across layers:
-# the stack block, SMB NTLM build, NativeOS, and RDP captures are all 25H2, so
-# the version must match (was 10.0.22000 / 21H2 — a cross-layer disagreement).
-version: "10.0.26200"
+# 26100 kernel (shares the 26x00 base with Win11 24H2/25H2). Stack values from a
+# live nmap -O of a Server 2025 box (proxmox capture, 2026-06-11): WIN=FFFF,
+# OPS O1=M5B4NW8ST11 (mss,nop,ws8,sack,timestamp), TS=A — i.e. window 65535 with
+# TCP timestamps ON, matching the Win11 25H2 stack, NOT the 2022-era 8192/off.
+# nmap 7.98 has no exact DB match for this vector yet ("No exact OS matches").
+version: "10.0.26100"
 
 stack:
   # IP Layer
@@ -12,7 +14,7 @@ stack:
   df_bit: true
   ip_id_behavior: incremental
 
-  # TCP Layer - Values from nmap scan of Windows 11 25H2
+  # TCP Layer - Values from nmap -O of Windows Server 2025
   window_size: 65535
   window_scale: 8
   mss: 1460
