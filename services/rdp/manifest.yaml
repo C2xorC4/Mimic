@@ -62,14 +62,21 @@ probes:
       min_length: 50
     response_file: responses/tls_server_hello.bin
     rewrite_rules:
-      # ServerRandom: first 4 bytes = Unix timestamp (nmap ssl-date reads this),
-      # remaining 28 bytes = random
+      # ServerRandom (32 bytes). This is a TLS 1.3 ServerHello (supported_versions
+      # ext selects 0x0304), so there is NO gmt_unix_time prefix — that field was
+      # removed after TLS 1.1. A real Windows Schannel 1.3 server emits all 32
+      # bytes random; typing the first 4 as a live Unix timestamp would make them
+      # track wall-clock across connections, a replay/fingerprint tell.
       - offset: 11
-        length: 4
-        type: timestamp_unix
-      - offset: 15
-        length: 28
+        length: 32
         type: random
+      # legacy_session_id echo: a TLS 1.3 server MUST return the client's
+      # session_id verbatim. ClientHello and ServerHello both carry it at
+      # offset 44 (5 record + 4 hs hdr + 2 version + 32 random + 1 len).
+      # A static value here is a fingerprint tell; echo makes it client-faithful.
+      - offset: 44
+        length: 32
+        type: echo
 
   # TLS ClientHello with TLS 1.2 record version
   - name: tls_client_hello_12
@@ -80,8 +87,12 @@ probes:
     response_file: responses/tls_server_hello.bin
     rewrite_rules:
       - offset: 11
-        length: 4
-        type: timestamp_unix
-      - offset: 15
-        length: 28
+        length: 32
         type: random
+      # legacy_session_id echo: a TLS 1.3 server MUST return the client's
+      # session_id verbatim. ClientHello and ServerHello both carry it at
+      # offset 44 (5 record + 4 hs hdr + 2 version + 32 random + 1 len).
+      # A static value here is a fingerprint tell; echo makes it client-faithful.
+      - offset: 44
+        length: 32
+        type: echo

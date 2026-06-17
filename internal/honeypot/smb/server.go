@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -403,7 +404,8 @@ func (s *Server) doChallenge(sess *Session, req smb2Header) []byte {
 	sess.setChallenge(challenge)
 	sess.setState(StateSetupPending)
 
-	ntlmChallenge := buildNTLMChallenge(s.cfg.ComputerName, s.cfg.DomainName, challenge)
+	major, minor, build := s.osVersionTriple()
+	ntlmChallenge := buildNTLMChallenge(s.cfg.ComputerName, s.cfg.DomainName, challenge, major, minor, build)
 	spnego := buildSPNEGOChallengeToken(ntlmChallenge)
 
 	return buildPacket(req, StatusMoreProcessing, sessID, 0, buildSessionSetupBody(0, spnego))
@@ -1252,4 +1254,30 @@ func (s *Server) nativeOSString() string {
 		return "Windows " + parts[0] + "." + parts[1]
 	}
 	return "Windows 10.0"
+}
+
+// osVersionTriple parses the profile version ("10.0.22000") into the
+// major/minor/build fields the NTLM CHALLENGE advertises. When OSVersion is
+// unset or malformed (e.g. in unit tests), it falls back to Windows 10.0
+// build 19041 — the historic hardcoded default — so a missing profile never
+// produces a nonsensical 0.0.0 version block.
+func (s *Server) osVersionTriple() (major, minor uint8, build uint16) {
+	major, minor, build = 10, 0, 19041
+	parts := strings.SplitN(s.cfg.OSVersion, ".", 3)
+	if len(parts) >= 1 {
+		if v, err := strconv.Atoi(parts[0]); err == nil {
+			major = uint8(v)
+		}
+	}
+	if len(parts) >= 2 {
+		if v, err := strconv.Atoi(parts[1]); err == nil {
+			minor = uint8(v)
+		}
+	}
+	if len(parts) >= 3 {
+		if v, err := strconv.Atoi(parts[2]); err == nil {
+			build = uint16(v)
+		}
+	}
+	return major, minor, build
 }

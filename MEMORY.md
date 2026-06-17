@@ -72,11 +72,32 @@
     captured templates can NOT regress the honeypot (separate code+data+selector).
 
 ## Track-1 refinement queue (priority order, handle after restart)
-1. **RDP & SMB enhancements.** RDP: semantic rewrite-typing on `services/rdp` replay
-   template (timestamp/NLA fields → live, not generic `random`). SMB: NOT the replay
-   template (honeypot is primary) — instead use the captured authentic SMB2 negotiate
-   responses to fix the **honeypot build-number gap** (MEMORY.md gap #2; honeypot
-   hardcodes 19041) so build# derives from the profile per-OS.
+1. ✅ **RDP & SMB enhancements — DONE (2026-06-17, live-validated on argus).**
+   **SMB:** NTLM CHALLENGE Version field now derives major/minor/build from the
+   profile (`Server.osVersionTriple()` parses `cfg.OSVersion`, same source as
+   `nativeOSString()`); fallback stays 10.0.19041 when OSVersion unset (tests).
+   Closes gap #2. Files: `internal/honeypot/smb/{ntlm.go,server.go,ntlm_test.go}`.
+   **Live-validated:** raw SMB2 NEGOTIATE→SESSION_SETUP probe vs the running Win11
+   honeypot returns NTLM Version **10.0 build 22000** (was 19041).
+   **RDP (`services/rdp/manifest.yaml`, replay path via `serve`):** two fixes.
+   (a) TLS ServerHello random typing — it's a TLS **1.3** hello
+   (supported_versions→0x0304), so the first-4-bytes `timestamp_unix` typing was
+   wrong (no gmt_unix_time in 1.3); changed to full 32-byte `random`. (b) Added
+   `legacy_session_id` echo (offset 44, len 32, type `echo`) — a 1.3 server MUST
+   echo the client's session_id; the static value was a tell. **Live-validated:**
+   ServerHello random[:4] is now per-connection random (not wall-clock), and a
+   ClientHello with session_id=0xAB×32 gets that value echoed back (was static
+   `ad526b9d…`).
+   **KEY FINDING — generated RDP templates NOT integrated (deliberate).** Inspected
+   `/tmp/gen/<os>/rdp` on argus: the 1232-byte "ServerHello+Certificate" responses
+   are a 127-byte cleartext ServerHello followed by **TLS 1.3 encrypted handshake
+   records** (`\x17\x03\x03…` — Certificate/CertVerify/Finished are encrypted under
+   handshake keys in 1.3). Those bytes are session-bound to keys we don't have;
+   replaying them to a new client is useless AND a tell. The generated set also
+   contains 0-byte responses and encrypted app-data records. So the hand-crafted
+   127-byte ServerHello is the max useful cleartext — integrating the generated
+   templates would be a **regression**, not an upgrade. nmap can't extract an RDP
+   cert from TLS 1.3 anyway (encrypted on the wire). RDP item is closed.
 2. **http re-capture de-noise.** Re-capture IIS WITHOUT `http-enum` (just
    http-headers,http-title,http-server-header) -> ~handful of real templates instead
    of 1070 404s. Capture harness `infra/proxmox/capture.ps1` ready.
@@ -126,8 +147,11 @@
 1. **smbmap parity** — smbmap 1.10.4 reports `0 sessions` at 3.1.1 (its own
    signing handling). Full parity needs real SMB2 3.1.1 signing (SP800-108 KDF
    over SessionKey + running preauth SHA-512). Large lift, deferred.
-2. **Build-number consistency** — netexec prints `19041` from the hardcoded NTLM
-   CHALLENGE Version field, not the profile (Win11=22000). Derive from profile.
+2. ✅ **Build-number consistency (RESOLVED 2026-06-17)** — NTLM CHALLENGE Version
+   now derived from the profile via `Server.osVersionTriple()` (Win11→10.0.22000,
+   XP→5.1.2600, etc.); fallback 10.0.19041 only when OSVersion unset. **Validated
+   live on argus:** raw SMB2 session-setup probe reads NTLM Version 10.0 build
+   22000 from the Win11 honeypot (was 19041).
 3. **JA4S validation** — JARM/JA3S validated; JA4S (FoxIO; Suricata 8.0 / Zeek)
    is the current standard and unmeasured. Byte-faithful replay likely passes;
    confirm with FoxIO ja4 tooling or Suricata 8.0.

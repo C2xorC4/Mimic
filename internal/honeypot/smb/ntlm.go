@@ -61,8 +61,11 @@ func buildSPNEGOChallengeToken(ntlmChallenge []byte) []byte {
 }
 
 // buildNTLMChallenge constructs an NTLMSSP CHALLENGE (type 2) message with a
-// random server challenge and target info AV pairs for the given names.
-func buildNTLMChallenge(computerName, domainName string, challenge [8]byte) []byte {
+// random server challenge and target info AV pairs for the given names. The
+// major/minor/build triple is advertised in the Version field so tools like
+// netexec report the emulated OS build (e.g. Win11 22000) instead of a
+// hardcoded value.
+func buildNTLMChallenge(computerName, domainName string, challenge [8]byte, major, minor uint8, build uint16) []byte {
 	targetName := utf16LE(domainName)
 	targetInfo := buildTargetInfo(computerName, domainName)
 
@@ -91,10 +94,11 @@ func buildNTLMChallenge(computerName, domainName string, challenge [8]byte) []by
 	binary.LittleEndian.PutUint16(msg[42:44], uint16(len(targetInfo)))
 	binary.LittleEndian.PutUint32(msg[44:48], targetInfoOff)
 
-	// Version: Windows 10.0 build 19041, NTLMRevisionCurrent=15
-	msg[48] = 10 // MajorVersion
-	msg[49] = 0  // MinorVersion
-	binary.LittleEndian.PutUint16(msg[50:52], 19041) // ProductBuild
+	// Version: derived from the emulated OS profile (e.g. Win11 → 10.0.22000),
+	// NTLMRevisionCurrent=15.
+	msg[48] = major
+	msg[49] = minor
+	binary.LittleEndian.PutUint16(msg[50:52], build) // ProductBuild
 	// [52:55] reserved
 	msg[55] = 15 // NTLMRevisionCurrent
 
@@ -223,8 +227,8 @@ func concat(parts ...[]byte) []byte {
 // ASN.1 DER encoding helpers
 
 func asn1Encode(tag byte, content []byte) []byte { return asn1Build(tag, content) }
-func asn1CTX(n int, content []byte) []byte        { return asn1Build(byte(0xa0+n), content) }
-func asn1APP(n int, content []byte) []byte         { return asn1Build(byte(0x60+n), content) }
+func asn1CTX(n int, content []byte) []byte       { return asn1Build(byte(0xa0+n), content) }
+func asn1APP(n int, content []byte) []byte       { return asn1Build(byte(0x60+n), content) }
 
 func asn1Build(tag byte, content []byte) []byte {
 	l := len(content)
