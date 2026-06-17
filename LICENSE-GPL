@@ -1,0 +1,31 @@
+GNU GENERAL PUBLIC LICENSE
+Version 2, June 1991
+
+Copyright (C) 1989, 1991 Free Software Foundation, Inc.
+51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+
+Everyone is permitted to copy and distribute verbatim copies of this
+license document, but changing it is not allowed.
+
+[Full GPL-2.0 text omitted here for brevity in repository maintenance.
+ Include the complete, unmodified GPL-2.0 text from
+ https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt before
+ distribution or counsel review.]
+
+---
+
+Mimic eBPF Component Notice
+===========================
+
+The eBPF program source in internal/ebpf/ (including fingerprint.c) is
+licensed under GPLv2 for compatibility with the Linux kernel BPF loader,
+which requires a GPL-compatible license string in the program's
+SEC("license") section.
+
+This notice applies only to the eBPF program sources and their compiled
+BPF object artifacts — not to the Go application, service emulation,
+profiles, capture pipeline, or other components of Mimic, which remain
+proprietary unless separately licensed.
+
+When distributing BPF object files built from these sources, include
+this notice and comply with GPLv2 for those objects.

@@ -1,0 +1,181 @@
+MIMIC SOFTWARE — END USER LICENSE AGREEMENT (EVALUATION)
+=========================================================
+
+Last updated: 2026-06-17
+
+PLEASE READ CAREFULLY. BY INSTALLING, COPYING, OR USING THE SOFTWARE,
+YOU AGREE TO BE BOUND BY THIS AGREEMENT. IF YOU DO NOT AGREE, DO NOT
+INSTALL OR USE THE SOFTWARE.
+
+This End User License Agreement ("Agreement") is between:
+
+  Licensor:  [COPYRIGHT HOLDER] ("Licensor", "we", "us")
+  Licensee:  The individual or entity installing or using the Software
+              ("Licensee", "you")
+
+and governs the evaluation and use of the Mimic software product,
+including binaries, installers, configuration bundles, profile data,
+documentation, and updates provided by Licensor (collectively, the
+"Software").
+
+This Agreement does not grant access to proprietary source code unless
+separately agreed in writing.
+
+----------------------------------------------------------------------
+1. GRANT OF LICENSE (EVALUATION)
+----------------------------------------------------------------------
+
+Subject to your compliance with this Agreement, Licensor grants you a
+limited, non-exclusive, non-transferable, non-sublicensable, revocable
+license to install and use the Software solely for:
+
+  (a) internal evaluation and testing;
+  (b) authorized security research, purple-team, or detection-validation
+      activities on systems you own or control, or for which you have
+      explicit written authorization; and
+  (c) demonstration to stakeholders under confidentiality obligations
+      no less protective than Section 4.
+
+Unless separately authorized in a signed commercial license or order
+form, production deployment, managed-service resale, and use on behalf
+of third-party clients require a paid license from Licensor.
+
+Evaluation term: [90] days from first install or first use, unless
+extended in writing. Licensor may revoke this license at any time.
+
+----------------------------------------------------------------------
+2. RESTRICTIONS
+----------------------------------------------------------------------
+
+You may not, and may not permit others to:
+
+  (a) copy, distribute, publish, or make the Software available to any
+      third party except as expressly allowed in Section 1;
+  (b) sell, rent, lease, lend, sublicense, or offer the Software as a
+      hosted or managed service without a commercial license;
+  (c) reverse engineer, decompile, disassemble, or attempt to derive
+      source code from the Software, except to the extent such
+      restriction is prohibited by applicable law;
+  (d) remove, alter, or obscure proprietary notices;
+  (e) use the Software to attack, disrupt, or access systems without
+      authorization;
+  (f) benchmark or publish performance or fingerprint results for
+      competitive product marketing without prior written consent;
+  (g) use the Software in violation of applicable law, including export
+      control and computer-fraud statutes.
+
+----------------------------------------------------------------------
+3. OWNERSHIP
+----------------------------------------------------------------------
+
+The Software is licensed, not sold. Licensor and its suppliers retain
+all right, title, and interest in the Software and all copies, including
+all intellectual property rights. No rights are granted except as
+expressly stated in this Agreement.
+
+----------------------------------------------------------------------
+4. CONFIDENTIALITY
+----------------------------------------------------------------------
+
+The Software, its performance characteristics, non-public documentation,
+and non-public profile or capture artifacts are Confidential Information
+of Licensor. You will protect them using at least the same degree of
+care you use for your own confidential information, and not less than
+reasonable care. You may disclose Confidential Information only to your
+employees and contractors with a need to know who are bound by written
+confidentiality obligations.
+
+----------------------------------------------------------------------
+5. SUPPORT AND UPDATES
+----------------------------------------------------------------------
+
+Unless covered by a separate support agreement, the Software is provided
+for evaluation without support obligations. Licensor may provide updates
+at its discretion; updates are subject to this Agreement unless
+accompanied by different terms.
+
+----------------------------------------------------------------------
+6. DISCLAIMER OF WARRANTY
+----------------------------------------------------------------------
+
+THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE". TO THE MAXIMUM
+EXTENT PERMITTED BY LAW, LICENSOR DISCLAIMS ALL WARRANTIES, WHETHER
+EXPRESS, IMPLIED, OR STATUTORY, INCLUDING IMPLIED WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND
+NON-INFRINGEMENT.
+
+THE SOFTWARE IS SECURITY-RELATED DUAL-USE TOOLING. YOU ARE SOLELY
+RESPONSIBLE FOR LEGAL AUTHORIZATION, DEPLOYMENT SCOPE, AND OPERATIONAL
+RISK.
+
+----------------------------------------------------------------------
+7. LIMITATION OF LIABILITY
+----------------------------------------------------------------------
+
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, IN NO EVENT WILL LICENSOR BE
+LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, EXEMPLARY,
+OR PUNITIVE DAMAGES, OR ANY LOSS OF PROFITS, DATA, GOODWILL, OR BUSINESS
+INTERRUPTION, ARISING FROM OR RELATED TO THIS AGREEMENT OR THE SOFTWARE,
+EVEN IF ADVISED OF THE POSSIBILITY.
+
+LICENSOR'S TOTAL LIABILITY FOR ANY CLAIM ARISING OUT OF OR RELATING TO
+THIS AGREEMENT WILL NOT EXCEED THE GREATER OF (A) THE AMOUNTS PAID BY
+YOU TO LICENSOR FOR THE SOFTWARE IN THE TWELVE (12) MONTHS PRECEDING
+THE CLAIM, OR (B) ONE HUNDRED U.S. DOLLARS (US $100).
+
+Some jurisdictions do not allow certain limitations; in those cases,
+limitations apply to the fullest extent permitted by law.
+
+----------------------------------------------------------------------
+8. EXPORT AND COMPLIANCE
+----------------------------------------------------------------------
+
+You represent that you are not located in, under control of, or a
+national or resident of any country or entity subject to U.S. export
+embargoes or sanctions. You will not export, re-export, or transfer the
+Software except in compliance with applicable export control and sanctions
+laws.
+
+----------------------------------------------------------------------
+9. TERM AND TERMINATION
+----------------------------------------------------------------------
+
+This Agreement is effective upon first install or use and continues until
+terminated. Licensor may terminate immediately if you breach this Agreement.
+Upon termination, you must cease use and destroy all copies of the
+Software in your possession or control. Sections 3, 4, 6, 7, 8, 10, and
+11 survive termination.
+
+----------------------------------------------------------------------
+10. GOVERNING LAW
+----------------------------------------------------------------------
+
+This Agreement is governed by the laws of [STATE/COUNTRY], without regard
+to conflict-of-law rules. Exclusive venue for disputes arising from this
+Agreement lies in the courts of [COUNTY, STATE/COUNTRY], and the parties
+consent to personal jurisdiction there.
+
+----------------------------------------------------------------------
+11. GENERAL
+----------------------------------------------------------------------
+
+This Agreement constitutes the entire agreement regarding the evaluation
+Software and supersedes prior oral or written understandings on that
+subject. Amendments must be in writing and signed by Licensor. If any
+provision is unenforceable, the remainder remains in effect. Failure to
+enforce a provision is not a waiver.
+
+Commercial licenses, OEM agreements, and source-code access require a
+separate signed agreement. Contact: [CONTACT EMAIL]
+
+----------------------------------------------------------------------
+ACCEPTANCE
+----------------------------------------------------------------------
+
+By running `mimic install`, executing the Software, or using the
+`--accept-eula` flag (when implemented), you confirm that you have
+authority to bind Licensee and that you accept this Agreement.
+
+Licensee name (if entity): _______________________________
+Authorized signer:         _______________________________
+Date:                       _______________________________

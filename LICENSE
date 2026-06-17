@@ -1,0 +1,73 @@
+Mimic — Proprietary Source Code License
+========================================
+
+Copyright (c) 2026 [COPYRIGHT HOLDER]. All Rights Reserved.
+
+IMPORTANT: This repository contains confidential, proprietary source code.
+Possession of or access to this repository does not grant any license or
+right to use, copy, modify, merge, publish, distribute, sublicense, or
+sell any part of this software.
+
+1. Reservation of Rights
+
+   Except as expressly set forth in a separate written agreement signed
+   by the copyright holder, no license or other right is granted under
+   any patent, copyright, trademark, trade secret, or other intellectual
+   property right.
+
+2. Authorized Access Only
+
+   Access to this repository is limited to the copyright holder and
+   persons explicitly authorized in writing. Unauthorized access,
+   cloning, copying, or use is prohibited.
+
+3. No Implied License
+
+   The absence of a public distribution or a LICENSE file granting
+   open-source rights is intentional. Do not infer permission to use
+   this software from repository visibility, README content, or
+   prior informal sharing.
+
+4. Binary Distribution
+
+   Use of compiled binaries, installers, or appliances is governed
+   solely by the End User License Agreement (EULA.txt) or a separate
+   commercial license agreement — not by this file.
+
+5. eBPF Component
+
+   The eBPF programs under internal/ebpf/ are marked GPL-compatible for
+   loading into the Linux kernel (see internal/ebpf/fingerprint.c and
+   LICENSE-GPL). That kernel-loading requirement does not grant any
+   broader license to the remainder of this repository.
+
+6. Third-Party Components
+
+   This software may incorporate third-party open-source components
+   subject to their respective licenses (see go.mod and component
+   notices). Those licenses apply only to the covered third-party
+   portions.
+
+7. Feedback
+
+   If you provide suggestions, bug reports, or other feedback without
+   a separate agreement, the copyright holder may use that feedback
+   without obligation or compensation, and you grant no rights in your
+   feedback beyond what is necessary for the copyright holder to
+   incorporate it.
+
+8. Licensing Inquiries
+
+   For evaluation access, commercial licensing, or acquisition
+   discussions, contact:
+
+       [CONTACT EMAIL]
+
+---
+
+THIS SOFTWARE IS PROVIDED "AS IS" FOR AUTHORIZED INTERNAL DEVELOPMENT
+ONLY. NO WARRANTY. SEE EULA.txt FOR END-USER TERMS APPLICABLE TO
+DISTRIBUTED BINARIES.
+
+This document is a template for internal IP hygiene, not legal advice.
+Have qualified counsel review before reliance or distribution.

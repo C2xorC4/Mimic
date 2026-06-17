@@ -250,4 +250,8 @@ Mimic's network-outward deception is transparent on the host. The eBPF TC attach
 
 ## License
 
-See [LICENSE](LICENSE).
+This is a **private, proprietary** development repository. Source code is
+governed by [LICENSE](LICENSE) (all rights reserved). eBPF kernel programs
+under `internal/ebpf/` are GPLv2-compatible — see [LICENSE-GPL](LICENSE-GPL).
+Distributed binaries are governed by [EULA.txt](EULA.txt). Legal templates
+and demo-repo scaffolding: [docs/legal/](docs/legal/).

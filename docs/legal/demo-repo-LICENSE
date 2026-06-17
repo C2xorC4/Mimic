@@ -1,0 +1,41 @@
+Mimic Demo Repository — Documentation License
+=============================================
+
+Copyright (c) 2026 [COPYRIGHT HOLDER]. All Rights Reserved.
+
+This license applies only to files in the public **mimic-demo** repository
+(documentation, example commands, screenshots, and other non-product
+assets). It does **not** apply to the Mimic software product, source code,
+binaries, profiles, or capture artifacts, which are licensed separately.
+
+1. Documentation
+
+   You may view, copy, and reference the documentation in this repository
+   for informational and educational purposes, including citing validation
+   commands and expected fingerprint results in articles or talks, provided
+   you do not misrepresent such materials as granting rights to the Mimic
+   product itself.
+
+2. Restrictions
+
+   You may not:
+
+   (a) represent documentation or examples in this repository as the
+       complete Mimic product or a substitute for a licensed deployment;
+   (b) use Mimic trademarks or product name in a way that implies
+       endorsement without written permission;
+   (c) redistribute substantial portions of this repository as a competing
+       product manual without permission.
+
+3. No Product License
+
+   Nothing in this repository grants a license to install, run, modify, or
+   redistribute the Mimic software. Request evaluation or commercial access
+   via [CONTACT EMAIL].
+
+4. Disclaimer
+
+   DOCUMENTATION IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND.
+
+Template — not legal advice. Have counsel review before publishing the
+demo repository.
