@@ -63,18 +63,23 @@ func negotiateNetBIOSSession(conn net.Conn, computerName string) error {
 // sessionRequestAccepted decides whether to answer 0x82 for a Session Request.
 // Windows accepts *SMBSERVER and the host computer name (any NetBIOS suffix).
 func sessionRequestAccepted(payload []byte, computerName string) bool {
-	if len(payload) < 32 {
+	calledBytes := extractCalledName(payload)
+	if len(calledBytes) < 32 {
 		return false
 	}
-	called := decodeFirstLevelNBName(payload[:32])
+	called := decodeFirstLevelNBName(calledBytes[:32])
 	if called == "" {
 		return false
 	}
-	upper := strings.ToUpper(called)
+	upper := strings.ToUpper(strings.TrimSpace(called))
 	if strings.HasPrefix(upper, "*") {
 		return true
 	}
 	if strings.Contains(upper, "SMBSERVER") {
+		return true
+	}
+	// smbclient //<IP> -p 139 encodes the IPv4 literal as the called name.
+	if looksLikeIPv4NBName(upper) {
 		return true
 	}
 	host := strings.ToUpper(strings.TrimSpace(computerName))
@@ -90,7 +95,39 @@ func sessionRequestAccepted(payload []byte, computerName string) bool {
 	return base == host || strings.HasPrefix(base, host)
 }
 
+func looksLikeIPv4NBName(name string) bool {
+	n := strings.TrimSpace(strings.Split(name, "\x00")[0])
+	parts := strings.Split(n, ".")
+	if len(parts) != 4 {
+		return false
+	}
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" || len(p) > 3 {
+			return false
+		}
+		for _, c := range p {
+			if c < '0' || c > '9' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // decodeFirstLevelNBName reverses RFC 1001 first-level NetBIOS name encoding.
+// extractCalledName locates the 32-byte first-level encoded called name in a
+// Session Request payload. Samba/smbclient may prefix a scope-length byte (0x20)
+// before the encoded name.
+func extractCalledName(payload []byte) []byte {
+	for i := 0; i+32 <= len(payload); i++ {
+		if payload[i] >= 'A' && payload[i] <= 'P' {
+			return payload[i:]
+		}
+	}
+	return payload
+}
+
 func decodeFirstLevelNBName(encoded []byte) string {
 	var out strings.Builder
 	for i := 0; i+1 < len(encoded) && i < 32; i += 2 {

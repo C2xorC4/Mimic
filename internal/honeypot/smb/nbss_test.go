@@ -28,6 +28,14 @@ func TestSessionRequestAccepted(t *testing.T) {
 	if sessionRequestAccepted(win11, "OTHERBOX") {
 		t.Fatal("wrong computer name should be rejected")
 	}
+	if !sessionRequestAccepted(buildEncodedNBName("10.0.254.45"), "OTHERBOX") {
+		t.Fatal("IPv4 encoded called name should be accepted")
+	}
+	// Samba prepends a 0x20 scope byte before the encoded called name.
+	sambaStyle := append([]byte{0x20}, buildEncodedNBName("127.0.0.1")...)
+	if !sessionRequestAccepted(sambaStyle, "HOST") {
+		t.Fatal("scope-prefixed IPv4 called name should be accepted")
+	}
 }
 
 func buildEncodedNBName(name string) []byte {
