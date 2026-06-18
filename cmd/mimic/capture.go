@@ -162,6 +162,8 @@ func parsePorts(cmd *cobra.Command) ([]uint16, error) {
 			ports = []uint16{389, 636}
 		case "llmnr":
 			ports = []uint16{5355}
+		case "snmp":
+			ports = []uint16{161}
 		}
 	}
 

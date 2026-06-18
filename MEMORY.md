@@ -69,8 +69,9 @@
   concatenating probes/responses N× (inflating lengths so signatures never matched a
   real probe). Content-key works for TCP+UDP (UDP has no seq). Batch-generated on
   argus `/tmp/gen/<os>/<svc>` from the 34 per-service pcaps (NOT pulled to repo):
-  smb 8-9, rdp 12-15, nbns 3-4 = clean; **snmp ~236 (full MIB walk, verbose), http
-  was 1070+ (http-enum 404 noise — pipeline filter fixes to ~6, 2026-06-18), llmnr
+  smb 8-9, rdp 12-15, nbns 3-4 = clean; **snmp was ~236 (ifTable walk — pipeline
+  filter fixes to ~3 system OIDs, 2026-06-18), http was 1070+ (http-enum — ~6),
+  llmnr
   skipped (python-probe sidecar has no `(IP)` +
   multicast: probe dest=224.0.0.252 not server, so 0 exchanges).**
   - **ARCHITECTURE (load-bearing):** `services/<name>/` = stateless template-replay
@@ -124,8 +125,13 @@
    `capture pcap --service llmnr`; manifest protocol infers `udp`. **Validated on
    argus:** Win11 proxmox pcap with wrong `--server-ip` still extracts **1** probe
    (sidecar override 10.0.251.64), was 0 exchanges.
-4. **snmp (last).** 236 per-OID templates valid for OID-keyed replay but heavy;
-   optional collapse/curate.
+4. ✅ **snmp — DONE (2026-06-18).** Pipeline keeps **system MIB only**
+   (`1.3.6.1.2.1.1.*` — sysDescr/sysUpTime/sysName); drops snmp-interfaces
+   ifTable GET-NEXT walk (~233/236 exchanges). Live proxmox analysis + nmap
+   sidecar: `-sV`/`snmp-sysdescr` need the 3 system OIDs; full walk is
+   enumeration noise (http-enum parallel). **Validated:** srv2022 pcap **236→3**
+   probes. `snmp-interfaces` deep fidelity deferred (needs stateful handler or
+   opt-in full capture).
 
   Generic rewrite-rule typing limitation: capture generator marks all dynamic fields
   `type: random` (functional non-static, but SMB2 FILETIME should be `timestamp`,

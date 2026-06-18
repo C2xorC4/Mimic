@@ -70,6 +70,12 @@ func (tg *TemplateGenerator) AddSession(session *Session) {
 			}
 		}
 
+		if tg.serviceName == "snmp" || isSNMPServicePort(session.Key.ServerPort) {
+			if _, keep := classifySNMPProbe(ex.Probe); !keep {
+				continue
+			}
+		}
+
 		// Hash the probe for deduplication
 		hash := sha256.Sum256(ex.Probe)
 		hashStr := hex.EncodeToString(hash[:8])
@@ -247,6 +253,11 @@ func (tg *TemplateGenerator) generateProbeName(probe []byte, port uint16) string
 
 	case 5355: // LLMNR
 		name = "llmnr_query"
+
+	case 161, 162: // SNMP
+		if n, ok := classifySNMPProbe(probe); ok {
+			name = n
+		}
 
 	case 1433: // MSSQL
 		name = "mssql"
