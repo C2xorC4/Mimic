@@ -15,10 +15,10 @@
 #     ncacn_ip_tcp tower floors with this host's egress IPv4, so the advertised TCP
 #     bindings point at the running host, not the capture box.
 #
-# KNOWN residual tells (documented, deferred): the np/lrpc towers embed the capture
-# box's NetBIOS name (DESKTOP-G6JUGNO) — set the deployment's netbios_name to match,
-# or re-capture from a box named as desired; and the dynamic ncacn_ip_tcp ports
-# (49664+) are advertised but not actually listening on this host.
+# KNOWN residual tells (documented): the np/lrpc towers embed the capture box's
+# NetBIOS name (DESKTOP-G6JUGNO) — set netbios_name to match, or re-capture.
+# Dynamic ncacn_ip_tcp ports (49664+) are opened at runtime from the ept_lookup
+# template (BIND→bind_ack stub per port) when msrpc starts.
 
 name: msrpc
 port: 135

@@ -36,8 +36,9 @@ type Listener struct {
 	jitterMaxMs int
 	log         *logging.Logger
 
-	tlsCfg  *tls.Config // lazily generated for TLS services
-	tlsOnce sync.Once
+	tlsCfg     *tls.Config // lazily generated for TLS services
+	tlsOnce    sync.Once
+	dynamicRPC *dynamicRPCPool
 }
 
 // ListenerStats tracks listener statistics
@@ -167,6 +168,29 @@ func (l *Listener) Start() error {
 		return fmt.Errorf("unsupported protocol: %s", l.config.Protocol)
 	}
 
+	if l.config.Name == "msrpc" && l.config.Stateful && l.config.Protocol == "tcp" {
+		if err := l.startDynamicRPCPorts(); err != nil {
+			l.Stop()
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (l *Listener) startDynamicRPCPorts() error {
+	rules := epmLookupRewriteRules(l.config.Probes)
+	probe := eptLookupProbeBytes()
+	resp, err := l.responder.GetResponse("responses/epm_lookup.bin", probe, rules)
+	if err != nil {
+		return fmt.Errorf("epm template for dynamic ports: %w", err)
+	}
+	ports := ExtractNcacnIPTCPPorts(resp)
+	pool, err := startDynamicRPCPool(l.ctx, ports, l.baseDir, l.log)
+	if err != nil {
+		return err
+	}
+	l.dynamicRPC = pool
 	return nil
 }
 
@@ -174,6 +198,10 @@ func (l *Listener) Start() error {
 func (l *Listener) Stop() error {
 	l.cancel()
 
+	if l.dynamicRPC != nil {
+		l.dynamicRPC.stop()
+		l.dynamicRPC = nil
+	}
 	if l.tcpLn != nil {
 		l.tcpLn.Close()
 	}
