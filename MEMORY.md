@@ -299,8 +299,11 @@ op), and much of the "cost" was a self-inflicted bug (TS incoherence, below).
     rpcdump enumerates all 138 endpoints; ncacn_ip_tcp bindings show **10.0.254.45**
     (argus), zero leak of capture .67; np towers show DESKTOP-G6JUGNO (matched via
     `netbios_name` — the documented coherence mitigation). Was "bind ok, no enum"; now
-    full self-consistent endpoint map. RESIDUAL (deferred): dynamic ncacn_ip_tcp ports
-    (49664+) advertised but not actually listening (mild tell).
+    full self-consistent endpoint map. **Dynamic RPC ports (2026-06-18):** tower-floor
+    parser (`epm_ports.go`) extracts 8 ncacn_ip_tcp bindings from `epm_lookup.bin`
+    (was 364 false positives from naive IP+port scan); `startDynamicRPCPool` opens
+    BIND→bind_ack listeners. **Live (Kali→argus):** nmap all 8 open; rpcdump shows
+    10.0.254.45 bindings. Commits: `a7c0e37`, `8a20ad3` (tower parse), `5922b89` (SMB1).
   - ✅ **NetBIOS/139 — DONE (2026-06-18).** `smb_honeypot` binds TCP 139 on Server/DC
     editions (`Config.NetBIOSPort`): NBSS 0x81→0x82 handshake then full SMB2/3 state
     machine (same as 445). `config.EditionExposesPort` gates 135/139/msrpc/netbios
@@ -329,8 +332,8 @@ pipeline inverted) after Linux benchmarks pass.
 
 | Track | Focus | Current |
 |-------|-------|---------|
-| **A — OSE** | Cred-leak loop, JA4S measure, dynamic RPC ports (49664+) | Cred-leak + JA4S done; RPC ports open |
-| **B — Breadth** | `--services all`, edition gating, deeper SMB scripts | `--services all` done; SMB scripts open |
+| **A — OSE** | Cred-leak loop, JA4S measure, dynamic RPC ports (49664+) | **DONE** — 8 ports listening, Kali-validated |
+| **B — Breadth** | `--services all`, edition gating, deeper SMB scripts | `--services all` done; core SMB scripts validated |
 | **C — Hygiene** | argus sync, packet-template regen on promote only | Ongoing |
 
 ## Known Gaps / Next Priority
@@ -374,7 +377,14 @@ pipeline inverted) after Linux benchmarks pass.
 4. ✅ **Cross-service credential leak (CLOSED 2026-06-18).** `GET
    /backup_credentials.txt` emits `{{leak:backup_svc}}` → `svc_backup:…`;
    **live-validated:** `curl` leak → `nxc smb` auth OK on argus.
-5. **eBPF host-telemetry stealth** — BPF(SCHED_CLS) load is auditable; the
+5. ✅ **Deeper SMB nmap scripts (VALIDATED 2026-06-18, Kali→argus:445).**
+   Interactive honeypot now forces `SMB1Enabled=true` (`run.go`) so legacy-path
+   scripts work on Server 2022 profiles. **Passing:** smb-os-discovery (OS/NetBIOS/
+   workgroup), smb-enum-shares (IPC$/ADMIN$/C$), smb2-security-mode, smb2-capabilities,
+   smb2-time, smb-protocols (incl. NT LM 0.12), smb-security-mode. **Residual:**
+   smb-mbenum (NetServerEnum2 MSRPC), smb-enum-sessions, some smb-vuln-* (expected
+   gaps); smb-vuln-ms08-067 reports LIKELY VULNERABLE (false-positive tell — review).
+6. **eBPF host-telemetry stealth** — BPF(SCHED_CLS) load is auditable; the
    Linux-host/Windows-fingerprint contradiction is the strongest detection
    surface. Possible mitigation: `prog_name` + process-ancestry spoofing (see
    LJM daydream `mimic-ebpf-stealth-gap`). Reframes a "hard limit" as solvable.
