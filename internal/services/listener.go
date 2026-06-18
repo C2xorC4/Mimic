@@ -185,7 +185,7 @@ func (l *Listener) startDynamicRPCPorts() error {
 	if err != nil {
 		return fmt.Errorf("epm template for dynamic ports: %w", err)
 	}
-	ports := ExtractNcacnIPTCPPorts(resp)
+	ports := ExtractNcacnIPTCPPorts(resp, hostEgressIPv4())
 	pool, err := startDynamicRPCPool(l.ctx, ports, l.baseDir, l.log)
 	if err != nil {
 		return err

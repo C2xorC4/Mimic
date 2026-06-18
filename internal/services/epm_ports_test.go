@@ -14,22 +14,35 @@ func TestExtractNcacnIPTCPPortsFromCapture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ports := ExtractNcacnIPTCPPorts(data)
-	if len(ports) < 10 {
-		t.Fatalf("expected many dynamic ports, got %d: %v", len(ports), ports)
+	ports := ExtractNcacnIPTCPPorts(data, nil)
+	if len(ports) < 4 {
+		t.Fatalf("expected several dynamic ports, got %d: %v", len(ports), ports)
+	}
+	if len(ports) > 20 {
+		t.Fatalf("tower parse should not over-extract; got %d: %v", len(ports), ports)
 	}
 	for _, p := range ports {
 		if p < windowsDynamicPortMin {
 			t.Fatalf("port %d below dynamic range", p)
 		}
 	}
-	// Spot-check a port known from the Win11 25H2 capture (stable in template).
-	if !containsPort(ports, 49664) && !containsPort(ports, 49665) {
-		t.Logf("49664/49665 not in set (capture may differ); ports=%v", ports)
+	if !containsPort(ports, 49664) {
+		t.Fatalf("expected 49664 in capture set, got %v", ports)
+	}
+
+	captureHost := []byte{10, 0, 254, 67}
+	filtered := ExtractNcacnIPTCPPorts(data, captureHost)
+	if len(filtered) != len(ports) {
+		t.Fatalf("capture IP filter: unfiltered=%d filtered=%d ports=%v", len(ports), len(filtered), filtered)
 	}
 }
 
 func TestExtractNcacnIPTCPPortsAfterHostIPRewrite(t *testing.T) {
+	host := hostEgressIPv4()
+	if host == nil {
+		t.Skip("no egress IPv4 on this host")
+	}
+
 	dir := filepath.Join("..", "..", "services", "msrpc")
 	r, err := NewResponderWithOptions(dir, nil)
 	if err != nil {
@@ -44,9 +57,12 @@ func TestExtractNcacnIPTCPPortsAfterHostIPRewrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ports := ExtractNcacnIPTCPPorts(resp)
-	if len(ports) < 10 {
-		t.Fatalf("after rewrite: expected many ports, got %d", len(ports))
+	ports := ExtractNcacnIPTCPPorts(resp, host)
+	if len(ports) < 4 {
+		t.Fatalf("after rewrite: expected several ports, got %d", len(ports))
+	}
+	if len(ports) > 20 {
+		t.Fatalf("after rewrite: tower parse over-extracted %d ports", len(ports))
 	}
 }
 
