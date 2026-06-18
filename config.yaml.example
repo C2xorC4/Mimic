@@ -116,7 +116,7 @@ credentials:
 credential_leaks:
   - cred: backup_svc
     via: http
-    location: body
+    location: /backup_credentials.txt   # {{leak:backup_svc}} in services/http response
   - cred: sql_sa
     via: ssh
     location: banner

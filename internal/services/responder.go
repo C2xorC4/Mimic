@@ -35,6 +35,9 @@ func (r *Responder) SetCredStore(s *deception.CredStore) { r.credStore = s }
 // leakPlaceholder matches {{leak:<id>}} in a (text) response template.
 var leakPlaceholder = regexp.MustCompile(`\{\{leak:([A-Za-z0-9_-]+)\}\}`)
 
+// contentLengthLine matches the HTTP Content-Length header value (case-insensitive).
+var contentLengthLine = regexp.MustCompile(`(?i)Content-Length:\s*\d+`)
+
 // applyLeak substitutes {{leak:<id>}} placeholders with "username:password" from
 // the credential store. It is length-changing, so callers must run it BEFORE any
 // fixed-offset rewrite rules — only use it on text responses (HTTP body, banners),
@@ -51,6 +54,28 @@ func (r *Responder) applyLeak(response []byte) []byte {
 		return m // unknown id: leave placeholder untouched
 	})
 	return []byte(out)
+}
+
+// fixHTTPContentLength recalculates Content-Length after length-changing leak
+// substitution. No-op for non-HTTP responses or when the header is absent.
+func fixHTTPContentLength(response []byte) []byte {
+	if len(response) < 12 || !bytes.HasPrefix(response, []byte("HTTP/")) {
+		return response
+	}
+	sep := bytes.Index(response, []byte("\r\n\r\n"))
+	if sep < 0 {
+		return response
+	}
+	header := string(response[:sep])
+	if !contentLengthLine.MatchString(header) {
+		return response
+	}
+	bodyLen := len(response) - sep - 4
+	newHeader := contentLengthLine.ReplaceAllString(header, fmt.Sprintf("Content-Length: %d", bodyLen))
+	out := make([]byte, 0, len(newHeader)+len(response)-sep)
+	out = append(out, newHeader...)
+	out = append(out, response[sep:]...)
+	return out
 }
 
 // NewResponder creates a new responder
@@ -95,6 +120,7 @@ func (r *Responder) GetResponse(filename string, originalProbe []byte, rules []c
 	// Credential-leak substitution (text responses). Length-changing, so it runs
 	// before any fixed-offset rewrite rules.
 	response = r.applyLeak(response)
+	response = fixHTTPContentLength(response)
 
 	// Apply rewrite rules
 	for _, rule := range rules {
