@@ -401,11 +401,14 @@ func runMimic(cmd *cobra.Command, args []string) error {
 					if cfg.DomainName == "" {
 						cfg.DomainName = "WORKGROUP"
 					}
-					// Drive SMB protocol behaviour from the OS profile (dialect, SMB1,
+					// Drive SMB protocol behaviour from the OS profile (dialect,
 					// signing, OS strings). nil profile → honeypot defaults (modern Win).
+					// SMB1 is always enabled on the interactive honeypot so nmap scripts
+					// (smb-os-discovery, smb-enum-shares) can use the legacy path; the
+					// template replay service still honours profile smb1_enabled.
+					cfg.SMB1Enabled = true
 					if profile != nil {
 						cfg.MaxDialect = honeysmb.DialectFromString(profile.SMB.Dialect)
-						cfg.SMB1Enabled = profile.SMB.SMB1Enabled
 						cfg.SigningRequired = profile.SMB.SigningRequired
 						cfg.OSName = profile.Name
 						cfg.OSVersion = profile.Version
