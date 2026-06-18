@@ -19,6 +19,7 @@ import (
 	"github.com/c2xorc4/mimic/internal/ebpf"
 	"github.com/c2xorc4/mimic/internal/events"
 	honeyftp "github.com/c2xorc4/mimic/internal/honeypot/ftp"
+	honeyrdp "github.com/c2xorc4/mimic/internal/honeypot/rdp"
 	honeysmb "github.com/c2xorc4/mimic/internal/honeypot/smb"
 	"github.com/c2xorc4/mimic/internal/logging"
 	"github.com/c2xorc4/mimic/internal/services"
@@ -361,6 +362,7 @@ func runMimic(cmd *cobra.Command, args []string) error {
 			// Load and start services
 			var honeypotSMB *honeysmb.Server
 			var honeypotFTP *honeyftp.Server
+			var honeypotRDP *honeyrdp.Server
 			smbHoneypotOn139 := false
 			if profile != nil {
 				for _, sn := range appCfg.Services {
@@ -422,6 +424,34 @@ func runMimic(cmd *cobra.Command, args []string) error {
 					continue
 				}
 
+				if svcName == "rdp" {
+					rcfg := honeyrdp.Config{
+						ComputerName: appCfg.ServiceOptions.NetBIOSName,
+						DomainName:   appCfg.ServiceOptions.Domain,
+						ServicesDir:  appCfg.ServicesDir,
+					}
+					if rcfg.ComputerName == "" {
+						rcfg.ComputerName = "WORKSTATION"
+					}
+					if rcfg.DomainName == "" {
+						rcfg.DomainName = "WORKGROUP"
+					}
+					if profile != nil {
+						rcfg.OSVersion = profile.Version
+					}
+					rdpSrv, err := honeyrdp.New(rcfg)
+					if err != nil {
+						errChan <- fmt.Errorf("creating rdp honeypot: %w", err)
+						return
+					}
+					honeypotRDP = rdpSrv
+					if err := honeypotRDP.Start(); err != nil {
+						errChan <- fmt.Errorf("starting rdp honeypot: %w", err)
+						return
+					}
+					continue
+				}
+
 				if svcName == "ftp_honeypot" {
 					allowAnon := appCfg.FtpHoneypot.AllowAnonymous == nil || *appCfg.FtpHoneypot.AllowAnonymous
 					// Filesystem falls back to the SMB honeypot's tree so one
@@ -474,6 +504,9 @@ func runMimic(cmd *cobra.Command, args []string) error {
 			}
 			if honeypotFTP != nil {
 				honeypotFTP.Stop()
+			}
+			if honeypotRDP != nil {
+				honeypotRDP.Stop()
 			}
 		}()
 	}

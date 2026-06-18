@@ -10,10 +10,11 @@
 
 ## Current Status (as of 2026-06-06; latest work 2026-06-18)
 
-> **Thin-decoys queue (order 3,2,4,1):** (#3) WinRM, (#2) MSRPC ept_map, (#4)
-> NetBIOS/139 SMB bridge — **DONE**. **OUTSTANDING: (#1) RDP/3389 CredSSP.**
-> `os_edition` gates 135/139 on workstation vs server. Lab warm on argus; Kali 9511
-> up (Operational).
+> **Thin-decoys queue (order 3,2,4,1):** **ALL DONE + VALIDATED** (2026-06-18).
+> (#3) WinRM, (#2) MSRPC ept_map, (#4) NetBIOS/139, (#1) RDP/3389 CredSSP.
+> RDP live: Kali `nmap --script rdp-ntlm-info` → Product_Version **10.0.20348**
+> (Server 2022 profile), NetBIOS/DNS names match `netbios_name`. `os_edition`
+> gates 135/139 on workstation vs server. Lab warm on argus; Kali 9511 up.
 
 - **nmap `-O` → exact Windows 10/11 DB match** (no `-p` needed). Full
   SEQ/OPS/WIN/ECN/T1–T7/U1/IE vector matches Windows 11 21H2. Detailed vectors
@@ -72,11 +73,13 @@
   1070+ (http-enum 404 noise), llmnr skipped (python-probe sidecar has no `(IP)` +
   multicast: probe dest=224.0.0.252 not server, so 0 exchanges).**
   - **ARCHITECTURE (load-bearing):** `services/<name>/` = stateless template-replay
-    (svcMgr.LoadService); `smb_honeypot`/`ftp_honeypot` = interactive hand-coded
+    (svcMgr.LoadService); `smb_honeypot`/`ftp_honeypot`/`rdp` = interactive hand-coded
     (`internal/honeypot/*`, special-cased in run.go). For SMB the **honeypot is the
     serving path** (does multi-step SESSION_SETUP/TREE_CONNECT/enum/auth that replay
-    can't); captured `services/smb` template = REFERENCE/validation only. Editing
-    captured templates can NOT regress the honeypot (separate code+data+selector).
+    can't); captured `services/smb` template = REFERENCE/validation only. **`rdp` in
+    `services:` starts the stateful honeypot** (X.224→TLS→CredSSP), not the template;
+    `services/rdp/responses/*.bin` supplies nego + JARM static hello only. Editing
+    captured templates can NOT regress the honeypots (separate code+data+selector).
 
 ## Track-1 refinement queue (priority order, handle after restart)
 1. ✅ **RDP & SMB enhancements — DONE (2026-06-17, live-validated on argus).**
@@ -289,9 +292,17 @@ op), and much of the "cost" was a self-inflicted bug (TS incoherence, below).
     template on workstation (filtered, like real Win11 client). Template `netbios`
     skipped when honeypot owns 139. Files: `internal/honeypot/smb/nbss.go`,
     `internal/config/edition_ports.go`, `cmd/mimic/run.go`.
-  - **TODO (staged — Kali client 9511 @ 10.0.254.70; argus capture via `lab.py`):**
-    - **RDP/3389:** X.224 nego→TLS termination→CredSSP NTLM so it leaks Product_Version
-      like real Win11 (Op-1). Needs a stateful RDP handler (not pure-TLS dual-path).
+  - ✅ **RDP/3389 — DONE + VALIDATED (argus + Kali, 2026-06-18).** Stateful
+    honeypot `internal/honeypot/rdp/`: X.224 nego (`rdp_neg_tls.bin`) →
+    **dual-path TLS** (JARM-only ClientHellos → static `tls_server_hello.bin`;
+    real clients → `crypto/tls`) → CredSSP TSRequest NTLM Type 1→Type 2 with
+    **Product_Version from `profile.Version`** + live MsvAvTimestamp. Handles
+    **raw ASN.1 CredSSP** (nmap `rdp-ntlm-info` sends no TPKT over TLS) and
+    TPKT-wrapped TSRequest (mstsc path). `run.go` intercepts `rdp` in `services:`.
+    **Live (Kali→argus:3389, Server 2022 profile):** `nmap --script rdp-ntlm-info`
+    → Product_Version **10.0.20348**, Target_Name/NetBIOS/DNS = WORKGROUP /
+    DESKTOP-G6JUGNO. Closes OSE tell "3389 no-NTLM". `services/rdp/manifest.yaml`
+    = JARM template reference only.
 - 📋 **Process self-ID:** `ss -tlnp` → `/usr/local/bin/mimic run`; one PID owns all
   decoy ports; binary literally named `mimic`. Post-shell instant unmask. Extends #5.
 
@@ -335,8 +346,9 @@ op), and much of the "cost" was a self-inflicted bug (TS incoherence, below).
    LJM daydream `mimic-ebpf-stealth-gap`). Reframes a "hard limit" as solvable.
    *(OSE-2026-001 confirmed: vsftpd-on-Windows mismatch + `mimic` process self-ID
    were the operator's deception tells — see exercise section.)*
-6. **TLS handshake completion** — per-conn TLS proxy for 443. *(OSE-2026-001:
-   443 FIN-after-ClientHello flagged as a decoy; 3389 no-NTLM likewise.)*
+6. **TLS handshake completion** — ✅ 443 dual-path TLS (2026-06-17); ✅ 3389
+   CredSSP honeypot (2026-06-18, validated `rdp-ntlm-info`).
+   *(OSE-2026-001: 443 FIN-after-ClientHello and 3389 no-NTLM were the tells.)*
 7. **Service expansion** — ✅ MSRPC/135 endpoint-mapper capture+replay DONE (2026-06-18,
    ept_lookup; see thin-decoys section). Remaining: `--services all`, deeper SMB scripts.
 
@@ -365,7 +377,7 @@ op), and much of the "cost" was a self-inflicted bug (TS incoherence, below).
 - Drive proxmox from ss-book via `infra/proxmox/lab.py` (python; token auto-loaded).
   Capture target for re-capture: `python lab.py deploy 9011 <vmid> --linked --start`
   → `lab.py ip <vmid>` → `lab.py prep <vmid>` (fw off) → capture → `lab.py destroy <vmid>`.
-- **Kept running** at handoff (do not destroy — needed for #4 NetBIOS/139 + #1 RDP).
+- **Kept running** at handoff (do not destroy — needed for RDP argus validation).
 
 ### Resume testing
 ```bash
