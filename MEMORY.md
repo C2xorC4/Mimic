@@ -321,8 +321,9 @@ op), and much of the "cost" was a self-inflicted bug (TS incoherence, below).
     → Product_Version **10.0.20348**, Target_Name/NetBIOS/DNS = WORKGROUP /
     DESKTOP-G6JUGNO. Closes OSE tell "3389 no-NTLM". `services/rdp/manifest.yaml`
     = JARM template reference only.
-- 📋 **Process self-ID:** `ss -tlnp` → `/usr/local/bin/mimic run`; one PID owns all
-  decoy ports; binary literally named `mimic`. Post-shell instant unmask. Extends #5.
+- ⏸️ **Process self-ID (DEPRIORITIZED 2026-06-18):** `ss -tlnp` → `mimic` is a
+  post-compromise tell only — irrelevant at network-scan OSE layer; revisit only if
+  a concrete need emerges.
 
 ## Strategic roadmap (2026-06-18, parallel tracks)
 
@@ -333,7 +334,7 @@ pipeline inverted) after Linux benchmarks pass.
 | Track | Focus | Current |
 |-------|-------|---------|
 | **A — OSE** | Cred-leak loop, JA4S measure, dynamic RPC ports (49664+) | **DONE** — 8 ports listening, Kali-validated |
-| **B — Breadth** | `--services all`, edition gating, deeper SMB scripts | `--services all` done; core SMB scripts validated |
+| **B — Breadth** | `--services all`, edition gating, deeper SMB scripts | **DONE** — full smb-* enumeration suite Kali-validated |
 | **C — Hygiene** | argus sync, packet-template regen on promote only | Ongoing |
 
 ## Known Gaps / Next Priority
@@ -378,18 +379,16 @@ pipeline inverted) after Linux benchmarks pass.
    /backup_credentials.txt` emits `{{leak:backup_svc}}` → `svc_backup:…`;
    **live-validated:** `curl` leak → `nxc smb` auth OK on argus.
 5. ✅ **Deeper SMB nmap scripts (VALIDATED 2026-06-18, Kali→argus:445).**
-   Interactive honeypot now forces `SMB1Enabled=true` (`run.go`) so legacy-path
-   scripts work on Server 2022 profiles. **Passing:** smb-os-discovery (OS/NetBIOS/
-   workgroup), smb-enum-shares (IPC$/ADMIN$/C$), smb2-security-mode, smb2-capabilities,
-   smb2-time, smb-protocols (incl. NT LM 0.12), smb-security-mode. **Residual:**
-   smb-mbenum (NetServerEnum2 MSRPC), smb-enum-sessions, some smb-vuln-* (expected
-   gaps); smb-vuln-ms08-067 reports LIKELY VULNERABLE (false-positive tell — review).
-6. **eBPF host-telemetry stealth** — BPF(SCHED_CLS) load is auditable; the
-   Linux-host/Windows-fingerprint contradiction is the strongest detection
-   surface. Possible mitigation: `prog_name` + process-ancestry spoofing (see
-   LJM daydream `mimic-ebpf-stealth-gap`). Reframes a "hard limit" as solvable.
-   *(OSE-2026-001 confirmed: vsftpd-on-Windows mismatch + `mimic` process self-ID
-   were the operator's deception tells — see exercise section.)*
+   Interactive honeypot forces `SMB1Enabled=true` (`run.go`). SRVSVC stubs:
+   `NetrNetSessEnum` (op 0x0C, empty level-10), `NetrPathCompare` (op 0x20,
+   ERROR_INVALID_NAME → PATCHED). LANMAN RAP: `NetServerEnum2` (op 0x68, status 71
+   → "Not a master or backup browser"). **Passing:** smb-os-discovery, smb-enum-shares,
+   smb2-security-mode, smb2-capabilities, smb2-time, smb-protocols, smb-security-mode,
+   smb-mbenum, smb-enum-sessions (empty), smb-vuln-ms08-067 (PATCHED). Commits:
+   `5b276a5`, `562421e`, `76ab37e`.
+6. ⏸️ **eBPF / host-telemetry stealth (DEPRIORITIZED 2026-06-18):** post-shell
+   Linux-host tells (`ss`, BPF audit) out of OSE scope unless a concrete need emerges.
+   Network-layer OSE remains the priority.
 6. **TLS handshake completion** — ✅ 443 dual-path TLS (2026-06-17); ✅ 3389
    CredSSP honeypot (2026-06-18, validated `rdp-ntlm-info`).
    *(OSE-2026-001: 443 FIN-after-ClientHello and 3389 no-NTLM were the tells.)*
@@ -397,7 +396,7 @@ pipeline inverted) after Linux benchmarks pass.
    (2026-06-18): expands to honeypots + all templates, edition-gates 135/139,
    drops smb/rdp/netbios replay superseded by honeypots. **Validated argus Server
    2022:** 15 services (ftp+http+https+msrpc+mssql+mysql+nbns+redis+smtp+ssh+telnet+
-   vnc+winrm + smb/rdp honeypots). Remaining: deeper SMB scripts.
+   vnc+winrm + smb/rdp honeypots). SMB enumeration scripts closed (item #5).
 
 ## Operational
 
@@ -406,10 +405,11 @@ pipeline inverted) after Linux benchmarks pass.
   1.25.6 at `/usr/local/go/bin`, repo at `~/mimic/`.
 - Boot persistence: `/etc/modules-load.d/mimic.conf` loads `nft_reject` +
   `nft_reject_inet`.
-- **As of 2026-06-18: mimic RUNNING** on argus from `/tmp/mimic_ose.yaml` (profile
-  Server 2022; services smb_honeypot, msrpc, nbns, rdp; cred pool `backup_svc`;
-  netbios_name `DESKTOP-G6JUGNO`; closed 80,8080; log → `/tmp/mimic.log`). Tree
-  synced via `git archive` + build on argus. Restart/teardown sequence below.
+- **As of 2026-06-18: mimic RUNNING** on argus from `/tmp/mimic_all.yaml` (profile
+  Server 2022; `--services all`; netbios_name `DESKTOP-G6JUGNO`; dynamic RPC 8 ports;
+  log → `/tmp/mimic.log`). Deploy: `git archive` → `tar xzf` → `make build` →
+  `sudo pkill -x mimic` → restart. **Verify:** `grep opNetrPathCompare pipe.go` and
+  `grep Dynamic /tmp/mimic.log` after every deploy.
 
 ### Kali attack client (for stateful-protocol validation — #4/#1)
 - **VM 9511 `kali-mimic-client` @ 10.0.254.70** (proxmox node nexus, linked clone of
