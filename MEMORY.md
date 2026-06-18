@@ -335,10 +335,11 @@ pipeline inverted) after Linux benchmarks pass.
 
 ## Known Gaps / Next Priority
 
-1. **smbmap parity (verify-first)** — SMB 3.1.1 signing **implemented and
-   validated** (`signing.go`, `fa194f7`; smbclient signed download OK). smbmap
-   v1.10.4 still reported `0 sessions` **before** the signing fix — **retest
-   pending** (Phase 0). Tool-specific residual only; not a signing implementation gap.
+1. ✅ **smbmap parity (RESOLVED 2026-06-18, post-signing retest).** SMB 3.1.1
+   signing implemented (`signing.go`, `fa194f7`). **Retest (Kali smbmap v1.10.7 →
+   argus):** authenticated share enumeration OK — IPC$/ADMIN$/C$ listed READ ONLY;
+   banner still prints "0 authenticated session(s)" (smbmap accounting quirk, not a
+   functional failure). Pre-fix v1.10.4 no-enum is closed.
 2. ✅ **Build-number / cross-layer OS-identity coherence (RESOLVED 2026-06-17;
    roadmap Mimic_R_C.md item #7 "self-consistency is the entire value prop").**
    NTLM CHALLENGE Version derived from the profile via `Server.osVersionTriple()`;
@@ -386,10 +387,10 @@ pipeline inverted) after Linux benchmarks pass.
   1.25.6 at `/usr/local/go/bin`, repo at `~/mimic/`.
 - Boot persistence: `/etc/modules-load.d/mimic.conf` loads `nft_reject` +
   `nft_reject_inet`.
-- **As of 2026-06-18 handoff: mimic is RUNNING** on argus from `/tmp/mimic_full.yaml`
-  (profile "Windows 11"; services msrpc, winrm, netbios, nbns; netbios_name
-  `DESKTOP-G6JUGNO`; closed 80,8080; debug logging → `/tmp/mimic.log`). Built from the
-  synced tree (full eBPF build OK). Restart/teardown sequence below.
+- **As of 2026-06-18: mimic RUNNING** on argus from `/tmp/mimic_ose.yaml` (profile
+  Server 2022; services smb_honeypot, msrpc, nbns, rdp; cred pool `backup_svc`;
+  netbios_name `DESKTOP-G6JUGNO`; closed 80,8080; log → `/tmp/mimic.log`). Tree
+  synced via `git archive` + build on argus. Restart/teardown sequence below.
 
 ### Kali attack client (for stateful-protocol validation — #4/#1)
 - **VM 9511 `kali-mimic-client` @ 10.0.254.70** (proxmox node nexus, linked clone of
