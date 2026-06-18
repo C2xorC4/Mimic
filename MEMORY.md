@@ -330,7 +330,7 @@ pipeline inverted) after Linux benchmarks pass.
 | Track | Focus | Current |
 |-------|-------|---------|
 | **A — OSE** | Cred-leak loop, JA4S measure, dynamic RPC ports (49664+) | Cred-leak + JA4S done; RPC ports open |
-| **B — Breadth** | `--services all`, edition gating, deeper SMB scripts | Queued |
+| **B — Breadth** | `--services all`, edition gating, deeper SMB scripts | `--services all` done; SMB scripts open |
 | **C — Hygiene** | argus sync, packet-template regen on promote only | Ongoing |
 
 ## Known Gaps / Next Priority
@@ -383,8 +383,11 @@ pipeline inverted) after Linux benchmarks pass.
 6. **TLS handshake completion** — ✅ 443 dual-path TLS (2026-06-17); ✅ 3389
    CredSSP honeypot (2026-06-18, validated `rdp-ntlm-info`).
    *(OSE-2026-001: 443 FIN-after-ClientHello and 3389 no-NTLM were the tells.)*
-7. **Service expansion** — ✅ MSRPC/135 endpoint-mapper capture+replay DONE (2026-06-18,
-   ept_lookup; see thin-decoys section). Remaining: `--services all`, deeper SMB scripts.
+7. **Service expansion** — ✅ MSRPC/135 ept_map (2026-06-18). ✅ `--services all`
+   (2026-06-18): expands to honeypots + all templates, edition-gates 135/139,
+   drops smb/rdp/netbios replay superseded by honeypots. **Validated argus Server
+   2022:** 15 services (ftp+http+https+msrpc+mssql+mysql+nbns+redis+smtp+ssh+telnet+
+   vnc+winrm + smb/rdp honeypots). Remaining: deeper SMB scripts.
 
 ## Operational
 
