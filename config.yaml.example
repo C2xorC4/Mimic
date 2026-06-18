@@ -8,13 +8,15 @@ profile: "Windows 11"
 # interface: eth0
 interface: enp73s0f1
 
-# Services to emulate
+# Services to emulate. Use "all" for the full catalog (stateful honeypots +
+# every template under services/, minus smb/rdp replay superseded by honeypots).
+# Edition gating filters 135/139 on workstation SKUs automatically.
 services:
-  - smb
-  - msrpc
-  - netbios
-  - nbns
-  - rdp
+  - all
+  # - smb_honeypot
+  # - msrpc
+  # - nbns
+  # - rdp
 
 # Ports that appear closed (send RST on connect)
 # Required for nmap OS fingerprinting (needs 1 open + 1 closed port)

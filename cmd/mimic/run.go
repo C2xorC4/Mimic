@@ -36,6 +36,7 @@ This is the recommended way to run mimic for full OS deception.
 
 Example:
   # Run with profile and services
+  sudo mimic run "Windows 11" -i eth0 --services all --closed-ports 8080,8443
   sudo mimic run "Windows 11" -i eth0 --services smb,msrpc,netbios --closed-ports 8080,8443
 
   # Run with config file
@@ -70,7 +71,7 @@ var (
 
 func init() {
 	runCmd.Flags().StringVar(&runProfile, "profile", "", "OS profile to apply (overrides config)")
-	runCmd.Flags().StringSliceVar(&runServices, "services", []string{}, "Services to emulate (overrides config)")
+	runCmd.Flags().StringSliceVar(&runServices, "services", []string{}, "Services to emulate, or 'all' for full catalog with edition gating (overrides config)")
 	runCmd.Flags().IntSliceVar(&runClosedPorts, "closed-ports", []int{}, "Ports that appear closed (RST on connect, for OS fingerprinting)")
 	runCmd.Flags().StringVar(&servicesDir, "services-dir", "./services", "Path to services directory")
 
@@ -174,13 +175,6 @@ func runMimic(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no profile or services specified")
 	}
 
-	// Log startup info
-	logging.Info("Mimic starting", map[string]interface{}{
-		"interface": appCfg.Interface,
-		"profile":   appCfg.Profile,
-		"services":  appCfg.Services,
-	})
-
 	if appCfg.ServiceOptions.NetBIOSName != "" {
 		logging.Info("Service options", map[string]interface{}{
 			"netbios_name": appCfg.ServiceOptions.NetBIOSName,
@@ -201,6 +195,22 @@ func runMimic(cmd *cobra.Command, args []string) error {
 		}
 		profile = p
 	}
+
+	// Expand "all", drop templates superseded by honeypots, edition-gate 135/139.
+	if len(appCfg.Services) > 0 {
+		resolved, err := config.ResolveRunServices(appCfg.Services, appCfg.ServicesDir, profile)
+		if err != nil {
+			return fmt.Errorf("resolving services: %w", err)
+		}
+		appCfg.Services = resolved
+	}
+
+	// Log startup info (after resolution so "all" shows the concrete list).
+	logging.Info("Mimic starting", map[string]interface{}{
+		"interface": appCfg.Interface,
+		"profile":   appCfg.Profile,
+		"services":  appCfg.Services,
+	})
 
 	// Build the shared credential pool (used by the SMB honeypot to accept creds
 	// and by leaking services to emit them) and validate the leak wiring. seed_file
@@ -373,7 +383,7 @@ func runMimic(cmd *cobra.Command, args []string) error {
 				}
 			}
 			for _, svcName := range appCfg.Services {
-				if !shouldStartService(svcName, profile, smbHoneypotOn139) {
+				if !config.ShouldStartService(svcName, profile, smbHoneypotOn139) {
 					logging.Info("Skipping edition-gated service", map[string]interface{}{
 						"service": svcName,
 						"edition": editionLabel(profile),
@@ -641,26 +651,6 @@ func containsStr(ss []string, s string) bool {
 		}
 	}
 	return false
-}
-
-// shouldStartService applies os_edition port persona rules. The SMB honeypot
-// subsumes the netbios template on 139 when it binds that port.
-func shouldStartService(name string, profile *config.OSProfile, smbHoneypotOn139 bool) bool {
-	if name == "netbios" && smbHoneypotOn139 {
-		return false
-	}
-	if profile == nil {
-		return true
-	}
-	ed := profile.ResolvedEdition()
-	switch name {
-	case "msrpc":
-		return config.EditionExposesPort(ed, 135)
-	case "netbios":
-		return config.EditionExposesPort(ed, 139)
-	default:
-		return true
-	}
 }
 
 func editionLabel(profile *config.OSProfile) string {

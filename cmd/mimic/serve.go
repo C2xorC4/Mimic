@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/c2xorc4/mimic/internal/config"
 	"github.com/c2xorc4/mimic/internal/services"
 )
 
@@ -33,12 +34,15 @@ Example:
   sudo mimic serve --services smb
 
   # Start multiple services
-  sudo mimic serve --services smb,rdp,http`,
+  sudo mimic serve --services smb,rdp,http
+
+  # Start every template service in services/
+  sudo mimic serve --services all`,
 	RunE: runServe,
 }
 
 func init() {
-	serveCmd.Flags().StringSliceVar(&serveServices, "services", []string{}, "Services to emulate (e.g., smb,rdp)")
+	serveCmd.Flags().StringSliceVar(&serveServices, "services", []string{}, "Services to emulate (e.g., smb,rdp) or 'all' for every template")
 	serveCmd.Flags().StringVar(&servicesDir, "services-dir", "./services", "Path to services directory")
 	serveCmd.MarkFlagRequired("services")
 
@@ -52,6 +56,15 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	if len(serveServices) == 0 {
 		return fmt.Errorf("no services specified")
+	}
+
+	resolved, err := config.ResolveServeServices(serveServices, servicesDir)
+	if err != nil {
+		return fmt.Errorf("resolving services: %w", err)
+	}
+	serveServices = resolved
+	if len(serveServices) == 0 {
+		return fmt.Errorf("no services to start")
 	}
 
 	// Create service manager
