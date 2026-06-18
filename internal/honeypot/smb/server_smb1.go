@@ -464,27 +464,47 @@ func (s *Server) handleSMBv1Transaction(sess *Session, frame []byte, h smb1Heade
 // handleSMBv1TransactionLANMAN handles COM_TRANSACTION requests to \PIPE\LANMAN
 // with no setup words (RAP API — used by nmap smb-mbenum).
 func (s *Server) handleSMBv1TransactionLANMAN(frame []byte, params []byte, h smb1Header) []byte {
-	dataCount := int(binary.LittleEndian.Uint16(params[22:24]))
-	dataOff := int(binary.LittleEndian.Uint16(params[24:26]))
-	start := 4 + dataOff
-	end := start + dataCount
-	if start >= len(frame) || start >= end {
+	_, data := smb1Body(frame)
+	if len(data) == 0 {
 		return buildSMB1Response(0x25, 0xC0000010, h.tid, h.uid, nil, nil)
 	}
-	data := frame[start:end]
 
 	pipeName := extractSMB1ASCIIString(data)
 	if !isLANMANPipe(pipeName) {
 		return buildSMB1Response(0x25, 0xC0000034, h.tid, h.uid, nil, nil) // OBJECT_NAME_NOT_FOUND
 	}
 
-	rapReq := skipLANMANPipePrefix(data)
+	// nmap send_transaction_named_pipe places RAP bytes at ParameterOffset (not
+	// DataOffset) with DataCount=0 — mirror that layout on read.
+	rapReq, ok := extractSMB1TransactionParams(frame, params)
+	if !ok {
+		rapReq = skipLANMANPipePrefix(data)
+	}
 	if len(rapReq) == 0 {
 		return buildSMB1Response(0x25, 0xC0000010, h.tid, h.uid, nil, nil)
 	}
 
 	rapOut := handleRAPRequest(rapReq)
 	return buildSMBv1TransactionLANMANResp(h.tid, h.uid, rapOut)
+}
+
+// extractSMB1TransactionParams returns the parameter block referenced by a
+// COM_TRANSACTION request. Offsets are relative to the SMBv1 header (frame[4]).
+func extractSMB1TransactionParams(frame []byte, params []byte) ([]byte, bool) {
+	if len(params) < 26 {
+		return nil, false
+	}
+	paramCount := int(binary.LittleEndian.Uint16(params[18:20]))
+	paramOff := int(binary.LittleEndian.Uint16(params[20:22]))
+	if paramCount == 0 || paramOff == 0 {
+		return nil, false
+	}
+	start := 4 + paramOff
+	end := start + paramCount
+	if start < 0 || end > len(frame) {
+		return nil, false
+	}
+	return frame[start:end], true
 }
 
 // handleSMBv1TreeDisconnect handles COM_TREE_DISCONNECT (0x71).

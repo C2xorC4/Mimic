@@ -7,22 +7,19 @@ import (
 
 func TestEncodeNetSessEnumLevel10Empty(t *testing.T) {
 	stub := encodeNetSessEnumLevel10Empty()
-	if len(stub) < 32 {
+	if len(stub) < 28 {
 		t.Fatalf("stub too short: %d bytes", len(stub))
 	}
 	if got := binary.LittleEndian.Uint32(stub[0:4]); got != 10 {
 		t.Fatalf("level = %d, want 10", got)
 	}
-	if got := binary.LittleEndian.Uint32(stub[4:8]); got != 10 {
-		t.Fatalf("discriminant = %d, want 10", got)
-	}
-	if got := binary.LittleEndian.Uint32(stub[8:12]); got == 0 {
+	if got := binary.LittleEndian.Uint32(stub[4:8]); got == 0 {
 		t.Fatal("expected non-null NetSessCtr10 referent")
 	}
-	if got := binary.LittleEndian.Uint32(stub[12:16]); got != 0 {
+	if got := binary.LittleEndian.Uint32(stub[8:12]); got != 0 {
 		t.Fatalf("EntriesRead = %d, want 0", got)
 	}
-	if got := binary.LittleEndian.Uint32(stub[28:32]); got != 0 {
+	if got := binary.LittleEndian.Uint32(stub[24:28]); got != 0 {
 		t.Fatalf("return code = %d, want ERROR_SUCCESS", got)
 	}
 }
@@ -80,6 +77,40 @@ func TestEncodeRAPNetServerEnum2NotBrowser(t *testing.T) {
 	}
 	if got := binary.LittleEndian.Uint16(out[0:2]); got != rapStatusNotBrowser {
 		t.Fatalf("status = %d, want %d", got, rapStatusNotBrowser)
+	}
+}
+
+func TestExtractSMB1TransactionParamsLANMAN(t *testing.T) {
+	rapPayload := append([]byte{0x68, 0x00}, []byte("WrLehDO\x00B16BBDz\x00")...)
+	rapPayload = append(rapPayload, 0x01, 0x00, 0x84, 0x39, 0xff, 0xff, 0xff, 0xff)
+
+	data := append([]byte(`\PIPE\LANMAN`), 0x00)
+	data = append(data, 0x00, 0x00, 0x00, 0x00) // nmap "<zI4" pad
+	data = append(data, rapPayload...)
+
+	// ParameterOffset = SMB_hdr(32) + WC(1) + params(28) + BC(2) + pipe+pad(17) = 80 (0x50)
+	const paramOff = uint16(80)
+	params := make([]byte, 28)
+	binary.LittleEndian.PutUint16(params[0:2], uint16(len(rapPayload)))
+	binary.LittleEndian.PutUint16(params[18:20], uint16(len(rapPayload)))
+	binary.LittleEndian.PutUint16(params[20:22], paramOff)
+
+	frame := make([]byte, 4+32+1+len(params)+2+len(data))
+	copy(frame[4:], []byte{0xff, 'S', 'M', 'B', 0x25})
+	frame[36] = byte(len(params) / 2)
+	copy(frame[37:], params)
+	binary.LittleEndian.PutUint16(frame[37+len(params):], uint16(len(data)))
+	copy(frame[37+len(params)+2:], data)
+
+	got, ok := extractSMB1TransactionParams(frame, params)
+	if !ok {
+		t.Fatal("expected parameter extraction")
+	}
+	if len(got) != len(rapPayload) {
+		t.Fatalf("rap len = %d, want %d", len(got), len(rapPayload))
+	}
+	if binary.LittleEndian.Uint16(got[0:2]) != rapOpNetServerEnum2 {
+		t.Fatalf("opnum = %#x", binary.LittleEndian.Uint16(got[0:2]))
 	}
 }
 

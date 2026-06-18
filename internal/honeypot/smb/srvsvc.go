@@ -364,14 +364,15 @@ func buildNetSessEnumResp(callID uint32, ctxID uint16) []byte {
 func encodeNetSessEnumLevel10Empty() []byte {
 	var b []byte
 	ref := uint32(0x00020000)
-	b = appendU32(b, 10)    // [in,out] level
-	b = appendU32(b, 10)    // union discriminant (NetSessCtr10)
-	b = appendU32(b, ref)   // ptr to NetSessCtr10
-	b = appendU32(b, 0)     // EntriesRead / count
-	b = appendU32(b, 0)     // null conformant array ptr
-	b = appendU32(b, 0)     // TotalEntries
-	b = appendU32(b, 0)     // ResumeHandle ptr (null)
-	b = appendU32(b, 0)     // ERROR_SUCCESS
+	// nmap unmarshall_srvsvc_NetSessCtr reads level once, then a single referent
+	// for NetSessCtr10 — no separate union discriminant (unlike NetShareEnum).
+	b = appendU32(b, 10)  // [in,out] level
+	b = appendU32(b, ref) // ptr to NetSessCtr10
+	b = appendU32(b, 0)   // EntriesRead / count
+	b = appendU32(b, 0)   // null conformant array ptr
+	b = appendU32(b, 0)   // TotalEntries
+	b = appendU32(b, 0)   // ResumeHandle ptr (null)
+	b = appendU32(b, 0)   // ERROR_SUCCESS
 	return b
 }
 
