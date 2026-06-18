@@ -64,6 +64,12 @@ func (tg *TemplateGenerator) AddSession(session *Session) {
 			continue
 		}
 
+		if tg.serviceName == "http" || isHTTPServicePort(session.Key.ServerPort) {
+			if _, keep := classifyHTTPProbe(ex.Probe); !keep {
+				continue
+			}
+		}
+
 		// Hash the probe for deduplication
 		hash := sha256.Sum256(ex.Probe)
 		hashStr := hex.EncodeToString(hash[:8])
@@ -226,13 +232,9 @@ func (tg *TemplateGenerator) generateProbeName(probe []byte, port uint16) string
 			}
 		}
 
-	case 80, 443, 8080: // HTTP
-		if bytes.HasPrefix(probe, []byte("GET ")) {
-			name = "http_get"
-		} else if bytes.HasPrefix(probe, []byte("POST ")) {
-			name = "http_post"
-		} else if bytes.HasPrefix(probe, []byte("HEAD ")) {
-			name = "http_head"
+	case 80, 443, 8080, 8000, 8888: // HTTP
+		if n, ok := classifyHTTPProbe(probe); ok {
+			name = n
 		}
 
 	case 22: // SSH

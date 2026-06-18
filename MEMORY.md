@@ -70,7 +70,8 @@
   real probe). Content-key works for TCP+UDP (UDP has no seq). Batch-generated on
   argus `/tmp/gen/<os>/<svc>` from the 34 per-service pcaps (NOT pulled to repo):
   smb 8-9, rdp 12-15, nbns 3-4 = clean; **snmp ~236 (full MIB walk, verbose), http
-  1070+ (http-enum 404 noise), llmnr skipped (python-probe sidecar has no `(IP)` +
+  was 1070+ (http-enum 404 noise — pipeline filter fixes to ~6, 2026-06-18), llmnr
+  skipped (python-probe sidecar has no `(IP)` +
   multicast: probe dest=224.0.0.252 not server, so 0 exchanges).**
   - **ARCHITECTURE (load-bearing):** `services/<name>/` = stateless template-replay
     (svcMgr.LoadService); `smb_honeypot`/`ftp_honeypot`/`rdp` = interactive hand-coded
@@ -108,9 +109,15 @@
    127-byte ServerHello is the max useful cleartext — integrating the generated
    templates would be a **regression**, not an upgrade. nmap can't extract an RDP
    cert from TLS 1.3 anyway (encrypted on the wire). RDP item is closed.
-2. **http re-capture de-noise.** Re-capture IIS WITHOUT `http-enum` (just
-   http-headers,http-title,http-server-header) -> ~handful of real templates instead
-   of 1070 404s. Capture harness `infra/proxmox/capture.ps1` ready.
+2. ✅ **http re-capture de-noise — DONE (2026-06-18).** Capture pipeline now
+   filters http-enum path noise in `internal/capture/http_filter.go`: non-root
+   GET/HEAD paths dropped; OPTIONS/POST/TRACE/etc. kept. `classifyHTTPProbe`
+   buckets surviving probes (`http_get`, `http_options`, …) instead of
+   per-path SHA256 hashes. **Validated on argus:** same Win11 IIS pcap
+   (`iis_20260612_103947`, 10.0.250.31) **1071→6** manifest probes; clean
+   hmdxin pcap **5** probes; unit tests in `http_filter_test.go` +
+   `http_capture_test.go`. Re-capture without `http-enum` still recommended for
+   smaller pcaps; `infra/proxmox/capture.ps1` drop remains best practice.
 3. **llmnr.** Fix server-IP extraction (sidecar is python-probe output, parse
    `target=<ip>`), AND handle multicast in the processor (response-without-direct-
    probe / dest=multicast-group) so the LLMNR response template extracts.
