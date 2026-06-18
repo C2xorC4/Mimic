@@ -160,8 +160,8 @@ Empirically tested, not theoretical:
 - JA4S validation (emerging standard — Suricata 8 / Zeek; likely already passes, confirm).
 - REST API / JSON status for SOAR.
 - Windows host port (WFP/Npcap) — at minimum get the *service layer* cross-platform; the eBPF layer staying Linux-only is acceptable if services run anywhere.
-- Capture-pipeline de-noise (the HTTP 1070-template problem), RDP semantic rewrite typing, LLMNR multicast handling, SNMP curation.
-- smbmap 3.1.1 signing parity; AWS/Azure marketplace; SOC2 for enterprise.
+- ~~Capture-pipeline de-noise~~ — **done** (Track-1, 2026-06-18: HTTP 1071→6, LLMNR 0→1, SNMP 236→3).
+- smbmap 3.1.1 **retest** (signing implemented `fa194f7`; pre-fix `0 sessions` may be resolved); AWS/Azure marketplace; SOC2 for enterprise.
 
 ### Safe to defer
 - eBPF host-telemetry stealth (`prog_name`/ancestry spoofing) — for a *defensive* product the host owner installed it, so this stops being a gap (see §8).

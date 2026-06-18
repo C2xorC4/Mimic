@@ -422,8 +422,8 @@ Commercial MVP = a paying SOC or red team can deploy, operate, and get value for
 - JA4S validation (Suricata 8 / Zeek — likely passes, confirm)
 - REST API / JSON status for SOAR
 - Windows host port — at minimum cross-platform *service layer*; eBPF stays Linux-only
-- Capture-pipeline de-noise (HTTP 1070-template problem), RDP semantic rewrite, LLMNR, SNMP curation
-- smbmap 3.1.1 signing parity; AWS/Azure marketplace; SOC2
+- ~~Capture-pipeline de-noise~~ — **done** (Track-1, 2026-06-18)
+- smbmap 3.1.1 retest (signing shipped `fa194f7`); AWS/Azure marketplace; SOC2
 
 ### 7.6 Safe to Defer
 

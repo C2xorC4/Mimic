@@ -61,7 +61,7 @@
   (crash safety net), Restart=on-failure, bounded caps. Validated: restart clean (no
   dup filter), nmap -O through daemon = Win10|11, co-tenancy keeps qdisc. Files:
   `cmd/mimic/{stop.go,install.go,run.go,assets/*}`, `internal/ebpf/teardown.go`.
-- **Capture→template pipeline (Track 1, 2026-06-16, IN PROGRESS):** `mimic capture
+- **Capture→template pipeline (Track 1, 2026-06-16, COMPLETE 2026-06-18):** `mimic capture
   pcap <f> --server-ip <ip> --service <svc> --ports <p> --os <name>` -> manifest.yaml
   + response .bin + rewrite rules. **FIX (`internal/capture/session.go`, committed `9ed9935`):**
   ExtractExchanges now dedups duplicate packets by PAYLOAD CONTENT per direction —
@@ -69,11 +69,10 @@
   concatenating probes/responses N× (inflating lengths so signatures never matched a
   real probe). Content-key works for TCP+UDP (UDP has no seq). Batch-generated on
   argus `/tmp/gen/<os>/<svc>` from the 34 per-service pcaps (NOT pulled to repo):
-  smb 8-9, rdp 12-15, nbns 3-4 = clean; **snmp was ~236 (ifTable walk — pipeline
-  filter fixes to ~3 system OIDs, 2026-06-18), http was 1070+ (http-enum — ~6),
-  llmnr
-  skipped (python-probe sidecar has no `(IP)` +
-  multicast: probe dest=224.0.0.252 not server, so 0 exchanges).**
+  smb 8-9, rdp 12-15, nbns 3-4 = clean; **snmp 236→3** (system MIB curation,
+  2026-06-18), **http 1071→6** (http-enum filter), **llmnr 0→1** (multicast +
+  sidecar target IP, 2026-06-18). Regen `/tmp/gen` only when promoting artifacts
+  into `services/` — not Proxmox VM templates.
   - **ARCHITECTURE (load-bearing):** `services/<name>/` = stateless template-replay
     (svcMgr.LoadService); `smb_honeypot`/`ftp_honeypot`/`rdp` = interactive hand-coded
     (`internal/honeypot/*`, special-cased in run.go). For SMB the **honeypot is the
@@ -147,12 +146,12 @@
   handlers, dataOffset=60), srvsvc NetShareEnum (level-0 for nmap, level-1 for
   impacket) + NetrShareGetInfo (opnum 16), unknown-share rejection, SMBv2
   multi-dialect negotiation w/ fallback.
-- **impacket/netexec compatibility (2026-06-05/06):** see LJM Knowledge
-  `net_impacket_smb3_processcontextlist_bug` and
-  `net_smb_honeypot_signing_encryption_constraint` for the full reasoning. Net:
-  send **one** NegotiateContext (PreauthIntegrity only — no Encryption, since a
-  keyless honeypot can't decrypt TRANSFORM_HEADERs); return the guest session
-  flag so the client zeroes the session key and skips 3.1.1 signing.
+- **impacket/netexec compatibility (2026-06-05/06, signing extended 2026-06-17):**
+  see LJM Knowledge `net_impacket_smb3_processcontextlist_bug` and
+  `net_smb_honeypot_signing_encryption_constraint`. Net: send **one**
+  NegotiateContext (PreauthIntegrity only — no Encryption); guest/null sessions
+  use `IS_GUEST` so clients skip signing; **seeded creds get full 3.1.1 signing**
+  (`signing.go`, SP800-108 KDF + AES-128-CMAC) and file download works.
 - **Seeded credential auth (2026-06-06):** `credentials.go` — NTLMv2 response
   verification against config-seeded fake accounts. Intent: other services
   "leak" creds an attacker reuses against SMB. Verified: `netexec` seeded cred →
@@ -239,7 +238,7 @@ op), and much of the "cost" was a self-inflicted bug (TS incoherence, below).
 - 📋 **Port persona wrong for edition:** Mimic "Win11" exposed 135/139/443/445/3389;
   real Win11 client (Op-1) exposed 3389/5040/5357/5985/7680 with 135/139/445
   FILTERED (overlap = only 3389). Decoy set reads as server, not DESKTOP client.
-- 🔨 **Thin decoys → interactive services (IN PROGRESS, 2026-06-17).** Root cause:
+- ✅ **Thin decoys → interactive services (COMPLETE, 2026-06-18).** Root cause:
   `listener.go` did `return` (silent FIN) on any probe-miss, and TLS services only
   static-replayed JARM probes — so real clients "ACK the ClientHello, get nothing."
   Direction chosen by user: make decoys interactive like SMB (banners/responses/
@@ -322,12 +321,24 @@ op), and much of the "cost" was a self-inflicted bug (TS incoherence, below).
 - 📋 **Process self-ID:** `ss -tlnp` → `/usr/local/bin/mimic run`; one PID owns all
   decoy ports; binary literally named `mimic`. Post-shell instant unmask. Extends #5.
 
+## Strategic roadmap (2026-06-18, parallel tracks)
+
+**Scope:** OSE = network confusion + interactive service depth; not post-shell host
+telemetry. **North star:** Windows reverse-client (WFP/Npcap hooks, same capture
+pipeline inverted) after Linux benchmarks pass.
+
+| Track | Focus | Current |
+|-------|-------|---------|
+| **A — OSE** | Cred-leak loop, JA4S measure, dynamic RPC ports (49664+) | In progress |
+| **B — Breadth** | `--services all`, edition gating, deeper SMB scripts | Queued |
+| **C — Hygiene** | argus sync, packet-template regen on promote only | Ongoing |
+
 ## Known Gaps / Next Priority
 
-1. **smbmap parity** — smbmap 1.10.4 reports `0 sessions` at 3.1.1 (its own
-   signing handling). Full parity needs real SMB2 3.1.1 signing (SP800-108 KDF
-   over SessionKey + running preauth SHA-512). Large lift, deferred.
-   *(OSE-2026-001 confirmed the file-read failure tell — see exercise section.)*
+1. **smbmap parity (verify-first)** — SMB 3.1.1 signing **implemented and
+   validated** (`signing.go`, `fa194f7`; smbclient signed download OK). smbmap
+   v1.10.4 still reported `0 sessions` **before** the signing fix — **retest
+   pending** (Phase 0). Tool-specific residual only; not a signing implementation gap.
 2. ✅ **Build-number / cross-layer OS-identity coherence (RESOLVED 2026-06-17;
    roadmap Mimic_R_C.md item #7 "self-consistency is the entire value prop").**
    NTLM CHALLENGE Version derived from the profile via `Server.osVersionTriple()`;
