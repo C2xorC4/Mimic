@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"math/rand"
@@ -34,6 +35,9 @@ type Listener struct {
 	jitterMinMs int
 	jitterMaxMs int
 	log         *logging.Logger
+
+	tlsCfg  *tls.Config // lazily generated for TLS services
+	tlsOnce sync.Once
 }
 
 // ListenerStats tracks listener statistics
@@ -230,6 +234,15 @@ func (l *Listener) handleTCPConn(conn net.Conn) {
 	})
 	l.emit(remoteAddr, events.Event{Type: events.Connection, Message: l.config.Name + " connection"})
 
+	// TLS services route by ClientHello: scanner/JARM probes get a static
+	// ServerHello replay (preserving the crafted fingerprint), real clients get a
+	// completed handshake + backend response (so the port doesn't FIN after the
+	// ClientHello). Handled entirely in handleTLSConn.
+	if l.config.TLS {
+		l.handleTLSConn(conn, remoteAddr)
+		return
+	}
+
 	// Server-speaks-first protocols (SSH/SMTP banners): send the connect-banner —
 	// the probe that matches an empty buffer after `requires` gating — immediately,
 	// before waiting for client data the client will never send first.
@@ -282,6 +295,10 @@ func (l *Listener) handleTCPConn(conn net.Conn) {
 		})
 		// Log to probe log
 		logging.LogProbeUnmatched(l.config.Name, l.config.Port, l.config.Protocol, remoteAddr, probe)
+		// Per-service default instead of a silent FIN: a port that answers *something*
+		// to an unrecognized probe reads as a live service, not a decoy. Services that
+		// should stay silent simply leave default_response empty.
+		l.sendDefaultResponse(conn, remoteAddr, probe)
 		return
 	}
 
@@ -399,6 +416,114 @@ func (l *Listener) handleStatefulConversation(conn net.Conn, remoteAddr string) 
 			"probe_name":  match.Name,
 			"bytes":       written,
 		})
+	}
+}
+
+// sendDefaultResponse writes the service's configured default reply to an
+// unmatched probe (no-op when default_response is empty), so an uncovered probe
+// no longer produces a tell-tale silent close.
+func (l *Listener) sendDefaultResponse(conn net.Conn, remoteAddr string, probe []byte) {
+	if l.config.DefaultResponse == "" {
+		return
+	}
+	resp, err := l.responder.GetResponse(l.config.DefaultResponse, probe, nil)
+	if err != nil || len(resp) == 0 {
+		return
+	}
+	l.applyJitter()
+	conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	if w, werr := conn.Write(resp); werr == nil {
+		atomic.AddUint64(&l.stats.BytesSent, uint64(w))
+		l.logDebug("Default response sent", map[string]interface{}{"source_addr": remoteAddr})
+	}
+}
+
+// tlsConfig lazily builds (once) the server TLS config for this listener, using
+// the configured computer name for the cert subject.
+func (l *Listener) tlsConfig() *tls.Config {
+	l.tlsOnce.Do(func() {
+		// Cert CN = the host's computer-name identity, the same value SMB advertises
+		// as ComputerName and NBNS as the NetBIOS name, so a scraped TLS cert subject
+		// agrees with every other layer. netbios_name is the computer name proper;
+		// hostname is a fallback; default matches the honeypot's own default.
+		cn := l.options["netbios_name"]
+		if cn == "" {
+			cn = l.options["hostname"]
+		}
+		if cn == "" {
+			cn = "WORKSTATION"
+		}
+		cfg, err := newTLSConfig(cn)
+		if err != nil {
+			l.logError("TLS config init failed", map[string]interface{}{"error": err.Error()})
+			return
+		}
+		l.tlsCfg = cfg
+	})
+	return l.tlsCfg
+}
+
+// handleTLSConn routes a TLS connection: a ClientHello matching a manifest probe
+// (JARM/scanner) gets static ServerHello replay to preserve the crafted
+// fingerprint; any other ClientHello is terminated with crypto/tls and served by
+// the configured backend, so the handshake completes instead of FIN-after-hello.
+func (l *Listener) handleTLSConn(conn net.Conn, remoteAddr string) {
+	conn.SetReadDeadline(time.Now().Add(idleReadTimeout))
+	buf := make([]byte, 4096)
+	n, err := conn.Read(buf)
+	if err != nil || n == 0 {
+		return
+	}
+	hello := buf[:n]
+	atomic.AddUint64(&l.stats.BytesReceived, uint64(n))
+
+	// Scanner/JARM probe → static replay (fingerprint-preserving), then done.
+	if match := l.matcher.Match(hello); match != nil {
+		atomic.AddUint64(&l.stats.ProbesMatched, 1)
+		logging.LogProbeMatched(l.config.Name, l.config.Port, l.config.Protocol, remoteAddr, match.Name, hello)
+		if resp, gerr := l.responder.GetResponse(match.ResponseFile, hello, match.RewriteRules); gerr == nil && len(resp) > 0 {
+			l.applyJitter()
+			conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if w, werr := conn.Write(resp); werr == nil {
+				atomic.AddUint64(&l.stats.BytesSent, uint64(w))
+			}
+		}
+		return
+	}
+
+	// Real client → complete a TLS handshake, then serve the backend.
+	cfg := l.tlsConfig()
+	if cfg == nil {
+		return
+	}
+	tconn := tls.Server(&prefixConn{Conn: conn, prefix: hello}, cfg)
+	tconn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if herr := tconn.Handshake(); herr != nil {
+		l.logDebug("TLS handshake failed", map[string]interface{}{"source_addr": remoteAddr, "error": herr.Error()})
+		return
+	}
+	l.emit(remoteAddr, events.Event{Type: events.Connection, Message: l.config.Name + " TLS handshake completed"})
+	l.serveTLSBackend(tconn, remoteAddr)
+}
+
+// serveTLSBackend answers application requests over a terminated TLS channel.
+func (l *Listener) serveTLSBackend(tconn *tls.Conn, remoteAddr string) {
+	switch l.config.TLSBackend {
+	case "http":
+		tconn.SetReadDeadline(time.Now().Add(idleReadTimeout))
+		rbuf := make([]byte, 8192)
+		n, _ := tconn.Read(rbuf)
+		l.applyJitter()
+		tconn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		if w, err := tconn.Write(iisHTTPResponse(rbuf[:n])); err == nil {
+			atomic.AddUint64(&l.stats.BytesSent, uint64(w))
+			l.emit(remoteAddr, events.Event{Type: events.Probe, Message: l.config.Name + " HTTPS request served"})
+		}
+	default:
+		// Handshake completed is already far better than FIN-after-ClientHello;
+		// with no backend, let the peer speak briefly, then close.
+		tconn.SetReadDeadline(time.Now().Add(idleReadTimeout))
+		tconn.Read(make([]byte, 1024)) //nolint:errcheck
 	}
 }
 

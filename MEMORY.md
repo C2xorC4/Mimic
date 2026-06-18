@@ -1,12 +1,22 @@
 # Mimic Project Memory
 
-> **Depth lives in LittleJohnnyMnemonic (LJM), not here.** This file is the
-> portable status snapshot that travels with the repo. Byte-level fix
-> rationale, protocol-bug write-ups, and session-by-session history are in the
-> LJM vault (`Memory/Project/mimic`, `Memory/Knowledge/net_*`, daydream buffer).
-> On this host, recall those before re-deriving — don't duplicate them here.
+> **Depth is split between this file and LittleJohnnyMnemonic (LJM).** This
+> `MEMORY.md` is the portable operational snapshot that travels with the repo
+> (queue, lab state, validation results, handoff). LJM holds durable project
+> context (`Memory/Project/mimic`), byte-level vectors
+> (`Memory/Knowledge/net_os_fingerprint_deception_vectors`), and protocol-bug
+> write-ups (`net_impacket_*`, `net_smb_*`). Recall LJM before re-deriving;
+> don't duplicate Knowledge entries here.
 
-## Current Status (as of 2026-06-06)
+## Current Status (as of 2026-06-06; latest work 2026-06-18)
+
+> **2026-06-18 session:** working the "thin decoys → interactive services" queue in
+> user-set order 3,2,4,1. **DONE + live-validated:** (#3) **WinRM/5985** and (#2)
+> **MSRPC/135 ept_map** — see the OSE thin-decoys section. Added foundational
+> **`os_edition` primitive** (workstation/server/dc). **OUTSTANDING: (#4)
+> NetBIOS/139 positive-session + SMB-bridge, (#1) RDP/3389 X.224→TLS→CredSSP.**
+> Lab left warm: mimic RUNNING on argus, Kali client 9511 up (see Operational).
+> OSE fix bundle committed 2026-06-18.
 
 - **nmap `-O` → exact Windows 10/11 DB match** (no `-p` needed). Full
   SEQ/OPS/WIN/ECN/T1–T7/U1/IE vector matches Windows 11 21H2. Detailed vectors
@@ -17,8 +27,8 @@
   (`smb-enum-shares`), netexec, and direct impacket — guest/null **and** seeded
   fake-credential logins (NTLMv2-verified). SMBv1 + SMBv2/3.1.1 negotiation.
 - **Service breadth (Phase 4, 2026-06-10):** SSH/SMTP/VNC/Telnet/Redis/HTTP per-OS
-  + MySQL/MSSQL (capture-driven), all `nmap -sV`-hardened. See LJM
-  `2026-06-10_mimic-phase4-service-breadth-complete` + `_honeypot-nmap-sv-hardening`.
+  + MySQL/MSSQL (capture-driven), all `nmap -sV`-hardened. Summarized in LJM
+  `Memory/Project/mimic` (Phase 4 section).
 - **Proxmox Windows capture track (2026-06-11/12):** golden templates for Win10
   (9010), Win11 (9011), Server 2016/2019/2022/2025 (9116/9119/9122/9125) on node
   `nexus` (`10.0.240.8`). All 6 templatized + loop-validated; tooled with
@@ -43,8 +53,8 @@
     DELIBERATELY LOCAL-ONLY — gitignored and SCRUBBED from git history after a PVE
     token leak (remediated 2026-06-15, force-pushed clean; token since rotated). DO
     NOT re-commit `infra/` — it holds the API token + autounattend creds.** Fuller
-    resume state in LJM buffer `2026-06-11_mimic-proxmox-template-track-resume-state`.
-- **systemd daemon lifecycle (2026-06-15, BUILT + validated on argus, UNCOMMITTED):**
+    resume state in LJM `Memory/Project/mimic` (Proxmox capture track section).
+- **systemd daemon lifecycle (2026-06-15, committed `9ed9935`, validated on argus):**
   `mimic stop [--purge]` / `install` / `uninstall [--purge]` + clean-on-start.
   Stateless content-diff TC teardown (`internal/ebpf/teardown.go`): removes only
   `deceiver_fingerprint*` filters by BPF name; `--purge` removes the clsact qdisc
@@ -142,11 +152,155 @@
   fixed a dir-listing bug — see LJM `net_smb2_query_directory_filename_offsets`
   (impacket `listPath` uses FileFullDirectoryInformation, FileName@68).
 
+## OSE-2026-001 red-team exercise — validated impact + gaps (2026-06-17)
+
+Controller ran 6 AI operators (3 Claude / 3 Grok) vs 3 targets. Clean A/B for Mimic:
+**same Ubuntu 22.04.5 base image + same backdoored vsftpd 2.3.4**, one bare
+(`mimic-lab-linux-bare`, Op-3) vs one Mimic'd (`mimic-lab-linux-mimic`, Op-5). Op-1
+hit a *real* Win11 22H2 (22621) box = fidelity reference. Logs in `../MTest/`.
+
+**Impact (Op-3 bare vs Op-5 Mimic):** both rooted via the vsftpd backdoor — Mimic
+is a deception/cost layer, NOT a vuln shield (can't patch a real service it doesn't
+front). Effect: time-to-root 8m36s → ~23m (~2.7×); open-port surface 1 → 6 (5
+decoys); OS attribution flipped to "Windows 11" until shell. SMB honeypot WIN:
+svc_backup authenticated + enumerated IPC$/ADMIN$/C$ (cred-leak loop fired). Caveat:
+a skilled operator flagged deception indicators *pre-shell* (would burn it in a real
+op), and much of the "cost" was a self-inflicted bug (TS incoherence, below).
+
+**Tells / gaps surfaced (canonical tracker; statuses updated as fixed):**
+> Status legend: ⏳ open · 🔨 code-complete, pending argus validation · ✅ validated.
+> **Validation run 2026-06-17 on argus (10.0.254.45):** built (bpf2go), unit tests
+> green incl. RFC-4493 AES-CMAC vectors. SMB signing, coherence linter, firewall
+> drop all VALIDATED live (below). eBPF loads/attaches/non-breaking; the byte-level
+> TSval-coherence capture needs a *Linux* client (Windows doesn't negotiate TCP TS;
+> strx was down) — the one remaining check.
+- ✅ P0 **TS incoherence (BUG):** eBPF overrode TSval only on SYN/SYN-ACK (stripping
+  the kernel's per-connection random offset) but left data segments with the offset
+  → SYN-ACK 7.88M vs data 3.3B TSval discontinuity → standard clients PAWS-drop the
+  payload. Broke real vsftpd delivery AND Mimic's own SMB negotiation (Op-5 had to
+  `sysctl tcp_timestamps=0` locally to proceed). **FIX (`internal/ebpf/fingerprint.c`,
+  2026-06-17):** new data/pure-ACK block overrides TSval on established segments
+  (opt_len==12, NOP,NOP,TS) to the same `bpf_ktime` ms clock as the SYN-ACK template,
+  gated on the Win11 branch (window_scale>0 && tcp_timestamps). Coherent, keeps TS=A.
+  **VALIDATED (argus + Kali Linux client, 2026-06-17):** bpf2go-rebuilt; eBPF loads
+  (jited, id 311). With a Kali client (tcp_timestamps=1) hitting the Win11 honeypot,
+  tcpdump of argus egress on 445 shows every data-segment TS val ≈ uptime_ms
+  (201,659,115→201,661,406 at uptime_ms=201,652,100) — the clean bpf_ktime clock,
+  monotonic, NOT the kernel's ~3.3B random-offset value (Op-5). Functional proof: the
+  Linux client completed NEGOTIATE+SESSION_SETUP+TREE_CONNECT (no PAWS drop; pre-fix
+  this failed). Windows clients don't negotiate TS so the fix is a no-op for them.
+- ✅ P0 **OS↔service coherence:** vsftpd (Linux daemon) on a "Windows 11" host = the
+  single strongest tell (Op-5 FINDING-006). Extends gap #5. **FIX (`internal/coherence`,
+  wired in run.go):** background startup self-audit parses /proc/net/tcp[6] for FOREIGN
+  LISTEN ports (skips Mimic's own via /proc/self/fd socket inodes — so the deliberate
+  vsftpd FTP honeypot isn't flagged), banner-grabs them, and WARNs when a Unix/Linux
+  tell (vsftpd/ubuntu/debian/postfix/…) contradicts a Windows profile. Advisory only.
+  **VALIDATED (argus):** flagged a planted vsftpd (2121) AND the real Ubuntu sshd
+  (2222) under a Win11 profile; correctly did NOT flag Mimic's own SMB listener.
+- ✅ **Closed-port disposition = RST (Linux), not DROP:** Op-5 closed ports RST'd;
+  real firewalled Win11 (Op-1) dropped 997+. RST betrays unfirewalled Linux under a
+  client persona. **FIX (`internal/services/firewall.go`, opt-in
+  `firewall.closed_port_behavior: drop`):** default-drop catch-all in the mimic_reject
+  table, added AFTER T2/T3+closed rules; accepts established/related FIRST (live SSH
+  survives) + open_ports/preserve_ports allow-list. Default stays `reset` (keeps the
+  nmap closed-port probe for high-confidence -O). preserve_ports MUST list SSH.
+  TRADEOFF: drop loses nmap's closed-port probes (lower -O confidence, like real Op-1).
+  **VALIDATED (argus):** closed 9999→filtered/timeout (not RST), open 445 + preserve
+  2222→reachable, live SSH survived, nft order correct (T2/T3→estab→allow→drop).
+- ✅ **SMB serves no file content:** auth + share-enum OK but READ → ACCESS_DENIED /
+  "Bad SMB2 signature" (Op-5 FINDING-011). Extends gap #1. **FIX — full SMB2/3 signing
+  (`internal/honeypot/smb/signing.go` + session/server/ntlm/credentials, 2026-06-17):**
+  on a verified seeded cred, derive SessionBaseKey (HMAC-MD5 ntowfv2/NTProofStr) →
+  ExportedSessionKey (RC4 if KEY_EXCH) → SigningKey (SP800-108 KDF; 3.1.1 uses the
+  running preauth SHA-512 hash accumulated over NEG+SESSION_SETUP) → sign responses
+  (AES-128-CMAC for 3.x, HMAC-SHA256 for 2.x). Guest fallback if no preauth chain.
+  Also added FileAllInformation (QueryInfo class 18) so smbclient `get` works (its
+  "getattrib" precheck returned NT_STATUS_NOT_SUPPORTED, blocking downloads).
+  **VALIDATED (argus, live smbclient):** svc_backup authenticates over a SIGNED SMB
+  **3.1.1** session (dialect 0x0311), enumerates the full C$ tree, AND downloads a
+  332-byte bait file (passwords.txt) — the exact Op-5 failure, now working. AES-CMAC
+  also RFC-4493-vector-validated (signing_test.go).
+- 📋 **Port persona wrong for edition:** Mimic "Win11" exposed 135/139/443/445/3389;
+  real Win11 client (Op-1) exposed 3389/5040/5357/5985/7680 with 135/139/445
+  FILTERED (overlap = only 3389). Decoy set reads as server, not DESKTOP client.
+- 🔨 **Thin decoys → interactive services (IN PROGRESS, 2026-06-17).** Root cause:
+  `listener.go` did `return` (silent FIN) on any probe-miss, and TLS services only
+  static-replayed JARM probes — so real clients "ACK the ClientHello, get nothing."
+  Direction chosen by user: make decoys interactive like SMB (banners/responses/
+  workflows), **Phase A (plaintext breadth) + Phase B (TLS) together**, per-service
+  miss behavior.
+  - **DONE + validated (argus):** dual-path TLS (`internal/services/tlsterm.go` +
+    listener): a ClientHello matching a manifest probe (JARM/scanner) still gets the
+    static Schannel ServerHello (fingerprint PRESERVED); any other ClientHello is
+    terminated with crypto/tls (self-signed cert, CN=computer name) and served a
+    backend. `services/https` now `tls: true, tls_backend: http` → `openssl s_client`
+    completes TLSv1.3 + cert, `curl -sk https://` returns an IIS page. **Tradeoff
+    (load-bearing):** can't have stock-Go termination AND the Schannel JARM/JA3S on
+    the *same* handshake — dual-path keeps JARM for scanners, real TLS for clients; a
+    deep analyst probing both could see Go-vs-Schannel divergence (accepted).
+  - **DONE + validated (argus + Kali Linux client, 2026-06-17):**
+    - **TLS cert CN mechanism:** cert subject = computer name (netbios_name → hostname
+      → "WORKSTATION"), coherent with SMB ComputerName / NBNS. `openssl s_client` →
+      `subject=CN=WIN11LAB`. (`listener.go` tlsConfig, `tlsterm.go`.)
+    - **MSRPC/135 bind_ack:** BIND (ptype 0x0b) → bind_ack (0x0c) accepting ctx 0 / NDR
+      (was bind_nack = "rejects all RPC", a tell). Validated: a crafted bind from Kali
+      → ptype 0x0c + call_id echo. Non-bind RPC ptypes still get bind_nack (not silence).
+      `services/msrpc/{manifest.yaml,responses/bind_ack.bin}`.
+  - **Silent-FIN assessed:** http (404 catch-all) + netbios (negative-session catch-all)
+    already answer any probe; speaks-first services banner on connect; 443 fixed via TLS
+    termination. `default_response` mechanism is available for any future gap.
+  - **Work order set by user (2026-06-18): WinRM → MSRPC ept_map → NetBIOS/139 → RDP.**
+    Foundational: **`os_edition` primitive** added — `OSProfile.ResolvedEdition()`
+    (`internal/config/types.go`) returns workstation/server/dc (explicit `edition:`
+    field, else inferred from family+name; "" for non-Windows), surfaced as the
+    `os_edition` service option in `SetProfileOptions` (`internal/services/manager.go`).
+    This is the config-derived switch that gates edition-dependent behaviour
+    (135/139 open-vs-filtered, WinRM presence, SMB signing/computer-name defaults) so
+    manifests can `requires: {os_edition: server}`. Unit-tested (types_test.go). The
+    17 name-only profiles work unchanged via name inference. **Still TODO: actually
+    wire 135/139 disposition + SMB defaults to read os_edition (server vs WORKSTATION).**
+  - ✅ **WinRM/5985 — DONE + VALIDATED (argus + Kali, 2026-06-18).**
+    `services/winrm/manifest.yaml` rewritten: a captured template existed (April, real
+    Win11 HMDXIN) but had two tells — fixed both. (a) **POST /wsman → 401** Negotiate+
+    Kerberos challenge (was 404 — a real WinRM challenges, never 404s its own endpoint;
+    new `responses/winrm_401.bin`). (b) **live `Date:`** via `http_date` on every
+    response (was frozen 2026-02-18 capture date). GET /wsman → 405 (Allow: POST), other
+    → HTTP.sys 404; `default_response` set. All advertise `Server: Microsoft-HTTPAPI/2.0`.
+    **Live (Kali→argus:5985):** GET → 404 + Date=today; POST /wsman → 401 Negotiate/
+    Kerberos; `nmap -sV` → "Microsoft HTTPAPI httpd 2.0 (SSDP/UPnP)". Edition note:
+    belongs in `services:` for server profiles (client SKUs don't run it by default).
+  - ✅ **MSRPC/135 ept_map — DONE + VALIDATED (argus + Kali, 2026-06-18).** Captured a
+    real `impacket-rpcdump` exchange from a proxmox Win11 25H2 box (9512, 10.0.254.67):
+    single ept_lookup (opnum 2) whose response = 11 DCE/RPC fragments (10×4280+2916 =
+    **45,716 B**, 138 endpoints). `services/msrpc` now `stateful: true`: BIND→bind_ack
+    (captured, real 4280 max-frag), then ept_lookup→`responses/epm_lookup.bin`. Two new
+    rewrite types (`internal/services/responder.go`): **`dcerpc_callid`** walks PDUs by
+    frag_len and echoes the client's call_id into EVERY fragment header (so the multi-
+    frag reply correlates regardless of client call_id); **`host_ip`** (token=capture IP)
+    replaces the capture IP in ncacn_ip_tcp tower floors with the host's egress IPv4
+    (`hostEgressIPv4()` via inert UDP dial + InterfaceAddrs fallback). Unit-tested
+    (`msrpc_epm_test.go`: 11 frags, call_id echo, IP gone). **Live (Kali→argus:135):**
+    rpcdump enumerates all 138 endpoints; ncacn_ip_tcp bindings show **10.0.254.45**
+    (argus), zero leak of capture .67; np towers show DESKTOP-G6JUGNO (matched via
+    `netbios_name` — the documented coherence mitigation). Was "bind ok, no enum"; now
+    full self-consistent endpoint map. RESIDUAL (deferred): dynamic ncacn_ip_tcp ports
+    (49664+) advertised but not actually listening (mild tell).
+  - **TODO (staged — Kali client 9511 @ 10.0.254.70 provisioned + key-injected, sshd
+    UseDNS off; argus capture target redeployable via `lab.py deploy 9011 <vmid>`):**
+    - **NetBIOS/139:** positive session (0x82) + SMB bridge (currently negative-session
+      rejects all) — ideally have the SMB honeypot also listen on 139 w/ NBSS framing.
+      Edition-gate disposition via os_edition (server exposes; workstation filters).
+    - **RDP/3389:** X.224 nego→TLS termination→CredSSP NTLM so it leaks Product_Version
+      like real Win11 (Op-1). Needs a stateful RDP handler (not pure-TLS dual-path).
+- 📋 **Process self-ID:** `ss -tlnp` → `/usr/local/bin/mimic run`; one PID owns all
+  decoy ports; binary literally named `mimic`. Post-shell instant unmask. Extends #5.
+
 ## Known Gaps / Next Priority
 
 1. **smbmap parity** — smbmap 1.10.4 reports `0 sessions` at 3.1.1 (its own
    signing handling). Full parity needs real SMB2 3.1.1 signing (SP800-108 KDF
    over SessionKey + running preauth SHA-512). Large lift, deferred.
+   *(OSE-2026-001 confirmed the file-read failure tell — see exercise section.)*
 2. ✅ **Build-number / cross-layer OS-identity coherence (RESOLVED 2026-06-17;
    roadmap Mimic_R_C.md item #7 "self-consistency is the entire value prop").**
    NTLM CHALLENGE Version derived from the profile via `Server.osVersionTriple()`;
@@ -179,9 +333,12 @@
    Linux-host/Windows-fingerprint contradiction is the strongest detection
    surface. Possible mitigation: `prog_name` + process-ancestry spoofing (see
    LJM daydream `mimic-ebpf-stealth-gap`). Reframes a "hard limit" as solvable.
-6. **TLS handshake completion** — per-conn TLS proxy for 443.
-7. **Service expansion** — MSRPC/135 real endpoint-mapper capture, `--services
-   all`, SSH/HTTP banners, deeper SMB scripts.
+   *(OSE-2026-001 confirmed: vsftpd-on-Windows mismatch + `mimic` process self-ID
+   were the operator's deception tells — see exercise section.)*
+6. **TLS handshake completion** — per-conn TLS proxy for 443. *(OSE-2026-001:
+   443 FIN-after-ClientHello flagged as a decoy; 3389 no-NTLM likewise.)*
+7. **Service expansion** — ✅ MSRPC/135 endpoint-mapper capture+replay DONE (2026-06-18,
+   ept_lookup; see thin-decoys section). Remaining: `--services all`, deeper SMB scripts.
 
 ## Operational
 
@@ -190,6 +347,25 @@
   1.25.6 at `/usr/local/go/bin`, repo at `~/mimic/`.
 - Boot persistence: `/etc/modules-load.d/mimic.conf` loads `nft_reject` +
   `nft_reject_inet`.
+- **As of 2026-06-18 handoff: mimic is RUNNING** on argus from `/tmp/mimic_full.yaml`
+  (profile "Windows 11"; services msrpc, winrm, netbios, nbns; netbios_name
+  `DESKTOP-G6JUGNO`; closed 80,8080; debug logging → `/tmp/mimic.log`). Built from the
+  synced tree (full eBPF build OK). Restart/teardown sequence below.
+
+### Kali attack client (for stateful-protocol validation — #4/#1)
+- **VM 9511 `kali-mimic-client` @ 10.0.254.70** (proxmox node nexus, linked clone of
+  template 9341 kali-2026). Reach: `ssh -o BatchMode=yes -o PreferredAuthentications=publickey
+  -i ~/.ssh/argus_lab root@10.0.254.70` (Windows: `C:\Windows\System32\OpenSSH\ssh.exe`).
+- Provisioned this session: argus_lab pubkey injected into root's authorized_keys (the
+  9341 template did NOT carry it); sshd `UseDNS no` + `GSSAPIAuthentication no` set
+  (`/etc/ssh/sshd_config.d/99-fast.conf`) — without these SSH hangs ~30s/connect. sshd
+  is NOT enabled on boot by default — if the clone is reset, re-enable via the QEMU
+  guest agent (`systemctl enable --now ssh`) before key-based SSH works.
+- Tools: nmap, **impacket-rpcdump** (the rpcdump.py binary), nxc, tcpdump, tshark, python3.
+- Drive proxmox from ss-book via `infra/proxmox/lab.py` (python; token auto-loaded).
+  Capture target for re-capture: `python lab.py deploy 9011 <vmid> --linked --start`
+  → `lab.py ip <vmid>` → `lab.py prep <vmid>` (fw off) → capture → `lab.py destroy <vmid>`.
+- **Kept running** at handoff (do not destroy — needed for #4 NetBIOS/139 + #1 RDP).
 
 ### Resume testing
 ```bash

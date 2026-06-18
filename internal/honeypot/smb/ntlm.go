@@ -30,6 +30,11 @@ type NTLMCredentials struct {
 	Workstation string
 	NTResponse  []byte
 	LMResponse  []byte
+
+	// Material needed to reconstruct the SMB session (signing) key when the
+	// account is a verified seeded credential.
+	Flags               uint32 // NTLMSSP NegotiateFlags (KEY_EXCH etc.)
+	EncryptedSessionKey []byte // EncryptedRandomSessionKey, when key exchange is used
 }
 
 // buildSPNEGONegotiateToken returns a SPNEGO negTokenInit that advertises
@@ -155,13 +160,23 @@ func parseNTLMAuth(data []byte) (*NTLMCredentials, error) {
 	usr := ntlmField{msg, 36}
 	ws := ntlmField{msg, 44}
 
-	return &NTLMCredentials{
+	c := &NTLMCredentials{
 		Domain:      dom.utf16String(),
 		Username:    usr.utf16String(),
 		Workstation: ws.utf16String(),
 		NTResponse:  nt.bytes(),
 		LMResponse:  lm.bytes(),
-	}, nil
+	}
+
+	// EncryptedRandomSessionKey descriptor @52 and NegotiateFlags @60 are present
+	// once the message carries them (modern clients always do). They drive SMB
+	// session-key derivation for signed sessions; absent → zero/nil (no key exch).
+	c.EncryptedSessionKey = ntlmField{msg, 52}.bytes()
+	if len(msg) >= 64 {
+		c.Flags = binary.LittleEndian.Uint32(msg[60:64])
+	}
+
+	return c, nil
 }
 
 // findNTLMBlob locates the start of an NTLMSSP message within a SPNEGO blob.

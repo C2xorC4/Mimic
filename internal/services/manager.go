@@ -39,6 +39,12 @@ func (m *Manager) SetProfileOptions(profile *config.OSProfile) {
 	if profile.Version != "" {
 		m.SetOption("os_version", profile.Version)
 	}
+	// os_edition (workstation/server/dc) lets manifests gate edition-dependent
+	// probes via `requires` (e.g. a service that only a Server SKU exposes) and
+	// drives edition-specific response selection. Empty for non-Windows families.
+	if ed := profile.ResolvedEdition(); ed != "" {
+		m.SetOption("os_edition", ed)
+	}
 }
 
 // Manager manages multiple service emulators

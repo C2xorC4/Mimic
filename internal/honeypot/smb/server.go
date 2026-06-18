@@ -302,6 +302,16 @@ func (s *Server) handleConn(conn net.Conn) {
 		}
 
 		body := frame[pktHdrLen:]
+
+		// SMB 3.1.1 preauth integrity: fold the SESSION_SETUP *request* into the
+		// hash before dispatch, so the signing-key derivation in doAccept sees a
+		// preauth value that already includes this AUTH message. (NEGOTIATE is
+		// folded post-dispatch, once the negotiated dialect is known.) No-op until
+		// a 3.1.1 NEGOTIATE has seeded the hash.
+		if hdr.Command == CmdSessionSetup {
+			sess.preauthUpdate(frame[netBIOSLen:])
+		}
+
 		var response []byte
 
 		switch hdr.Command {
@@ -348,8 +358,32 @@ func (s *Server) handleConn(conn net.Conn) {
 			response = buildPacket(hdr, StatusAccessDenied, sess.id, hdr.TreeID, buildErrorBody())
 		}
 
+		// SMB 3.1.1 preauth integrity (post-dispatch): seed + fold the NEGOTIATE
+		// exchange, and fold the SESSION_SETUP challenge response. The final
+		// SESSION_SETUP success response is NOT folded — it is signed with the key
+		// derived from the hash up to and including the AUTH request.
+		if response != nil && sess.dialect == dialect311 {
+			switch hdr.Command {
+			case CmdNegotiate:
+				sess.preauthInit()
+				sess.preauthUpdate(frame[netBIOSLen:])
+				sess.preauthUpdate(response[netBIOSLen:])
+			case CmdSessionSetup:
+				if binary.LittleEndian.Uint32(response[12:16]) == StatusMoreProcessing {
+					sess.preauthUpdate(response[netBIOSLen:])
+				}
+			}
+		}
+
 		if response == nil {
 			continue
+		}
+
+		// Sign responses once a verified-credential session has installed a
+		// signing key (doAccept). Guest/null sessions leave signingActive false and
+		// are served unsigned, which their IS_GUEST flag tells the client to expect.
+		if sess.signingActive {
+			signFrame(response, sess.signingKey, sess.dialect)
 		}
 
 		conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
@@ -456,8 +490,19 @@ func (s *Server) doAccept(sess *Session, req smb2Header, ntlmBlob []byte) []byte
 				}
 				s.emit(sess, events.Event{Type: events.AuthSuccess, Severity: events.SevWarn, Message: "SMB seeded credential authenticated",
 					Fields: map[string]interface{}{"username": creds.Username, "domain": creds.Domain}})
+
+				// Install SMB signing so this real (non-guest) session's responses
+				// are accepted by signing-enforcing clients (SMB3). Without it the
+				// session authenticates but every file read fails "Bad SMB2
+				// signature" (OSE-2026-001 Op-5). If a signing key can't be derived
+				// (e.g. 3.1.1 without a preauth chain), fall back to a guest-flagged
+				// session so the client skips signing and can still read bait.
+				sessFlags := uint16(0)
+				if !s.setupSigning(sess, *cred, creds) {
+					sessFlags = 0x0001 // IS_GUEST
+				}
 				return buildPacket(req, StatusSuccess, sessID, 0,
-					buildSessionSetupBody(0, buildSPNEGOAcceptToken())) // SessionFlags=0 (real user)
+					buildSessionSetupBody(sessFlags, buildSPNEGOAcceptToken()))
 			}
 		}
 	}
@@ -490,6 +535,39 @@ func (s *Server) doAnonymous(sess *Session, req smb2Header) []byte {
 	atomic.AddUint64(&s.stats.authentications, 1)
 	sess.setState(StateAuthenticated)
 	return buildPacket(req, StatusSuccess, sessID, 0, buildSessionSetupBody(0x0001, buildSPNEGOAcceptToken()))
+}
+
+// setupSigning derives and installs the SMB session signing key for a verified
+// seeded credential, so the honeypot can sign responses on a real (non-guest)
+// session. Because we know the seeded password we can reproduce the same
+// ExportedSessionKey the client computes:
+//
+//	SessionBaseKey → (NTLM key exchange) → ExportedSessionKey → (SP800-108 KDF) → SigningKey
+//
+// Returns false when no key can be derived (e.g. a 3.1.1 session with no preauth
+// chain, or an NT response too short to verify), signalling the caller to fall
+// back to a guest-flagged session rather than emit responses the client rejects.
+func (s *Server) setupSigning(sess *Session, cred Credential, auth *NTLMCredentials) bool {
+	if auth == nil {
+		return false
+	}
+	baseKey := ntlmSessionBaseKey(cred, auth.Username, auth.Domain, auth.NTResponse)
+	if baseKey == nil {
+		return false
+	}
+	esk := exportedSessionKey(baseKey, auth.Flags, auth.EncryptedSessionKey)
+	sk := deriveSigningKey(esk, sess.dialect, sess.preauth)
+	if len(sk) < 16 {
+		return false
+	}
+	sess.signingKey = sk
+	sess.signingActive = true
+	if s.log != nil {
+		s.log.Debug("SMB signing active", map[string]interface{}{
+			"session_id": sess.id, "dialect": sess.dialect,
+		})
+	}
+	return true
 }
 
 // handleTreeConnect parses the share path and returns STATUS_SUCCESS with a
@@ -927,7 +1005,37 @@ func (s *Server) handleQueryInfo(sess *Session, req smb2Header, body []byte) []b
 			binary.LittleEndian.PutUint32(b[48:52], node.attrs)
 			infoBuf = b
 
+		case 18: // FileAllInformation (MS-FSCC 2.4.2) — smbclient queries this before
+			// a download ("getattrib"); without it `get` fails NT_STATUS_NOT_SUPPORTED
+			// even though the data is readable, so bait files can be listed but not
+			// retrieved. Aggregate of Basic+Standard+Internal+Ea+Access+Position+
+			// Mode+Alignment+Name = 100 bytes fixed + name.
+			name := utf16LE(node.name)
+			b := make([]byte, 100+len(name))
+			// FileBasicInformation [0:40]
+			copy(b[0:8], windowsFiletime(node.created))
+			copy(b[8:16], windowsFiletime(node.modified))
+			copy(b[16:24], windowsFiletime(node.modified))
+			copy(b[24:32], windowsFiletime(node.modified))
+			binary.LittleEndian.PutUint32(b[32:36], node.attrs)
+			// FileStandardInformation [40:64]
+			binary.LittleEndian.PutUint64(b[40:48], uint64(node.allocSize()))
+			binary.LittleEndian.PutUint64(b[48:56], uint64(node.size()))
+			binary.LittleEndian.PutUint32(b[56:60], 1) // NumberOfLinks
+			if node.isDir() {
+				b[61] = 1 // Directory
+			}
+			// FileInternalInformation [64:72] IndexNumber=0; FileEaInformation [72:76] EaSize=0
+			binary.LittleEndian.PutUint32(b[76:80], 0x001f01ff) // FileAccessInformation: AccessFlags
+			// FilePositionInformation [80:88]=0; FileModeInformation [88:92]=0; Alignment [92:96]=0
+			binary.LittleEndian.PutUint32(b[96:100], uint32(len(name))) // FileNameInformation length
+			copy(b[100:], name)
+			infoBuf = b
+
 		default:
+			if s.log != nil {
+				s.log.Debug("QueryInfo unsupported file class", map[string]interface{}{"class": infoClass})
+			}
 			return buildPacket(req, StatusNotSupported, sess.id, req.TreeID, buildErrorBody())
 		}
 

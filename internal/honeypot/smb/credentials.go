@@ -63,6 +63,30 @@ func verifyCredential(cred Credential, user, domain string, serverChallenge [8]b
 	return hmac.Equal(proof, expected)
 }
 
+// ntlmSessionBaseKey derives the NTLMv2 SessionBaseKey from a verified seeded
+// credential and the client's AUTH material. For NTLMv2 this also serves as the
+// KeyExchangeKey (MS-NLMP §3.4.5.1):
+//
+//	SessionBaseKey = HMAC_MD5( NTOWFv2, NTProofStr )
+//
+// where NTProofStr is the first 16 bytes of the NT response. Returns nil if the
+// response is too short to contain a proof. The caller turns this into the
+// ExportedSessionKey (handling NTLM key exchange) and then the SMB signing key.
+func ntlmSessionBaseKey(cred Credential, user, domain string, ntResponse []byte) []byte {
+	if len(ntResponse) < 16 {
+		return nil
+	}
+	ntHash := md4Sum(utf16LE(cred.Password))
+
+	mac := hmac.New(md5.New, ntHash[:])
+	mac.Write(utf16LE(strings.ToUpper(user) + domain))
+	ntowfv2 := mac.Sum(nil)
+
+	mac = hmac.New(md5.New, ntowfv2)
+	mac.Write(ntResponse[:16]) // NTProofStr
+	return mac.Sum(nil)        // 16-byte SessionBaseKey
+}
+
 // md4Sum computes the MD4 digest (RFC 1320) of data. Go's standard library has no
 // MD4, and we deliberately avoid adding golang.org/x/crypto/md4 so the build stays
 // hermetic and offline-friendly (the lab host has no internet). MD4 is used here only

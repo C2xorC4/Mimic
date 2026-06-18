@@ -1,6 +1,8 @@
 package config
 
 import (
+	"strings"
+
 	"github.com/c2xorc4/mimic/internal/deception"
 	"github.com/c2xorc4/mimic/internal/defense"
 	"github.com/c2xorc4/mimic/internal/events"
@@ -10,10 +12,30 @@ import (
 type OSProfile struct {
 	Name        string      `yaml:"name"`
 	Description string      `yaml:"description"`
-	Family      string      `yaml:"family"` // windows, linux, macos
+	Family      string      `yaml:"family"`  // windows, linux, macos
 	Version     string      `yaml:"version"`
+	Edition     string      `yaml:"edition"` // workstation, server, dc — optional; derived from Name when empty
 	Stack       StackConfig `yaml:"stack"`
 	SMB         SMBConfig   `yaml:"smb"`
+}
+
+// ResolvedEdition returns the OS edition class — "workstation", "server", or
+// "dc" — used to switch edition-dependent behaviour (which of 135/139 are open
+// vs filtered, whether WinRM listens, SMB signing/computer-name defaults). It
+// honours an explicit Edition field; otherwise it infers from the profile name
+// (Windows "Server" → server) so the 17 existing name-only profiles work
+// unchanged. Returns "" for non-Windows families, where the concept is n/a.
+func (p *OSProfile) ResolvedEdition() string {
+	if p.Edition != "" {
+		return strings.ToLower(p.Edition)
+	}
+	if strings.EqualFold(p.Family, "windows") {
+		if strings.Contains(strings.ToLower(p.Name), "server") {
+			return "server"
+		}
+		return "workstation"
+	}
+	return ""
 }
 
 // StackConfig contains all TCP/IP stack fingerprint parameters
@@ -60,8 +82,26 @@ type ServiceConfig struct {
 	// SpeaksFirst marks a server-speaks-first protocol (SSH, SMTP, FTP banner):
 	// the listener sends the connect-banner response (the probe matching an empty
 	// buffer, after `requires` gating) immediately on connect, before reading.
-	SpeaksFirst bool          `yaml:"speaks_first"`
-	Probes      []ProbeConfig `yaml:"probes"`
+	SpeaksFirst bool `yaml:"speaks_first"`
+
+	// TLS enables dual-path TLS handling: a ClientHello that matches one of the
+	// manifest probes (e.g. a JARM/scanner probe) is answered by static
+	// ServerHello replay — preserving the crafted JARM/JA3S fingerprint — while a
+	// real client's ClientHello is terminated with crypto/tls (a profile-plausible
+	// self-signed cert) and the decrypted stream is served by TLSBackend. This lets
+	// a TLS port complete a real handshake without losing the Schannel fingerprint.
+	TLS bool `yaml:"tls"`
+	// TLSBackend names the plaintext behaviour served after a real TLS handshake:
+	// "http" → a built-in IIS-style HTTP responder. Empty → echo a minimal close.
+	TLSBackend string `yaml:"tls_backend"`
+
+	// DefaultResponse is sent (instead of a silent FIN) when no probe matches, so
+	// the port doesn't betray itself by going mute. Path is relative to the service
+	// dir; empty preserves the legacy close-on-miss behaviour. Per-service so each
+	// can answer the way a real instance of that protocol would.
+	DefaultResponse string `yaml:"default_response"`
+
+	Probes []ProbeConfig `yaml:"probes"`
 }
 
 // ProbeConfig defines how to match and respond to a specific probe
@@ -175,6 +215,28 @@ type LeakDef struct {
 	Location string `yaml:"location"` // body | header | banner | file (informational)
 }
 
+// FirewallConfig controls the disposition of TCP ports that are not actively
+// served. The default ("" / "reset") leaves the kernel to RST closed ports,
+// which gives nmap a clean closed-port probe for a high-confidence OS match —
+// but RST-on-closed is Linux default behaviour and betrays an unfirewalled host
+// under a Windows-client persona (OSE-2026-001: a real firewalled Win11 client
+// DROPPED ~all ports; the Mimic host RST'd them). Setting "drop"/"filtered"
+// installs a default-drop so only the allow-listed ports answer.
+type FirewallConfig struct {
+	// ClosedPortBehavior: "" or "reset" (default, kernel RST) | "drop" | "filtered".
+	// "drop" and "filtered" are equivalent (silent drop = nmap "filtered").
+	ClosedPortBehavior string `yaml:"closed_port_behavior"`
+
+	// OpenPorts is the TCP allow-list answered normally under drop mode (the real
+	// service + decoy ports). Everything else is dropped.
+	OpenPorts []uint16 `yaml:"open_ports"`
+
+	// PreservePorts are always accepted regardless of the drop policy — the
+	// management/SSH port(s). MUST be set under drop mode to allow new logins;
+	// established connections are always preserved so the live session survives.
+	PreservePorts []uint16 `yaml:"preserve_ports"`
+}
+
 // LogConfig contains logging configuration
 type LogConfig struct {
 	Level    string `yaml:"level"`     // debug, info, warn, error
@@ -189,6 +251,7 @@ type AppConfig struct {
 	Interface      string            `yaml:"interface"`       // Network interface to attach to
 	Services       []string          `yaml:"services"`        // Enabled service emulators
 	ClosedPorts    []uint16          `yaml:"closed_ports"`    // Ports that appear closed (RST on connect)
+	Firewall       FirewallConfig    `yaml:"firewall"`        // Closed-port disposition (reset vs drop/filtered)
 	ServiceOptions ServiceOptions    `yaml:"service_options"` // Per-service configuration
 	SMBHoneypot    SMBHoneypotConfig `yaml:"smb_honeypot"`    // Stateful SMB honeypot settings
 	FtpHoneypot    FtpHoneypotConfig `yaml:"ftp_honeypot"`    // Stateful FTP honeypot settings

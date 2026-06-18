@@ -616,6 +616,51 @@ int fingerprint_egress(struct __sk_buff *skb) {
             }
         }
 
+        // === TSval coherence for established-connection data / pure-ACK segments ===
+        // The 20- and 16-byte SYN/SYN-ACK templates above rewrite TSval to a clean
+        // bpf_ktime millisecond clock — stripping Linux's per-connection RANDOM
+        // timestamp offset — so nmap reads a Windows-like ~1 kHz rate (TS=A). But the
+        // kernel keeps applying that random offset to DATA and pure-ACK segments,
+        // which the eBPF previously left untouched. The result was a huge TSval
+        // discontinuity between the handshake (offset stripped) and the data path
+        // (offset retained) — e.g. SYN-ACK 7.88M vs data 3.3B. Standard clients
+        // (PAWS / RTT validation) then silently DROP the payload, which broke real
+        // co-located services (vsftpd) AND Mimic's own honeypots (SMB negotiate) in
+        // the OSE-2026-001 exercise. Rewrite the data-path TSval to the SAME clock so
+        // the entire flow is coherent. Established segments carry options
+        // NOP,NOP,TS(10) = 12 bytes: TSval at option offset 4, TSecr at 8 (TSecr is
+        // left untouched — it must keep echoing the peer's TSval).
+        // Gate matches the SYN-ACK branch that emits the ktime TSval (window_scale>0
+        // && tcp_timestamps — the Win11/25H2 template). Other profiles handle the
+        // SYN-ACK TS option differently, so leave their data path untouched.
+        if (opt_len == 12 && !is_syn && profile->tcp_timestamps && profile->window_scale > 0) {
+            __u32 ts_opt_start = tcp_offset + 20;
+            __u8 sig[4];
+            if (bpf_skb_load_bytes(skb, ts_opt_start, sig, 4) >= 0) {
+                if (sig[0] == TCPOPT_NOP && sig[1] == TCPOPT_NOP &&
+                    sig[2] == TCPOPT_TIMESTAMP && sig[3] == TCPOLEN_TIMESTAMP) {
+                    __u8 old_tsval[4];
+                    if (bpf_skb_load_bytes(skb, ts_opt_start + 4, old_tsval, 4) >= 0) {
+                        __u32 win_tsval = (__u32)(bpf_ktime_get_ns() / 1000000ULL);
+                        __u8 new_tsval[4] = {
+                            (win_tsval >> 24) & 0xFF,
+                            (win_tsval >> 16) & 0xFF,
+                            (win_tsval >> 8) & 0xFF,
+                            win_tsval & 0xFF
+                        };
+                        if (bpf_skb_store_bytes(skb, ts_opt_start + 4, new_tsval, 4, 0) >= 0) {
+                            bpf_l4_csum_replace(skb, tcp_offset + 16,
+                                ((__u16)old_tsval[0] << 8) | old_tsval[1],
+                                ((__u16)new_tsval[0] << 8) | new_tsval[1], 2);
+                            bpf_l4_csum_replace(skb, tcp_offset + 16,
+                                ((__u16)old_tsval[2] << 8) | old_tsval[3],
+                                ((__u16)new_tsval[2] << 8) | new_tsval[3], 2);
+                        }
+                    }
+                }
+            }
+        }
+
         // === RST Packet Behavior ===
         // Enforce window_in_rst=0 on outgoing RST packets.
         // Note: do NOT strip the ACK flag from RSTs — Linux already omits ACK for

@@ -1,0 +1,65 @@
+# Lab config for mimic-lab-linux-mimic (9503).
+# Credential pool and smb_honeypot defaults match config.yaml.example — no lab-specific overrides.
+
+profile: "Windows 11"
+interface: eth0                # adjust: ip -br link
+
+profiles_dir: /etc/mimic/profiles
+services_dir: /etc/mimic/services
+
+services:
+  - smb_honeypot
+  - msrpc
+  - netbios
+  - nbns
+  - rdp
+  - https
+
+closed_ports:
+  - 22
+  - 8080
+  - 8443
+
+service_options:
+  netbios_name: "WIN11LAB"
+  domain: "WORKGROUP"
+  hostname: "win11lab"
+
+logging:
+  level: info
+  log_dir: /var/log/mimic
+  json_mode: true
+
+events:
+  enabled: true
+  json_file: true
+
+defense:
+  enabled: true
+  enforce: false
+  whitelist:
+    - "127.0.0.1"
+    - "10.0.250.0/24"
+
+# Default Mimic testing pool (same as config.yaml.example)
+credentials:
+  - id: backup_svc
+    username: svc_backup
+    password: V33m@Backup!23
+    domain: CORP
+  - id: sql_sa
+    username: sa
+    password: Adm1n@SQL2019!
+
+credential_leaks:
+  - cred: backup_svc
+    via: http
+    location: body
+  - cred: sql_sa
+    via: ssh
+    location: banner
+
+smb_honeypot:
+  allow_guest_enum: true
+  accept_credentials: [backup_svc, sql_sa]
+  # filesystem omitted — built-in default Windows-like tree

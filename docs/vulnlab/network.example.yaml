@@ -1,0 +1,50 @@
+# Committed reference — copy to lab/vulnlab/network.local.yaml for live use.
+# Lab VLAN: isolated /24; no route to production.
+
+vlan:
+  bridge: vmbr0          # or dedicated lab bridge / VLAN tag
+  cidr: 10.0.250.0/24
+  gateway: null          # intentionally no upstream
+
+templates:
+  ubuntu_vuln: 9200      # mimic-lab-ubuntu-vuln (build via provision_linux.sh)
+  win11: 9011              # existing golden Win11 on nexus
+
+vms:
+  attacker:
+    vmid: 9504
+    name: mimic-lab-attacker
+    ip: 10.0.250.10
+    template: null         # install Kali/Debian manually or from ISO once
+
+  win11:
+    vmid: 9501
+    name: mimic-lab-win11
+    ip: 10.0.250.11
+    template: win11
+    clone: linked
+
+  linux_bare:
+    vmid: 9502
+    name: mimic-lab-linux-bare
+    ip: 10.0.250.12
+    template: ubuntu_vuln
+    clone: linked
+    mimic: false
+
+  linux_mimic:
+    vmid: 9503
+    name: mimic-lab-linux-mimic
+    ip: 10.0.250.13
+    template: ubuntu_vuln
+    clone: linked
+    mimic: true
+
+snapshots:
+  golden: base
+
+roe:
+  forbidden_ports: [2222]
+  forbidden_hosts:
+    - proxmox
+    - non_target_lab_hosts

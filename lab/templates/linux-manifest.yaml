@@ -1,0 +1,136 @@
+# Linux golden-template catalog for the Mimic fingerprint/capture lab.
+#
+# Parallel to the Windows 90xx template fleet on nexus. Drives
+# `infra/proxmox/lab.py create-cloud` (cloud-image tier) and documents the
+# build method for tiers that can't be created purely over the API.
+#
+# VMID bands:  servers 9301-9319 | workstations 9321-9339 | attackers 9341-9349
+#
+# build methods:
+#   cloud   -> lab.py create-cloud (download-url + import-from). import-from is
+#              root-gated: set PVE_ROOT_PASS (root@pam ticket) for the import step.
+#   iso     -> install-ISO (GUI/autoinstall). No cloud image exists. ISO staging is
+#              constrained by the small `local` dir storage (~4.4G) -- one at a time.
+#   archive -> vendor ships .7z/.ova, not a raw disk. Needs extract + node-side
+#              import (SSH `qm disk import`, or manual drop into /var/lib/vz/import/
+#              then `create-cloud --import-volid local:import/<file>`).
+#
+# Rolling distros (Kali/Parrot): PIN to the dated image below; snapshot `base`,
+# never apt-upgrade in place (run-to-run reproducibility).
+#
+# Notes:
+#   - AlmaLinux intentionally omitted: bug-for-bug RHEL clone, stack-identical to
+#     Rocky -- no added fingerprint coverage.
+#   - create-cloud stages every image as <name>-cloudimg.img regardless of source
+#     extension; import-from auto-detects the real qcow2/raw format.
+#   - URLs marked VERIFY change filename per point release -- confirm before run.
+
+defaults:
+  storage: local-lvm        # VM disks (lvmthin, ~2TB free)
+  iso_storage: local        # staging dir (content=iso; import enabled)
+  bridge: vmbr0
+  ciuser: root
+  size: 20G
+  cores: 2
+  memory: 2048
+
+servers:           # tier 1 -- cloud images, create-cloud
+  - vmid: 9301
+    name: ubuntu-2404
+    os: "Ubuntu Server 24.04 LTS (Noble)"
+    kernel: "6.8"
+    method: cloud
+    image: https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
+    status: built          # smoke-test image (stage 1)
+  - vmid: 9302
+    name: ubuntu-2204
+    os: "Ubuntu Server 22.04 LTS (Jammy)"
+    kernel: "5.15"
+    method: cloud
+    image: https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img
+  - vmid: 9303
+    name: ubuntu-2004
+    os: "Ubuntu Server 20.04 LTS (Focal)"
+    kernel: "5.4"
+    method: cloud
+    image: https://cloud-images.ubuntu.com/focal/current/focal-server-cloudimg-amd64.img
+  - vmid: 9304
+    name: debian-12
+    os: "Debian 12 (Bookworm)"
+    kernel: "6.1"
+    method: cloud
+    image: https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2
+  - vmid: 9305
+    name: debian-11
+    os: "Debian 11 (Bullseye)"
+    kernel: "5.10"
+    method: cloud
+    image: https://cloud.debian.org/images/cloud/bullseye/latest/debian-11-genericcloud-amd64.qcow2
+  - vmid: 9306
+    name: rocky-9
+    os: "Rocky Linux 9 (RHEL 9 clone)"
+    kernel: "5.14"
+    method: cloud
+    image: https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud-Base.latest.x86_64.qcow2
+  - vmid: 9307
+    name: rocky-8
+    os: "Rocky Linux 8 (RHEL 8 clone)"
+    kernel: "4.18"
+    method: cloud
+    image: https://dl.rockylinux.org/pub/rocky/8/images/x86_64/Rocky-8-GenericCloud-Base.latest.x86_64.qcow2
+  - vmid: 9308
+    name: centos-7
+    os: "CentOS 7.9 (EOL; legacy stack outlier)"
+    kernel: "3.10"
+    method: cloud
+    image: https://cloud.centos.org/centos/7/images/CentOS-7-x86_64-GenericCloud.qcow2
+  - vmid: 9309
+    name: amazonlinux-2023
+    os: "Amazon Linux 2023 (AWS realism)"
+    kernel: "6.1"
+    method: cloud
+    optional: true
+    image: https://cdn.amazonlinux.com/al2023/os-images/2023.9.20251117.1/kvm/al2023-kvm-2023.9.20251117.1-kernel-6.1-x86_64.xfs.gpt.qcow2
+  - vmid: 9310
+    name: fedora-server
+    os: "Fedora 44 (bleeding-edge kernel)"
+    kernel: "6.x"
+    method: cloud
+    image: https://download.fedoraproject.org/pub/fedora/linux/releases/44/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-44-1.7.x86_64.qcow2
+  - vmid: 9311
+    name: arch-linux
+    os: "Arch Linux (rolling; enthusiast/server)"
+    kernel: "6.x"
+    method: cloud
+    rolling: true   # PIN: use a dated image dir + snapshot base, don't pacman -Syu in place
+    image: https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2
+
+workstations:      # tier 2 -- install ISO (no cloud image), build once + templatize
+  - vmid: 9321
+    name: ubuntu-desktop-2404
+    os: "Ubuntu Desktop 24.04 LTS"
+    method: iso        # autoinstall capable
+  - vmid: 9322
+    name: fedora-workstation
+    os: "Fedora Workstation (latest)"
+    method: iso        # kickstart capable
+  - vmid: 9323
+    name: linux-mint-22
+    os: "Linux Mint 22"
+    method: iso        # manual console install (no clean unattended path)
+
+attackers:         # tier 3 -- vendor archive (extract + node-side import); PINNED
+  - vmid: 9341
+    name: kali-2026
+    os: "Kali Linux 2026.1 (pinned)"
+    method: archive    # kali QEMU image (.7z->qcow2); ships qemu-guest-agent
+    status: built      # imported via root ticket from /var/lib/vz/import/, templatized
+    creds: "kali/kali (default) + root:root:toor26 (uniformity)"
+    image: "manual: kali-linux-2026.1-qemu-amd64.qcow2 (extract .7z, drop in /var/lib/vz/import/)"
+  - vmid: 9342
+    name: parrotos-7-sec
+    os: "Parrot OS Security 7.2 (pinned)"
+    method: iso        # manual install from Parrot-security-7.2_amd64.iso
+    status: built      # agent installed post-install (cold-boot to attach channel), templatized
+    creds: "parrot/parrot (default) + root:root:toor26 (uniformity)"
+    image: "manual ISO install (no clean qcow link); agent NOT shipped -- installed by hand"

@@ -1,0 +1,8 @@
+HTTP/1.1 401 Unauthorized
+Server: Microsoft-HTTPAPI/2.0
+WWW-Authenticate: Negotiate
+WWW-Authenticate: Kerberos
+Date: Wed, 18 Feb 2026 13:46:59 GMT
+Connection: close
+Content-Length: 0
+

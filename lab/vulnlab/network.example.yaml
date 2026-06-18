@@ -1,0 +1,42 @@
+# Copy to network.local.yaml (gitignored) before use.
+
+vlan:
+  bridge: vmbr0
+  cidr: 10.0.250.0/24
+  gateway: null
+
+templates:
+  ubuntu_vuln: 9200
+  win11: 9011
+
+vms:
+  attacker:
+    vmid: 9504
+    name: mimic-lab-attacker
+    ip: 10.0.250.10
+
+  win11:
+    vmid: 9501
+    name: mimic-lab-win11
+    ip: 10.0.250.11
+    template: win11
+
+  linux_bare:
+    vmid: 9502
+    name: mimic-lab-linux-bare
+    ip: 10.0.250.12
+    template: ubuntu_vuln
+    mimic: false
+
+  linux_mimic:
+    vmid: 9503
+    name: mimic-lab-linux-mimic
+    ip: 10.0.250.13
+    template: ubuntu_vuln
+    mimic: true
+
+snapshots:
+  golden: base
+
+roe:
+  forbidden_ports: [2222]

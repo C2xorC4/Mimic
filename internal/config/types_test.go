@@ -6,6 +6,32 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// TestResolvedEdition covers the edition switch that drives edition-dependent
+// behaviour (135/139 disposition, WinRM presence, SMB defaults): explicit field
+// wins, else inferred from family+name, "" for non-Windows.
+func TestResolvedEdition(t *testing.T) {
+	cases := []struct {
+		name    string
+		profile OSProfile
+		want    string
+	}{
+		{"explicit dc overrides name", OSProfile{Family: "windows", Name: "Windows 11", Edition: "DC"}, "dc"},
+		{"win client inferred", OSProfile{Family: "windows", Name: "Windows 11"}, "workstation"},
+		{"win10 client inferred", OSProfile{Family: "windows", Name: "Windows 10"}, "workstation"},
+		{"server inferred from name", OSProfile{Family: "windows", Name: "Windows Server 2022"}, "server"},
+		{"server 2025 inferred", OSProfile{Family: "windows", Name: "Windows Server 2025"}, "server"},
+		{"linux is n/a", OSProfile{Family: "linux", Name: "Ubuntu"}, ""},
+		{"macos is n/a", OSProfile{Family: "macos", Name: "macOS Sonoma"}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.profile.ResolvedEdition(); got != tc.want {
+				t.Fatalf("ResolvedEdition() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestAppConfigRoundTrip verifies the Phase-1 schema additions (shared credential
 // pool, leak wiring, and the SMB honeypot config-driven filesystem) unmarshal into
 // the expected structs.

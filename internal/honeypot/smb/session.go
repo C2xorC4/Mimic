@@ -1,6 +1,9 @@
 package smb
 
-import "sync"
+import (
+	"crypto/sha512"
+	"sync"
+)
 
 // handle map lives on Session; keyed by volatile FileId (uint64).
 
@@ -32,6 +35,14 @@ type Session struct {
 	smb1NextTID uint16
 	smb1NextFID uint16
 
+	// SMB 3.1.1 preauth-integrity running hash (nil until a 3.1.1 NEGOTIATE
+	// initialises it) and the derived signing state. These are touched only from
+	// the single per-connection handler goroutine, in protocol order, so they
+	// need no locking.
+	preauth       []byte // 64-byte running SHA-512 preauth hash
+	signingKey    []byte // 16-byte SMB2 signing key (set on verified-cred auth)
+	signingActive bool   // sign responses on this session
+
 	mu sync.Mutex
 }
 
@@ -43,6 +54,27 @@ func newSession() *Session {
 		smb1Handles: make(map[uint16]*PipeState),
 		state:       StateNew,
 	}
+}
+
+// preauthInit starts the SMB 3.1.1 preauth-integrity hash at the all-zero seed.
+// Idempotent: a second NEGOTIATE on the same connection does not reset it.
+func (s *Session) preauthInit() {
+	if s.preauth == nil {
+		s.preauth = make([]byte, 64)
+	}
+}
+
+// preauthUpdate folds one SMB2 message (without the 4-byte transport header)
+// into the running preauth hash: H = SHA512(H || msg). No-op until preauthInit
+// has run, so non-3.1.1 sessions never accumulate a hash.
+func (s *Session) preauthUpdate(msg []byte) {
+	if s.preauth == nil {
+		return
+	}
+	h := sha512.New()
+	h.Write(s.preauth)
+	h.Write(msg)
+	s.preauth = h.Sum(nil)
 }
 
 func (s *Session) setState(st SessionState) {

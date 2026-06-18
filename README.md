@@ -56,15 +56,15 @@ Works with SSH visible on port 22 — `nmap -O` without `-p` still returns an ex
 
 | Service | Protocol | Port | Description |
 |---------|----------|------|-------------|
-| `smb` | TCP | 445 | SMB2 negotiate — captured Windows 11 responses with dynamic GUID/timestamp rewriting |
-| `msrpc` | TCP | 135 | DCE/RPC endpoint mapper bind_nack |
-| `netbios` | TCP | 139 | NetBIOS session service |
+| `smb` / `smb_honeypot` | TCP | 445 | Stateful SMB2/3 honeypot (enum, NTLMv2 auth, signing, file read) |
+| `msrpc` | TCP | 135 | Stateful DCE/RPC EPM — bind_ack + ept_lookup (138 endpoints via rpcdump) |
+| `netbios` | TCP | 139 | NetBIOS session service (negative session; positive-session bridge planned) |
 | `nbns` | UDP | 137 | NetBIOS Name Service node status |
-| `rdp` | TCP | 3389 | RDP connection banner |
-| `https` | TCP | 443 | TLS ServerHello (JARM + JA3S fingerprint) |
+| `rdp` | TCP | 3389 | RDP TLS 1.3 ServerHello (cleartext banner; CredSSP stateful handler planned) |
+| `https` | TCP | 443 | Dual-path TLS — JARM/JA3S static replay for scanner probes; real TLS for clients |
 | `http` | TCP | 80 | HTTP banner |
 | `ssh` | TCP | 22 | SSH banner |
-| `winrm` | TCP | 5985 | WinRM HTTP banner |
+| `winrm` | TCP | 5985 | WinRM over HTTP.sys — POST /wsman → 401 Negotiate/Kerberos |
 
 ---
 

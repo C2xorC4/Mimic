@@ -5,12 +5,14 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/c2xorc4/mimic/internal/coherence"
 	"github.com/c2xorc4/mimic/internal/config"
 	"github.com/c2xorc4/mimic/internal/deception"
 	"github.com/c2xorc4/mimic/internal/defense"
@@ -236,6 +238,7 @@ func runMimic(cmd *cobra.Command, args []string) error {
 	var svcMgr *services.Manager
 	var closedMgr *services.ClosedPortManager
 	var probeMgr *services.ProbeResponseManager
+	var fwMgr *services.FirewallManager
 
 	// Start closed port listeners (optional - may fail if netfilter unavailable)
 	if len(appCfg.ClosedPorts) > 0 {
@@ -260,6 +263,22 @@ func runMimic(cmd *cobra.Command, args []string) error {
 			"error": err.Error(),
 		})
 		probeMgr = nil
+	}
+
+	// Optional default-drop firewall (firewalled-Windows persona). Added AFTER the
+	// T2/T3 + closed-port rules so those terminal RST rules match first and the
+	// default-drop catches only the remaining (filtered) ports. Established
+	// connections are always accepted, so applying this never severs the live SSH
+	// session — but new logins need their port in firewall.preserve_ports.
+	switch strings.ToLower(appCfg.Firewall.ClosedPortBehavior) {
+	case "drop", "filtered":
+		fwMgr = services.NewFirewallManager()
+		if err := fwMgr.EnableDrop(appCfg.Firewall.OpenPorts, appCfg.Firewall.PreservePorts); err != nil {
+			logging.Warn("Default-drop firewall unavailable — closed ports will RST (Linux default), a Windows-client persona tell", map[string]interface{}{
+				"error": err.Error(),
+			})
+			fwMgr = nil
+		}
 	}
 
 	// Start eBPF fingerprinting in goroutine
@@ -456,6 +475,9 @@ func runMimic(cmd *cobra.Command, args []string) error {
 		if probeMgr != nil {
 			probeMgr.Stop()
 		}
+		if fwMgr != nil {
+			fwMgr.Stop()
+		}
 		return err
 	default:
 	}
@@ -464,6 +486,17 @@ func runMimic(cmd *cobra.Command, args []string) error {
 		"log_dir": logging.GetActiveLogDir(),
 	})
 	fmt.Printf("\nMimic active. Logs: %s\nPress Ctrl+C to stop.\n\n", logging.GetActiveLogDir())
+
+	// Background OS/service coherence self-audit: warn the operator if a non-Mimic
+	// service on the host advertises a banner that contradicts the emulated OS
+	// family (e.g. a real vsftpd/OpenSSH on a Windows profile) — the strongest
+	// fingerprint-deception tell. Advisory only; runs once after listeners settle.
+	if profile != nil {
+		go func() {
+			time.Sleep(2 * time.Second)
+			coherence.Check(profile.Family, logging.Component("coherence"))
+		}()
+	}
 
 	// Stats ticker
 	ticker := time.NewTicker(60 * time.Second)

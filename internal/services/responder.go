@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -280,6 +281,49 @@ func (r *Responder) applyRule(response, probe []byte, rule *config.RewriteRule) 
 		}
 		return nil
 
+	case "dcerpc_callid":
+		// Echo the probe's DCE/RPC call_id into EVERY fragment header of the
+		// response, so a multi-fragment reply (e.g. a captured ept_lookup whose
+		// response spans many 4280-byte PDUs) correlates to the client's request
+		// regardless of which call_id the client chose. Walks the buffer as a
+		// sequence of connection-oriented PDUs (ver 5; frag_len at +8 LE; call_id
+		// at +12) — Offset/Length are ignored. No-op if the probe is too short.
+		if len(probe) < 16 || probe[0] != 0x05 {
+			return nil
+		}
+		callID := probe[12:16]
+		for i := 0; i+16 <= len(response); {
+			if response[i] != 0x05 { // not a CO RPC PDU boundary — stop walking
+				break
+			}
+			fragLen := int(response[i+8]) | int(response[i+9])<<8
+			if fragLen < 16 || i+fragLen > len(response) {
+				break
+			}
+			copy(response[i+12:i+16], callID)
+			i += fragLen
+		}
+
+	case "host_ip":
+		// Replace every 4-byte occurrence of the captured server IP (rule.Token,
+		// dotted-quad) with this host's egress IPv4, so replayed EPM towers
+		// (ncacn_ip_tcp floors) advertise the running host's address instead of the
+		// capture box's — otherwise the bindings point at a foreign/dead host, a
+		// tell and a broken deception. Fixed-length (4→4), so offsets are preserved.
+		capIP := parseIPv4(rule.Token)
+		if capIP == nil {
+			return fmt.Errorf("host_ip: bad token IP %q", rule.Token)
+		}
+		host := hostEgressIPv4()
+		if host == nil {
+			return nil // can't determine host IP — leave capture IP rather than corrupt
+		}
+		for i := 0; i+4 <= len(response); i++ {
+			if bytes.Equal(response[i:i+4], capIP) {
+				copy(response[i:i+4], host)
+			}
+		}
+
 	case "leak":
 		// Write "username:password" for the credential id (rule.Token) into a
 		// fixed-width binary slot. Truncated to rule.Length; remaining slot bytes
@@ -312,6 +356,54 @@ func (r *Responder) ClearCache() {
 	r.mu.Lock()
 	r.cache = make(map[string][]byte)
 	r.mu.Unlock()
+}
+
+// parseIPv4 parses a dotted-quad into 4 network-order bytes, or nil if invalid.
+func parseIPv4(s string) []byte {
+	ip := net.ParseIP(strings.TrimSpace(s))
+	if ip == nil {
+		return nil
+	}
+	if v4 := ip.To4(); v4 != nil {
+		return []byte{v4[0], v4[1], v4[2], v4[3]}
+	}
+	return nil
+}
+
+// hostEgressIPv4 returns this host's primary outbound IPv4 (the source the kernel
+// picks for the default route), cached for the process. Falls back to the first
+// non-loopback/non-link-local IPv4 interface address. Returns nil if none found.
+var (
+	egressIPOnce sync.Once
+	egressIPv4   []byte
+)
+
+func hostEgressIPv4() []byte {
+	egressIPOnce.Do(func() {
+		// UDP "dial" performs no handshake; it just makes the kernel select a
+		// source address per its routing table. TEST-NET-1 dest keeps it inert.
+		if c, err := net.Dial("udp", "192.0.2.1:9"); err == nil {
+			if ua, ok := c.LocalAddr().(*net.UDPAddr); ok {
+				if v4 := ua.IP.To4(); v4 != nil {
+					egressIPv4 = []byte{v4[0], v4[1], v4[2], v4[3]}
+				}
+			}
+			c.Close()
+		}
+		if egressIPv4 == nil {
+			addrs, _ := net.InterfaceAddrs()
+			for _, a := range addrs {
+				if ipn, ok := a.(*net.IPNet); ok {
+					v4 := ipn.IP.To4()
+					if v4 != nil && !ipn.IP.IsLoopback() && !ipn.IP.IsLinkLocalUnicast() {
+						egressIPv4 = []byte{v4[0], v4[1], v4[2], v4[3]}
+						break
+					}
+				}
+			}
+		}
+	})
+	return egressIPv4
 }
 
 // generateGUID generates a random GUID

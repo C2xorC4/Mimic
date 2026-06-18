@@ -37,3 +37,10 @@ captures/proxmox/
 
 # internal lab tooling — keep local, do not track/share
 infra/
+
+# vuln lab local overrides (committed templates live in lab/vulnlab/*.example.yaml)
+lab/vulnlab/network.local.yaml
+
+# Python cache
+__pycache__/
+*.pyc

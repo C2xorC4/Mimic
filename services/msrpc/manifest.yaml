@@ -1,46 +1,67 @@
-# MSRPC (DCE/RPC Endpoint Mapper) Service Template
-# Generated from Windows 11 captures
-# Source OS: Windows 11
+# MSRPC (DCE/RPC Endpoint Mapper) — TCP 135.
+# bind_ack + ept_lookup response captured 2026-06-18 from a real Windows 11 25H2
+# box (proxmox win11-epm-target, 10.0.254.67) via impacket-rpcdump.
+#
+# Stateful so one connection carries the full rpcdump flow: BIND → bind_ack, then
+# ept_lookup (EPM opnum 2) → the captured endpoint-database response (138 endpoints,
+# 11 DCE/RPC fragments reassembled = 45,716 bytes). Previously bind succeeded but the
+# ept_lookup got no answer, so rpcdump enumerated nothing — a tell. Now 135 enumerates
+# the real Windows RPC endpoint set ("Microsoft Windows RPC" + named services).
+#
+# Two dynamic rewrites keep the replay coherent:
+#   * dcerpc_callid — echoes the client's call_id into EVERY response fragment header
+#     (walks PDUs by frag_len), so the multi-fragment reply correlates to the request.
+#   * host_ip — replaces the capture box IP (10.0.254.67) wherever it appears in the
+#     ncacn_ip_tcp tower floors with this host's egress IPv4, so the advertised TCP
+#     bindings point at the running host, not the capture box.
+#
+# KNOWN residual tells (documented, deferred): the np/lrpc towers embed the capture
+# box's NetBIOS name (DESKTOP-G6JUGNO) — set the deployment's netbios_name to match,
+# or re-capture from a box named as desired; and the dynamic ncacn_ip_tcp ports
+# (49664+) are advertised but not actually listening on this host.
 
 name: msrpc
 port: 135
 protocol: tcp
-stateful: false
+stateful: true
+description: "Microsoft Windows RPC endpoint mapper (DCE/RPC EPM)"
 
 probes:
-  # SMB1 Negotiate over port 135 (nmap cross-protocol probe)
-  # nmap sends SMB negotiate to test if MSRPC responds as SMB
-  # Windows responds with DCE/RPC bind_nack (type 13) - rejection
-  # Pattern: 00 XX XX XX ff 53 4d 42 72 (NetBIOS + SMB1 magic + negotiate)
+  # SMB1 Negotiate over port 135 (nmap cross-protocol probe) → bind_nack rejection.
   - name: smb_over_msrpc
-    signature:
-      pattern: '\x00...\xffSMBr'
-      offset: 0
-      min_length: 39
+    signature: { pattern: '\x00...\xffSMBr', offset: 0, min_length: 39 }
     response_file: responses/bind_nack.bin
     rewrite_rules: []
 
-  # SMB2 Negotiate over port 135 (nmap cross-protocol probe)
-  # Pattern: 00 XX XX XX fe 53 4d 42 (NetBIOS + SMB2 magic)
+  # SMB2 Negotiate over port 135 (nmap cross-protocol probe) → bind_nack rejection.
   - name: smb2_over_msrpc
-    signature:
-      pattern: '\x00...\xfeSMB'
-      offset: 0
-      min_length: 50
+    signature: { pattern: '\x00...\xfeSMB', offset: 0, min_length: 50 }
     response_file: responses/bind_nack.bin
     rewrite_rules: []
 
-  # Generic DCE/RPC bind_nack for unrecognized DCE/RPC requests
-  # Catches DCE/RPC bind requests and returns proper rejection
-  # First byte 0x05 = DCE/RPC version 5
-  - name: dcerpc_bind_reject
+  # EPM ept_lookup REQUEST: ptype 0x00 (request) at byte 2, opnum 0x0002 (LE) at
+  # byte 22 of the CO RPC header (ver/ver/type + 19 bytes + opnum). This is what
+  # rpcdump calls after binding → serve the captured endpoint-database response.
+  - name: dcerpc_ept_lookup
     signature:
-      pattern: '\x05\x00'
+      pattern: '\x05\x00\x00...................\x02\x00'
       offset: 0
-      min_length: 16
+      min_length: 24
+    response_file: responses/epm_lookup.bin
+    rewrite_rules:
+      - { type: dcerpc_callid }                 # echo client call_id into all fragments
+      - { type: host_ip, token: "10.0.254.67" } # capture IP -> this host's IP in towers
+
+  # DCE/RPC BIND (ptype 0x0b) → bind_ack accepting context 0 / NDR. call_id echoed.
+  - name: dcerpc_bind_ack
+    signature: { pattern: '\x05\x00\x0b', offset: 0, min_length: 16 }
+    response_file: responses/bind_ack.bin
+    rewrite_rules:
+      - { type: dcerpc_callid }
+
+  # Other DCE/RPC ptypes (non-bind, non-ept_lookup) → bind_nack rather than silence.
+  - name: dcerpc_other
+    signature: { pattern: '\x05\x00', offset: 0, min_length: 16 }
     response_file: responses/bind_nack.bin
     rewrite_rules:
-      # Echo the call_id from the request (bytes 12-15 in DCE/RPC header)
-      - offset: 12
-        length: 4
-        type: echo
+      - { type: dcerpc_callid }

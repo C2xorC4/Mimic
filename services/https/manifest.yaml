@@ -4,6 +4,13 @@ protocol: tcp
 stateful: false
 description: "Windows IIS JARM/JA3S fingerprint — HMDXIN Schannel signature"
 
+# Dual-path TLS: JARM/scanner ClientHellos (the probes below) get the crafted
+# static ServerHello replay — preserving the exact Schannel JARM/JA3S signature —
+# while a real client's ClientHello is terminated with crypto/tls and served the
+# built-in IIS HTTP backend, so 443 completes a handshake instead of FIN-after-hello.
+tls: true
+tls_backend: http
+
 # JARM probe distinguishers (jarm.py sends 10 probes to fingerprint TLS stacks):
 #
 #   Probes 1-2 (TLS 1.2 FORWARD/REVERSE, ALL ciphers, 1.2_SUPPORT):
