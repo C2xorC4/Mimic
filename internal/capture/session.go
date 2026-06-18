@@ -3,6 +3,7 @@ package capture
 import (
 	"fmt"
 	"net"
+	"sort"
 	"sync"
 	"time"
 )
@@ -19,6 +20,17 @@ type FlowKey struct {
 func (f FlowKey) String() string {
 	return fmt.Sprintf("%s:%d -> %s:%d (%s)",
 		f.ClientIP, f.ClientPort, f.ServerIP, f.ServerPort, f.Protocol)
+}
+
+// trackerKey returns the session map key. LLMNR (UDP/5355) aggregates all packets
+// between a client and server regardless of ephemeral client port — probes and
+// responses often use different sockets, and multicast queries never target the
+// server IP directly.
+func (f FlowKey) trackerKey() string {
+	if f.Protocol == "udp" && f.ServerPort == 5355 {
+		return fmt.Sprintf("llmnr:%s:%s", f.ClientIP, f.ServerIP)
+	}
+	return f.String()
 }
 
 // Reverse returns the reverse direction flow key
@@ -108,6 +120,14 @@ func (s *Session) ExtractExchanges() {
 		return
 	}
 
+	packets := s.Packets
+	if s.Key.Protocol == "udp" && s.Key.ServerPort == 5355 && len(packets) > 1 {
+		packets = append([]Packet(nil), s.Packets...)
+		sort.Slice(packets, func(i, j int) bool {
+			return packets[i].Timestamp.Before(packets[j].Timestamp)
+		})
+	}
+
 	var currentExchange *Exchange
 	var exchangeIndex int
 
@@ -122,7 +142,7 @@ func (s *Session) ExtractExchanges() {
 	seenIn := make(map[string]bool)
 	seenOut := make(map[string]bool)
 
-	for _, pkt := range s.Packets {
+	for _, pkt := range packets {
 		// Skip empty packets (ACKs, etc.)
 		if len(pkt.Data) == 0 {
 			continue
@@ -210,7 +230,7 @@ func (st *SessionTracker) ShouldCapture(port uint16) bool {
 
 // GetOrCreateSession gets existing session or creates new one
 func (st *SessionTracker) GetOrCreateSession(key FlowKey) *Session {
-	keyStr := key.String()
+	keyStr := key.trackerKey()
 
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -228,7 +248,7 @@ func (st *SessionTracker) GetOrCreateSession(key FlowKey) *Session {
 func (st *SessionTracker) GetSession(key FlowKey) *Session {
 	st.mu.RLock()
 	defer st.mu.RUnlock()
-	return st.sessions[key.String()]
+	return st.sessions[key.trackerKey()]
 }
 
 // GetAllSessions returns all tracked sessions

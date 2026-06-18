@@ -160,6 +160,8 @@ func parsePorts(cmd *cobra.Command) ([]uint16, error) {
 			ports = []uint16{3306}
 		case "ldap":
 			ports = []uint16{389, 636}
+		case "llmnr":
+			ports = []uint16{5355}
 		}
 	}
 
@@ -244,6 +246,14 @@ func runCapturePcap(cmd *cobra.Command, args []string) error {
 	serverIP := net.ParseIP(captureServerIP)
 	if serverIP == nil {
 		return fmt.Errorf("invalid server IP: %s", captureServerIP)
+	}
+
+	// LLMNR harness sidecars record the clone IP as target=<ip>; prefer that over a
+	// stale template IP when the companion .nmap.txt is present.
+	if strings.EqualFold(captureService, "llmnr") {
+		if sidecarIP, ok := capture.ServerIPFromSidecar(pcapFile); ok {
+			serverIP = sidecarIP
+		}
 	}
 
 	ports, err := parsePorts(cmd)

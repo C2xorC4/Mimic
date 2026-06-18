@@ -18,6 +18,8 @@ func boolToFlag(b bool, pos uint8) uint8 {
 	return 0
 }
 
+var llmnrMulticastGroup = net.IPv4(224, 0, 0, 252)
+
 // PCAPProcessor processes pcap files to extract sessions
 type PCAPProcessor struct {
 	tracker   *SessionTracker
@@ -135,7 +137,22 @@ func (p *PCAPProcessor) processPacket(packet gopacket.Packet) {
 	srcIsServer := p.serverIPs[srcIP.String()]
 	dstIsServer := p.serverIPs[dstIP.String()]
 
-	if dstIsServer && p.tracker.ShouldCapture(dstPort) {
+	// LLMNR queries are sent to the multicast group; attribute them to the configured
+	// server so probe/response pairs land in the same aggregated UDP/5355 session.
+	if protocol == "udp" && dstPort == 5355 && dstIP.Equal(llmnrMulticastGroup) {
+		if serverIP := p.primaryServerIP(); serverIP != nil && p.tracker.ShouldCapture(dstPort) {
+			direction = DirectionInbound
+			flowKey = FlowKey{
+				Protocol:   protocol,
+				ClientIP:   srcIP,
+				ClientPort: srcPort,
+				ServerIP:   serverIP,
+				ServerPort: dstPort,
+			}
+		} else {
+			return
+		}
+	} else if dstIsServer && p.tracker.ShouldCapture(dstPort) {
 		// Inbound to server
 		direction = DirectionInbound
 		flowKey = FlowKey{
@@ -191,6 +208,17 @@ func (p *PCAPProcessor) GetSessions() []*Session {
 // GetStats returns processing statistics
 func (p *PCAPProcessor) GetStats() ProcessingStats {
 	return p.stats
+}
+
+func (p *PCAPProcessor) primaryServerIP() net.IP {
+	return primaryServerIPFromMap(p.serverIPs)
+}
+
+func primaryServerIPFromMap(serverIPs map[string]bool) net.IP {
+	for s := range serverIPs {
+		return net.ParseIP(s)
+	}
+	return nil
 }
 
 // LiveCapture captures packets from a live interface
@@ -332,7 +360,20 @@ func (lc *LiveCapture) processPacket(packet gopacket.Packet) {
 	srcIsServer := lc.serverIPs[srcIP.String()]
 	dstIsServer := lc.serverIPs[dstIP.String()]
 
-	if dstIsServer && lc.tracker.ShouldCapture(dstPort) {
+	if protocol == "udp" && dstPort == 5355 && dstIP.Equal(llmnrMulticastGroup) {
+		if serverIP := primaryServerIPFromMap(lc.serverIPs); serverIP != nil && lc.tracker.ShouldCapture(dstPort) {
+			direction = DirectionInbound
+			flowKey = FlowKey{
+				Protocol:   protocol,
+				ClientIP:   srcIP,
+				ClientPort: srcPort,
+				ServerIP:   serverIP,
+				ServerPort: dstPort,
+			}
+		} else {
+			return
+		}
+	} else if dstIsServer && lc.tracker.ShouldCapture(dstPort) {
 		direction = DirectionInbound
 		flowKey = FlowKey{
 			Protocol:   protocol,

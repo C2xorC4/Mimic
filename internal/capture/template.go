@@ -158,7 +158,7 @@ func (tg *TemplateGenerator) Generate() (*TemplateOutput, error) {
 	manifest := config.ServiceConfig{
 		Name:     tg.serviceName,
 		Port:     tg.inferPort(),
-		Protocol: "tcp",
+		Protocol: tg.inferProtocol(),
 		Stateful: tg.inferStateful(),
 		Probes:   probes,
 	}
@@ -244,6 +244,9 @@ func (tg *TemplateGenerator) generateProbeName(probe []byte, port uint16) string
 
 	case 21: // FTP
 		name = "ftp"
+
+	case 5355: // LLMNR
+		name = "llmnr_query"
 
 	case 1433: // MSSQL
 		name = "mssql"
@@ -428,6 +431,19 @@ func (tg *TemplateGenerator) inferPort() uint16 {
 	}
 
 	return maxPort
+}
+
+func (tg *TemplateGenerator) inferProtocol() string {
+	if tg.serviceName == "llmnr" || tg.serviceName == "mdns" || tg.serviceName == "snmp" ||
+		tg.serviceName == "ssdp" || tg.serviceName == "wsd" || tg.serviceName == "nbns" {
+		return "udp"
+	}
+	for _, ex := range tg.exchanges {
+		if ex.Session.Key.Protocol == "udp" {
+			return "udp"
+		}
+	}
+	return "tcp"
 }
 
 // inferStateful guesses if the protocol is stateful

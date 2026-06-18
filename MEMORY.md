@@ -118,9 +118,12 @@
    hmdxin pcap **5** probes; unit tests in `http_filter_test.go` +
    `http_capture_test.go`. Re-capture without `http-enum` still recommended for
    smaller pcaps; `infra/proxmox/capture.ps1` drop remains best practice.
-3. **llmnr.** Fix server-IP extraction (sidecar is python-probe output, parse
-   `target=<ip>`), AND handle multicast in the processor (response-without-direct-
-   probe / dest=multicast-group) so the LLMNR response template extracts.
+3. ✅ **llmnr — DONE (2026-06-18).** Multicast queries to `224.0.0.252:5355`
+   attributed to configured server IP; UDP/5355 sessions aggregate by client IP
+   (ignore ephemeral port); sidecar `.nmap.txt` `target=<ip>` auto-selected for
+   `capture pcap --service llmnr`; manifest protocol infers `udp`. **Validated on
+   argus:** Win11 proxmox pcap with wrong `--server-ip` still extracts **1** probe
+   (sidecar override 10.0.251.64), was 0 exchanges.
 4. **snmp (last).** 236 per-OID templates valid for OID-keyed replay but heavy;
    optional collapse/curate.
 
