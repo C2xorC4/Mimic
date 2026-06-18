@@ -78,14 +78,15 @@ func isLANMANPipe(path string) bool {
 // buildSMBv1TransactionLANMANResp builds a COM_TRANSACTION response for a
 // LANMAN RAP call (setup word count = 0).
 func buildSMBv1TransactionLANMANResp(tid, uid uint16, rapOut []byte) []byte {
-	// DataOffset = SMBv1 hdr(32) + WordCount(1) + params(20) + ByteCount(2) = 55
-	const txDataOffset = uint16(55)
+	// ParameterOffset = SMBv1 hdr(32) + WordCount(1) + params(20) + ByteCount(2) = 55
+	const txParamOffset = uint16(55)
 	rp := make([]byte, 20)
 	n := uint16(len(rapOut))
-	binary.LittleEndian.PutUint16(rp[0:2], n)   // TotalParameterCount
-	binary.LittleEndian.PutUint16(rp[2:4], 0)   // TotalDataCount
-	binary.LittleEndian.PutUint16(rp[12:14], n) // ParameterCount
-	binary.LittleEndian.PutUint16(rp[14:16], txDataOffset)
+	binary.LittleEndian.PutUint16(rp[0:2], n)  // TotalParameterCount
+	binary.LittleEndian.PutUint16(rp[2:4], 0)  // TotalDataCount
+	// rp[4:6] Reserved
+	binary.LittleEndian.PutUint16(rp[6:8], n)       // ParameterCount
+	binary.LittleEndian.PutUint16(rp[8:10], txParamOffset) // ParameterOffset
 	// SetupCount=0, Reserved=0 at rp[18:20]
 
 	return buildSMB1Response(0x25, 0, tid, uid, rp, rapOut)
