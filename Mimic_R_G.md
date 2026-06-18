@@ -402,7 +402,7 @@ Commercial MVP = a paying SOC or red team can deploy, operate, and get value for
 | 5 | **`mimic status` / health command** | ~1 week |
 | 6 | **Operator runbook** | 1–2 weeks |
 | 7 | ~~**Build-number self-consistency**~~ — **done** (`a708f34` + OSE bundle) | — |
-| 8 | **End-to-end credential-leak loop** (HTTP/SSH plant → SMB catch) | 1–2 weeks |
+| 8 | ~~**End-to-end credential-leak loop**~~ — **done** (2026-06-18) | — |
 | 9 | **License/entitlement gate** (Stripe → key → CLI validates) | ~1 week |
 
 ### 7.4 Strongly Recommended (Sale Shaky Without These)
@@ -419,7 +419,7 @@ Commercial MVP = a paying SOC or red team can deploy, operate, and get value for
 
 - Management UI / fleet controller
 - TLS handshake completion (per-conn 443 proxy)
-- JA4S validation (Suricata 8 / Zeek — likely passes, confirm)
+- ~~JA4S validation~~ — **measured** (2026-06-18, FoxIO ja4.py)
 - REST API / JSON status for SOAR
 - Windows host port — at minimum cross-platform *service layer*; eBPF stays Linux-only
 - ~~Capture-pipeline de-noise~~ — **done** (Track-1, 2026-06-18)
