@@ -144,7 +144,7 @@ Empirically tested, not theoretical:
 5. **`mimic status` / health command** — a NOC needs "is it working?" (profile active, services up, eBPF attached) without SSH. ~1 week.
 6. **Operator runbook** — install / configure / validate / troubleshoot; directly reduces support burden. 1–2 weeks.
 7. ~~**Build-number self-consistency**~~ — **done** (`a708f34` + OSE bundle): NTLM Version from profile, Win11→25H2 coherence, Server 2025 profile, MsvAvTimestamp.
-8. **End-to-end credential-leak loop** — HTTP/SSH plant → SMB catch wired all the way through; the core deception story is currently incomplete. 1–2 weeks.
+8. ~~**End-to-end credential-leak loop**~~ — **done** (2026-06-18): `GET /backup_credentials.txt` → SMB auth validated on argus.
 9. **License/entitlement gate** — Stripe → key → CLI validates. Trivial, but no gate = no business.
 
 ### Strongly recommended (sale is shaky without these)
@@ -157,7 +157,7 @@ Empirically tested, not theoretical:
 ### Post-MVP (growth, not launch blockers)
 - Management UI / fleet controller (the Team/Enterprise justification).
 - TLS handshake completion (per-conn 443 proxy) for deeper HTTPS sessions.
-- JA4S validation (emerging standard — Suricata 8 / Zeek; likely already passes, confirm).
+- ~~JA4S validation~~ — **measured** (2026-06-18, FoxIO ja4.py): TLS 1.2 JARM path `t1203h2_c030_*`, TLS 1.1 `t1103h1_c014_*`.
 - REST API / JSON status for SOAR.
 - Windows host port (WFP/Npcap) — at minimum get the *service layer* cross-platform; the eBPF layer staying Linux-only is acceptable if services run anywhere.
 - ~~Capture-pipeline de-noise~~ — **done** (Track-1, 2026-06-18: HTTP 1071→6, LLMNR 0→1, SNMP 236→3).

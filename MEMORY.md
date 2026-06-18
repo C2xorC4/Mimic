@@ -329,7 +329,7 @@ pipeline inverted) after Linux benchmarks pass.
 
 | Track | Focus | Current |
 |-------|-------|---------|
-| **A — OSE** | Cred-leak loop, JA4S measure, dynamic RPC ports (49664+) | In progress |
+| **A — OSE** | Cred-leak loop, JA4S measure, dynamic RPC ports (49664+) | Cred-leak + JA4S done; RPC ports open |
 | **B — Breadth** | `--services all`, edition gating, deeper SMB scripts | Queued |
 | **C — Hygiene** | argus sync, packet-template regen on promote only | Ongoing |
 
@@ -363,11 +363,17 @@ pipeline inverted) after Linux benchmarks pass.
    from the Win11 honeypot; MsvAvTimestamp present and live (FILETIME delta 0s);
    Server 2025 profile loads + applies eBPF cleanly. Files:
    `internal/honeypot/smb/{ntlm.go,ntlm_test.go}`, `profiles/windows/{11.yaml,server-2025.yaml}`.
-3. **JA4S validation** — JARM/JA3S validated; JA4S (FoxIO; Suricata 8.0 / Zeek)
-   is the current standard and unmeasured. Byte-faithful replay likely passes;
-   confirm with FoxIO ja4 tooling or Suricata 8.0.
-4. **Cross-service credential leak** — plant the seeded creds in HTTP/maze/config
-   artifacts so the reuse loop actually closes (SMB side already accepts them).
+3. ✅ **JA4S validation (MEASURED 2026-06-18).** FoxIO `ja4.py` on JARM-captured
+   pcap (Kali→argus:443): TLS 1.2 static Schannel path → **`t1203h2_c030_*`**
+   (cipher c030 = ECDHE-RSA-AES256-GCM-SHA384); TLS 1.1 probe 6 →
+   **`t1103h1_c014_*`**. Suffix hash varies per probe (server-random rewrite —
+   live-server behavior). TLS 1.3 JARM probes hit Go `crypto/tls` path
+   (`t130200_1303_*`) — expected dual-path divergence. Reference Win11 pcap
+   TLS 1.3 Schannel: `t130200_1302_*`. Version+cipher components validated;
+   promote full hash to Knowledge entry.
+4. ✅ **Cross-service credential leak (CLOSED 2026-06-18).** `GET
+   /backup_credentials.txt` emits `{{leak:backup_svc}}` → `svc_backup:…`;
+   **live-validated:** `curl` leak → `nxc smb` auth OK on argus.
 5. **eBPF host-telemetry stealth** — BPF(SCHED_CLS) load is auditable; the
    Linux-host/Windows-fingerprint contradiction is the strongest detection
    surface. Possible mitigation: `prog_name` + process-ancestry spoofing (see
