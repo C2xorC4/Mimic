@@ -26,6 +26,7 @@ import (
 // Config holds honeypot server configuration.
 type Config struct {
 	Port         uint16      // default 445
+	NetBIOSPort  bool        // also listen on TCP 139 with NBSS session handshake
 	ComputerName string      // NTLM target name / NetBIOS computer name
 	DomainName   string      // NTLM domain / workgroup
 	Maze         MazeConfig  // zero value → defaultMazeConfig() applied
@@ -68,8 +69,8 @@ type Server struct {
 	vfs *VFS
 	log *logging.Logger
 
-	ln     net.Listener
-	ctx    context.Context
+	listeners []net.Listener
+	ctx       context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
@@ -145,27 +146,46 @@ func New(cfg Config) *Server {
 	return s
 }
 
-// Start begins listening on the configured port.
+// Start begins listening on the configured port(s).
 func (s *Server) Start() error {
-	addr := fmt.Sprintf(":%d", s.cfg.Port)
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		return fmt.Errorf("listening on %s: %w", addr, err)
+	type bindSpec struct {
+		port uint16
+		nbss bool
 	}
-	s.ln = ln
+	binds := []bindSpec{{port: s.cfg.Port, nbss: false}}
+	if s.cfg.NetBIOSPort {
+		binds = append(binds, bindSpec{port: 139, nbss: true})
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	s.ctx = ctx
 	s.cancel = cancel
 
-	s.wg.Add(1)
-	go s.serve()
+	var ports []uint16
+	for _, b := range binds {
+		addr := fmt.Sprintf(":%d", b.port)
+		ln, err := net.Listen("tcp", addr)
+		if err != nil {
+			for _, existing := range s.listeners {
+				existing.Close()
+			}
+			s.listeners = nil
+			cancel()
+			return fmt.Errorf("listening on %s: %w", addr, err)
+		}
+		s.listeners = append(s.listeners, ln)
+		ports = append(ports, b.port)
+
+		s.wg.Add(1)
+		go s.serveListener(ln, b.nbss)
+	}
 
 	if s.log != nil {
 		s.log.Info("Honeypot listening", map[string]interface{}{
-			"port":          s.cfg.Port,
+			"ports":         ports,
 			"computer_name": s.cfg.ComputerName,
 			"domain":        s.cfg.DomainName,
+			"netbios_port":  s.cfg.NetBIOSPort,
 		})
 	}
 	return nil
@@ -176,8 +196,8 @@ func (s *Server) Stop() {
 	if s.cancel != nil {
 		s.cancel()
 	}
-	if s.ln != nil {
-		s.ln.Close()
+	for _, ln := range s.listeners {
+		ln.Close()
 	}
 	s.wg.Wait()
 	if s.log != nil {
@@ -197,10 +217,10 @@ func (s *Server) GetStats() Stats {
 
 // --- internal ---
 
-func (s *Server) serve() {
+func (s *Server) serveListener(ln net.Listener, nbssRequired bool) {
 	defer s.wg.Done()
 	for {
-		conn, err := s.ln.Accept()
+		conn, err := ln.Accept()
 		if err != nil {
 			select {
 			case <-s.ctx.Done():
@@ -213,11 +233,11 @@ func (s *Server) serve() {
 			}
 		}
 		s.wg.Add(1)
-		go s.handleConn(conn)
+		go s.handleConn(conn, nbssRequired)
 	}
 }
 
-func (s *Server) handleConn(conn net.Conn) {
+func (s *Server) handleConn(conn net.Conn, nbssRequired bool) {
 	defer s.wg.Done()
 	defer conn.Close()
 
@@ -231,6 +251,17 @@ func (s *Server) handleConn(conn net.Conn) {
 	sess := newSession()
 	sess.remote = remoteAddr
 	s.emit(sess, events.Event{Type: events.Connection, Message: "SMB connection opened"})
+
+	if nbssRequired {
+		if err := negotiateNetBIOSSession(conn, s.cfg.ComputerName); err != nil {
+			if s.log != nil {
+				s.log.Debug("NBSS handshake failed", map[string]interface{}{
+					"addr": remoteAddr, "error": err.Error(),
+				})
+			}
+			return
+		}
+	}
 
 	for {
 		select {
@@ -905,7 +936,7 @@ func (s *Server) handleQueryDirectory(sess *Session, req smb2Header, body []byte
 	outputLen := binary.LittleEndian.Uint32(body[28:32])
 
 	h := sess.getHandle(volatileID)
-	if h == nil {
+	if h == nil || h.node == nil {
 		return buildPacket(req, StatusInvalidParam, sess.id, req.TreeID, buildErrorBody())
 	}
 	if !h.node.isDir() {

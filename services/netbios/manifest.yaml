@@ -1,16 +1,37 @@
-# NetBIOS Session Service Template
-# Generated from Windows 11 captures
-# Source OS: Windows 11
+# NetBIOS Session Service — TCP 139.
+# When smb_honeypot is enabled on a Server/DC edition profile it binds 139
+# directly with a positive session + full SMB bridge; this template is skipped.
+# For replay-only deployments (no honeypot), server editions answer 0x82;
+# workstation editions filter 139 entirely via os_edition gating in run.go.
 
 name: netbios
 port: 139
 protocol: tcp
 stateful: false
+description: "NetBIOS Session Service (NBSS)"
 
 probes:
-  # HTTP probe (nmap sends this to many ports)
-  # Pattern: GET / HTTP/1.0
-  # Windows responds with NetBIOS negative session response
+  # Session Request (0x81) → positive session on Server SKUs.
+  - name: session_request_positive
+    requires: { os_edition: server }
+    signature:
+      pattern: '\x81'
+      offset: 0
+      min_length: 4
+    response_file: responses/positive_session.bin
+    rewrite_rules: []
+
+  # Session Request on DC SKUs (same behaviour as server).
+  - name: session_request_positive_dc
+    requires: { os_edition: dc }
+    signature:
+      pattern: '\x81'
+      offset: 0
+      min_length: 4
+    response_file: responses/positive_session.bin
+    rewrite_rules: []
+
+  # HTTP probe (nmap sends this to many ports) → negative session.
   - name: http_probe
     signature:
       pattern: 'GET '
@@ -19,9 +40,7 @@ probes:
     response_file: responses/negative_session.bin
     rewrite_rules: []
 
-  # SMB1 Negotiate over port 139
-  # Pattern: 00 XX XX XX ff 53 4d 42 72 (NetBIOS + SMB1 magic)
-  # Windows responds with negative session (called name not present)
+  # SMB1 Negotiate without prior session → negative (wrong path for template-only).
   - name: smb1_over_netbios
     signature:
       pattern: '\x00...\xffSMBr'
@@ -30,18 +49,7 @@ probes:
     response_file: responses/negative_session.bin
     rewrite_rules: []
 
-  # NetBIOS Session Request (type 0x81)
-  # Pattern: 81 XX XX XX (session request header)
-  - name: session_request
-    signature:
-      pattern: '\x81'
-      offset: 0
-      min_length: 4
-    response_file: responses/negative_session.bin
-    rewrite_rules: []
-
-  # Catch-all for other probes
-  # Any data sent gets negative session response
+  # Catch-all → negative session.
   - name: catchall
     signature:
       pattern: ''

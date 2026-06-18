@@ -10,13 +10,10 @@
 
 ## Current Status (as of 2026-06-06; latest work 2026-06-18)
 
-> **2026-06-18 session:** working the "thin decoys → interactive services" queue in
-> user-set order 3,2,4,1. **DONE + live-validated:** (#3) **WinRM/5985** and (#2)
-> **MSRPC/135 ept_map** — see the OSE thin-decoys section. Added foundational
-> **`os_edition` primitive** (workstation/server/dc). **OUTSTANDING: (#4)
-> NetBIOS/139 positive-session + SMB-bridge, (#1) RDP/3389 X.224→TLS→CredSSP.**
-> Lab left warm: mimic RUNNING on argus, Kali client 9511 up (see Operational).
-> OSE fix bundle committed 2026-06-18.
+> **Thin-decoys queue (order 3,2,4,1):** (#3) WinRM, (#2) MSRPC ept_map, (#4)
+> NetBIOS/139 SMB bridge — **DONE**. **OUTSTANDING: (#1) RDP/3389 CredSSP.**
+> `os_edition` gates 135/139 on workstation vs server. Lab warm on argus; Kali 9511
+> up (Operational).
 
 - **nmap `-O` → exact Windows 10/11 DB match** (no `-p` needed). Full
   SEQ/OPS/WIN/ECN/T1–T7/U1/IE vector matches Windows 11 21H2. Detailed vectors
@@ -257,8 +254,9 @@ op), and much of the "cost" was a self-inflicted bug (TS incoherence, below).
     This is the config-derived switch that gates edition-dependent behaviour
     (135/139 open-vs-filtered, WinRM presence, SMB signing/computer-name defaults) so
     manifests can `requires: {os_edition: server}`. Unit-tested (types_test.go). The
-    17 name-only profiles work unchanged via name inference. **Still TODO: actually
-    wire 135/139 disposition + SMB defaults to read os_edition (server vs WORKSTATION).**
+    17 name-only profiles work unchanged via name inference. **Wired (2026-06-18):**
+    `EditionExposesPort` + `shouldStartService` gate msrpc/139; SMB honeypot binds 139
+    on server/dc only.
   - ✅ **WinRM/5985 — DONE + VALIDATED (argus + Kali, 2026-06-18).**
     `services/winrm/manifest.yaml` rewritten: a captured template existed (April, real
     Win11 HMDXIN) but had two tells — fixed both. (a) **POST /wsman → 401** Negotiate+
@@ -285,11 +283,13 @@ op), and much of the "cost" was a self-inflicted bug (TS incoherence, below).
     `netbios_name` — the documented coherence mitigation). Was "bind ok, no enum"; now
     full self-consistent endpoint map. RESIDUAL (deferred): dynamic ncacn_ip_tcp ports
     (49664+) advertised but not actually listening (mild tell).
-  - **TODO (staged — Kali client 9511 @ 10.0.254.70 provisioned + key-injected, sshd
-    UseDNS off; argus capture target redeployable via `lab.py deploy 9011 <vmid>`):**
-    - **NetBIOS/139:** positive session (0x82) + SMB bridge (currently negative-session
-      rejects all) — ideally have the SMB honeypot also listen on 139 w/ NBSS framing.
-      Edition-gate disposition via os_edition (server exposes; workstation filters).
+  - ✅ **NetBIOS/139 — DONE (2026-06-18).** `smb_honeypot` binds TCP 139 on Server/DC
+    editions (`Config.NetBIOSPort`): NBSS 0x81→0x82 handshake then full SMB2/3 state
+    machine (same as 445). `config.EditionExposesPort` gates 135/139/msrpc/netbios
+    template on workstation (filtered, like real Win11 client). Template `netbios`
+    skipped when honeypot owns 139. Files: `internal/honeypot/smb/nbss.go`,
+    `internal/config/edition_ports.go`, `cmd/mimic/run.go`.
+  - **TODO (staged — Kali client 9511 @ 10.0.254.70; argus capture via `lab.py`):**
     - **RDP/3389:** X.224 nego→TLS termination→CredSSP NTLM so it leaks Product_Version
       like real Win11 (Op-1). Needs a stateful RDP handler (not pure-TLS dual-path).
 - 📋 **Process self-ID:** `ss -tlnp` → `/usr/local/bin/mimic run`; one PID owns all

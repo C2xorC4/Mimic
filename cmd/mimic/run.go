@@ -361,7 +361,23 @@ func runMimic(cmd *cobra.Command, args []string) error {
 			// Load and start services
 			var honeypotSMB *honeysmb.Server
 			var honeypotFTP *honeyftp.Server
+			smbHoneypotOn139 := false
+			if profile != nil {
+				for _, sn := range appCfg.Services {
+					if sn == "smb_honeypot" && config.EditionExposesPort(profile.ResolvedEdition(), 139) {
+						smbHoneypotOn139 = true
+						break
+					}
+				}
+			}
 			for _, svcName := range appCfg.Services {
+				if !shouldStartService(svcName, profile, smbHoneypotOn139) {
+					logging.Info("Skipping edition-gated service", map[string]interface{}{
+						"service": svcName,
+						"edition": editionLabel(profile),
+					})
+					continue
+				}
 				if svcName == "smb_honeypot" {
 					cfg := honeysmb.Config{
 						ComputerName: appCfg.ServiceOptions.NetBIOSName,
@@ -381,6 +397,7 @@ func runMimic(cmd *cobra.Command, args []string) error {
 						cfg.SigningRequired = profile.SMB.SigningRequired
 						cfg.OSName = profile.Name
 						cfg.OSVersion = profile.Version
+						cfg.NetBIOSPort = config.EditionExposesPort(profile.ResolvedEdition(), 139)
 					}
 					// Auth model: guest-enum knob (nil → default allow) + seeded fake creds.
 					cfg.AllowGuestEnum = appCfg.SMBHoneypot.AllowGuestEnum
@@ -591,6 +608,33 @@ func containsStr(ss []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// shouldStartService applies os_edition port persona rules. The SMB honeypot
+// subsumes the netbios template on 139 when it binds that port.
+func shouldStartService(name string, profile *config.OSProfile, smbHoneypotOn139 bool) bool {
+	if name == "netbios" && smbHoneypotOn139 {
+		return false
+	}
+	if profile == nil {
+		return true
+	}
+	ed := profile.ResolvedEdition()
+	switch name {
+	case "msrpc":
+		return config.EditionExposesPort(ed, 135)
+	case "netbios":
+		return config.EditionExposesPort(ed, 139)
+	default:
+		return true
+	}
+}
+
+func editionLabel(profile *config.OSProfile) string {
+	if profile == nil {
+		return ""
+	}
+	return profile.ResolvedEdition()
 }
 
 func logRunStats(mgr *services.Manager, serviceNames []string) {
