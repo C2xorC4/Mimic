@@ -410,6 +410,11 @@ func (s *Server) handleSMBv1Transaction(sess *Session, frame []byte, h smb1Heade
 		return buildSMB1Response(0x25, 0xC0000010, h.tid, h.uid, nil, nil)
 	}
 
+	// LANMAN RAP (nmap smb-mbenum): TRANSACT with setup count 0, pipe name in data.
+	if setupCount == 0 {
+		return s.handleSMBv1TransactionLANMAN(frame, params, h)
+	}
+
 	// Only handle TRANS_TRANSACT_NMPIPE (0x0026) — ignore others.
 	if setupCount < 2 {
 		return buildSMB1Response(0x25, 0xC0000002, h.tid, h.uid, nil, nil) // NOT_IMPLEMENTED
@@ -454,6 +459,32 @@ func (s *Server) handleSMBv1Transaction(sess *Session, frame []byte, h smb1Heade
 	copy(rData[1:], respData)
 
 	return buildSMB1Response(0x25, 0, h.tid, h.uid, rp, rData)
+}
+
+// handleSMBv1TransactionLANMAN handles COM_TRANSACTION requests to \PIPE\LANMAN
+// with no setup words (RAP API — used by nmap smb-mbenum).
+func (s *Server) handleSMBv1TransactionLANMAN(frame []byte, params []byte, h smb1Header) []byte {
+	dataCount := int(binary.LittleEndian.Uint16(params[22:24]))
+	dataOff := int(binary.LittleEndian.Uint16(params[24:26]))
+	start := 4 + dataOff
+	end := start + dataCount
+	if start >= len(frame) || start >= end {
+		return buildSMB1Response(0x25, 0xC0000010, h.tid, h.uid, nil, nil)
+	}
+	data := frame[start:end]
+
+	pipeName := extractSMB1ASCIIString(data)
+	if !isLANMANPipe(pipeName) {
+		return buildSMB1Response(0x25, 0xC0000034, h.tid, h.uid, nil, nil) // OBJECT_NAME_NOT_FOUND
+	}
+
+	rapReq := skipLANMANPipePrefix(data)
+	if len(rapReq) == 0 {
+		return buildSMB1Response(0x25, 0xC0000010, h.tid, h.uid, nil, nil)
+	}
+
+	rapOut := handleRAPRequest(rapReq)
+	return buildSMBv1TransactionLANMANResp(h.tid, h.uid, rapOut)
 }
 
 // handleSMBv1TreeDisconnect handles COM_TREE_DISCONNECT (0x71).

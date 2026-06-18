@@ -353,6 +353,35 @@ func lookupShareInfo(name string, shares []ShareInfo) ShareInfo {
 	return ShareInfo{Name: name, Type: ShareTypeDisk, Remark: ""}
 }
 
+// buildNetSessEnumResp returns an empty NetrNetSessEnum level-10 result.
+// nmap smb-enum-sessions calls opnum 0x0C anonymously on patched Windows hosts.
+func buildNetSessEnumResp(callID uint32, ctxID uint16) []byte {
+	return buildDCERPCResponse(callID, ctxID, encodeNetSessEnumLevel10Empty())
+}
+
+// encodeNetSessEnumLevel10Empty builds the NDR out-stub for NetrNetSessEnum with
+// no active sessions (level 10, empty conformant array).
+func encodeNetSessEnumLevel10Empty() []byte {
+	var b []byte
+	ref := uint32(0x00020000)
+	b = appendU32(b, 10)    // [in,out] level
+	b = appendU32(b, 10)    // union discriminant (NetSessCtr10)
+	b = appendU32(b, ref)   // ptr to NetSessCtr10
+	b = appendU32(b, 0)     // EntriesRead / count
+	b = appendU32(b, 0)     // null conformant array ptr
+	b = appendU32(b, 0)     // TotalEntries
+	b = appendU32(b, 0)     // ResumeHandle ptr (null)
+	b = appendU32(b, 0)     // ERROR_SUCCESS
+	return b
+}
+
+// buildNetPathCompareResp rejects the MS08-067 probe path with ERROR_INVALID_NAME
+// so nmap reports PATCHED/NOT_VULN instead of VULNERABLE/LIKELY_VULN.
+func buildNetPathCompareResp(callID uint32, ctxID uint16) []byte {
+	stub := appendU32(nil, werrInvalidName)
+	return buildDCERPCResponse(callID, ctxID, stub)
+}
+
 // --- NDR utility functions (used by pipe.go and srvsvc.go) ---
 
 func appendU16(b []byte, v uint16) []byte {

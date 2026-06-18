@@ -34,7 +34,12 @@ const (
 	opNetrShareEnumAlt  = uint16(7)
 	opNetrShareGetInfo  = uint16(16)
 	opNetrServerGetInfo = uint16(13)
+	opNetrNetSessEnum   = uint16(12) // 0x0C — nmap smb-enum-sessions
+	opNetrPathCompare   = uint16(32) // 0x20 — nmap smb-vuln-ms08-067
 )
+
+// werrInvalidName is Win32 ERROR_INVALID_NAME (123) — patched MS08-067 response.
+const werrInvalidName = uint32(123)
 
 // PipeState tracks the DCE/RPC state for a single named-pipe handle.
 type PipeState struct {
@@ -167,6 +172,10 @@ func (p *PipeState) handleRequest(data []byte, callID uint32, shares []ShareInfo
 		stub = appendU32(stub, 0) // discriminant
 		stub = appendU32(stub, 5) // ERROR_ACCESS_DENIED
 		return buildDCERPCResponse(callID, p.ctxID, stub)
+	case opNetrNetSessEnum:
+		return buildNetSessEnumResp(callID, p.ctxID)
+	case opNetrPathCompare:
+		return buildNetPathCompareResp(callID, p.ctxID)
 	default:
 		// Unknown opnum: return ERROR_INVALID_FUNCTION (1)
 		return buildDCERPCResponse(callID, p.ctxID, appendU32(nil, 1))
