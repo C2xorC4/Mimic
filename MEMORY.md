@@ -65,7 +65,7 @@
   `cmd/mimic/{stop.go,install.go,run.go,assets/*}`, `internal/ebpf/teardown.go`.
 - **Capture→template pipeline (Track 1, 2026-06-16, IN PROGRESS):** `mimic capture
   pcap <f> --server-ip <ip> --service <svc> --ports <p> --os <name>` -> manifest.yaml
-  + response .bin + rewrite rules. **FIX (`internal/capture/session.go`, UNCOMMITTED):**
+  + response .bin + rewrite rules. **FIX (`internal/capture/session.go`, committed `9ed9935`):**
   ExtractExchanges now dedups duplicate packets by PAYLOAD CONTENT per direction —
   pktmon records each packet N× (per NIC/WFP/Npcap/QoS component) which was
   concatenating probes/responses N× (inflating lengths so signatures never matched a
