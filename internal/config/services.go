@@ -173,6 +173,14 @@ func ShouldStartService(name string, profile *OSProfile, smbHoneypotOn139 bool) 
 		return EditionExposesPort(ed, 135)
 	case "netbios":
 		return EditionExposesPort(ed, 139)
+	case "smb_honeypot", "smb":
+		return EditionExposesPort(ed, 445)
+	case "wsd":
+		return EditionExposesPort(ed, 5357)
+	case "deliveryopt":
+		return EditionExposesPort(ed, 7680)
+	case "cdpsvc":
+		return EditionExposesPort(ed, 5040)
 	default:
 		return true
 	}

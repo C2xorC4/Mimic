@@ -56,13 +56,54 @@ func TestResolveRunServicesWorkstationGatesRPC(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, gated := range []string{"msrpc", "netbios"} {
+	for _, gated := range []string{"msrpc", "netbios", "smb_honeypot"} {
 		if contains(got, gated) {
 			t.Fatalf("workstation should gate %s, got %v", gated, got)
 		}
 	}
-	if !contains(got, "smb_honeypot") || !contains(got, "http") {
-		t.Fatalf("expected smb_honeypot and http, got %v", got)
+	if !contains(got, "http") {
+		t.Fatalf("expected http, got %v", got)
+	}
+}
+
+func TestDesktopPersonaPortGating(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"wsd", "deliveryopt", "cdpsvc", "http", "msrpc"} {
+		svcDir := filepath.Join(dir, name)
+		if err := os.MkdirAll(svcDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(svcDir, "manifest.yaml"), []byte("name: "+name+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Workstation: desktop ports exposed, server RPC gated out.
+	ws, err := ResolveRunServices([]string{"all"}, dir, &OSProfile{Family: "windows", Edition: "workstation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"wsd", "deliveryopt", "cdpsvc", "http"} {
+		if !contains(ws, want) {
+			t.Fatalf("workstation should expose %s, got %v", want, ws)
+		}
+	}
+	if contains(ws, "msrpc") {
+		t.Fatalf("workstation should gate msrpc, got %v", ws)
+	}
+
+	// Server: desktop ports gated out, RPC exposed.
+	srv, err := ResolveRunServices([]string{"all"}, dir, &OSProfile{Family: "windows", Edition: "server"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, gated := range []string{"wsd", "deliveryopt", "cdpsvc"} {
+		if contains(srv, gated) {
+			t.Fatalf("server should gate desktop port %s, got %v", gated, srv)
+		}
+	}
+	if !contains(srv, "msrpc") {
+		t.Fatalf("server should expose msrpc, got %v", srv)
 	}
 }
 

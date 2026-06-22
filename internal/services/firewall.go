@@ -78,6 +78,22 @@ func (f *FirewallManager) EnableDrop(openPorts, preservePorts []uint16) error {
 	return nil
 }
 
+// EnableICMPDrop silently drops inbound ICMP echo-requests so a workstation
+// persona matches a firewalled Windows client (Op-1 control: 100% ping loss).
+func (f *FirewallManager) EnableICMPDrop() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if err := nftEnsureTable(); err != nil {
+		return err
+	}
+	if err := nftAddRule("ip", "protocol", "icmp", "icmp", "type", "echo-request", "drop"); err != nil {
+		return fmt.Errorf("firewall icmp-drop: %w", err)
+	}
+	f.log.Info("ICMP echo-request drop active (workstation persona)", nil)
+	return nil
+}
+
 // Stop removes the firewall rules (via shared-table deletion).
 func (f *FirewallManager) Stop() {
 	f.mu.Lock()

@@ -1,6 +1,7 @@
 name: "Windows 11"
 description: "Windows 11 25H2 TCP/IP stack fingerprint"
 family: windows
+edition: workstation
 # 25H2 = build 26200. Single source of truth for OS identity across layers:
 # the stack block, SMB NTLM build, NativeOS, and RDP captures are all 25H2, so
 # the version must match (was 10.0.22000 / 21H2 — a cross-layer disagreement).

@@ -125,7 +125,8 @@ credential_leaks:
 
 # --- Stateful SMB honeypot -----------------------------------------------------
 smb_honeypot:
-  # Allow guest/null sessions to enumerate shares (default: true).
+  # Allow guest/null sessions to enumerate shares. Unset → true on server/dc,
+  # false on workstation profiles (hardened client persona). Override for labs.
   allow_guest_enum: true
 
   # Pool credential ids that authenticate against SMB. Empty => all pool creds.

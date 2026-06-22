@@ -1,0 +1,26 @@
+# Connected Devices Platform Service (CDPSvc) — TCP 5040.
+#
+# A Win10/11 client SKU opens 5040 (CDPSvc, the "nearby sharing"/projection
+# broker). The wire protocol is proprietary, binary, and undocumented: a real
+# CDPSvc accepts the TCP connection and speaks nothing in response to an
+# unrecognized probe, so nmap -sV reports it as an open port with no service
+# match. We replicate the *shape* — accept the connection (the port reads as
+# open) and stay silent — with no probes and an empty default_response.
+#
+# FIDELITY CAVEAT: this is modeled, not captured. Unlike 5357/7680 (HTTP.sys,
+# captured), CDPSvc's binary protocol has no reference bytes here, so a deep
+# analyst probing 5040 specifically could distinguish accept-and-close from a
+# real CDPSvc that holds/negotiates. Flagged for a capture pass against a live
+# Win11 client (proxmox 9011) to refine — see MEMORY.md.
+#
+# Desktop-persona port; edition-gated to workstation in ShouldStartService.
+
+name: cdpsvc
+port: 5040
+protocol: tcp
+stateful: false
+description: "Connected Devices Platform Service (CDPSvc)"
+
+# No probes and no default_response: accept the connection (port = open) and
+# return nothing, matching an opaque service that does not speak first.
+probes: []

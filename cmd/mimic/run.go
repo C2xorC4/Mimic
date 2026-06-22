@@ -276,19 +276,52 @@ func runMimic(cmd *cobra.Command, args []string) error {
 		probeMgr = nil
 	}
 
-	// Optional default-drop firewall (firewalled-Windows persona). Added AFTER the
-	// T2/T3 + closed-port rules so those terminal RST rules match first and the
-	// default-drop catches only the remaining (filtered) ports. Established
-	// connections are always accepted, so applying this never severs the live SSH
-	// session — but new logins need their port in firewall.preserve_ports.
-	switch strings.ToLower(appCfg.Firewall.ClosedPortBehavior) {
-	case "drop", "filtered":
+	// Closed-port disposition. Workstation editions DEFAULT to the firewalled-Windows
+	// persona (default-drop): unserved ports — including 135/139/445 — read as
+	// FILTERED, matching a real firewalled Win11 client (OSE-2026-001 Op-1 dropped
+	// ~all ports; closed-not-filtered on the server ports was the server-vs-client
+	// tell). The allow-list is DERIVED from the actually-served decoy ports so the
+	// client persona's open surface (3389/5040/5357/5985/7680, etc.) stays reachable.
+	// Operators opt out with closed_port_behavior: reset (keeps the nmap closed-port
+	// probe for higher -O confidence, at the cost of the persona). Other editions
+	// only drop when explicitly configured.
+	//
+	// Rules are added AFTER the T2/T3 + closed-port rules so those terminal RST rules
+	// match first and the default-drop catches only the remaining (filtered) ports.
+	// Established connections are always accepted, so applying this never severs the
+	// live SSH session — but new logins need their port in firewall.preserve_ports.
+	fwBehavior := strings.ToLower(appCfg.Firewall.ClosedPortBehavior)
+	isWorkstation := profile != nil && profile.ResolvedEdition() == "workstation"
+	autoDrop := isWorkstation && fwBehavior != "reset"
+	if fwBehavior == "drop" || fwBehavior == "filtered" || autoDrop {
+		openPorts := appCfg.Firewall.OpenPorts
+		if autoDrop {
+			// Derive the allow-list from the served decoy ports (+ any configured ones)
+			// so the workstation persona doesn't filter its own open ports.
+			openPorts = mergeUint16(openPorts, config.ServiceListenPorts(appCfg.Services, profile, appCfg.ServicesDir))
+		}
 		fwMgr = services.NewFirewallManager()
-		if err := fwMgr.EnableDrop(appCfg.Firewall.OpenPorts, appCfg.Firewall.PreservePorts); err != nil {
+		if err := fwMgr.EnableDrop(openPorts, appCfg.Firewall.PreservePorts); err != nil {
 			logging.Warn("Default-drop firewall unavailable — closed ports will RST (Linux default), a Windows-client persona tell", map[string]interface{}{
 				"error": err.Error(),
 			})
 			fwMgr = nil
+		} else if autoDrop {
+			logging.Info("Workstation persona: firewalled-client default-drop active (135/139/445 + unserved ports → filtered)", map[string]interface{}{
+				"open_ports":     openPorts,
+				"preserve_ports": appCfg.Firewall.PreservePorts,
+			})
+		}
+	}
+	// Workstation persona: drop inbound ping (Op-1 control filtered ICMP entirely).
+	if isWorkstation {
+		if fwMgr == nil {
+			fwMgr = services.NewFirewallManager()
+		}
+		if err := fwMgr.EnableICMPDrop(); err != nil {
+			logging.Warn("ICMP drop unavailable — host will answer ping unlike a firewalled Win11 client", map[string]interface{}{
+				"error": err.Error(),
+			})
 		}
 	}
 
@@ -403,19 +436,26 @@ func runMimic(cmd *cobra.Command, args []string) error {
 					}
 					// Drive SMB protocol behaviour from the OS profile (dialect,
 					// signing, OS strings). nil profile → honeypot defaults (modern Win).
-					// SMB1 is always enabled on the interactive honeypot so nmap scripts
-					// (smb-os-discovery, smb-enum-shares) can use the legacy path; the
-					// template replay service still honours profile smb1_enabled.
-					cfg.SMB1Enabled = true
+					// SMB1 follows the profile (false on Win10/11+); enable only on profiles
+					// that historically ran SMBv1 (Win7/8, older servers).
 					if profile != nil {
 						cfg.MaxDialect = honeysmb.DialectFromString(profile.SMB.Dialect)
 						cfg.SigningRequired = profile.SMB.SigningRequired
+						cfg.SMB1Enabled = profile.SMB.SMB1Enabled
 						cfg.OSName = profile.Name
 						cfg.OSVersion = profile.Version
 						cfg.NetBIOSPort = config.EditionExposesPort(profile.ResolvedEdition(), 139)
 					}
-					// Auth model: guest-enum knob (nil → default allow) + seeded fake creds.
-					cfg.AllowGuestEnum = appCfg.SMBHoneypot.AllowGuestEnum
+					// Auth model: workstation profiles default guest/null off (realistic
+					// hardened client); server/dc default on. Explicit config overrides.
+					allowGuest := true
+					if profile != nil && profile.ResolvedEdition() == "workstation" {
+						allowGuest = false
+					}
+					if appCfg.SMBHoneypot.AllowGuestEnum != nil {
+						allowGuest = *appCfg.SMBHoneypot.AllowGuestEnum
+					}
+					cfg.AllowGuestEnum = &allowGuest
 					// Legacy inline credentials.
 					for _, c := range appCfg.SMBHoneypot.Credentials {
 						cfg.Credentials = append(cfg.Credentials, honeysmb.Credential{
@@ -645,6 +685,33 @@ func validateLeaks(appCfg *config.AppConfig) {
 			logging.Warn("credential_leak via a service that is not enabled", map[string]interface{}{"cred": l.Cred, "via": l.Via})
 		}
 	}
+}
+
+// mergeUint16 returns the de-duplicated union of two uint16 slices (order: a then
+// new-from-b), dropping zeros. Used to fold the derived served-port set into any
+// operator-configured firewall.open_ports for the workstation default-drop persona.
+func mergeUint16(a, b []uint16) []uint16 {
+	seen := make(map[uint16]struct{}, len(a)+len(b))
+	var out []uint16
+	for _, p := range a {
+		if p == 0 {
+			continue
+		}
+		if _, ok := seen[p]; !ok {
+			seen[p] = struct{}{}
+			out = append(out, p)
+		}
+	}
+	for _, p := range b {
+		if p == 0 {
+			continue
+		}
+		if _, ok := seen[p]; !ok {
+			seen[p] = struct{}{}
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func containsStr(ss []string, s string) bool {

@@ -1,0 +1,32 @@
+# WSDAPI / Web Services on Devices — TCP 5357, plaintext HTTP over HTTP.sys.
+#
+# A Windows *client* SKU listens on 5357 (the Function Discovery / WSD host); a
+# Server SKU does not by default. Exposing this — together with FILTERING
+# 135/139/445 — is part of presenting a desktop persona instead of a server one
+# (OSE-2026-001 Op-1, a real Win11 client, showed 3389/5040/5357/5985/7680 with
+# 135/139/445 filtered; Mimic's old server-shaped open set was the tell).
+#
+# The listener is the kernel HTTP stack (HTTP.sys), so every response advertises
+# `Server: Microsoft-HTTPAPI/2.0` — what nmap -sV keys on ("Microsoft HTTPAPI
+# httpd 2.0"). A bare GET/probe to the WSD endpoint returns the canonical HTTP.sys
+# 404; the bytes are byte-identical to the captured WinRM 404 (same HTTP.sys).
+# Every response carries a live Date via the http_date rewrite (fixes the frozen
+# captured-Date tell).
+#
+# Edition-gated to workstation in ShouldStartService (a server doesn't run WSD).
+
+name: wsd
+port: 5357
+protocol: tcp
+stateful: false
+description: "Web Services on Devices (WSDAPI) — Microsoft-HTTPAPI/2.0"
+
+# Answer any unmatched probe with the HTTP.sys 404 rather than a silent FIN.
+default_response: responses/httpsys_404.bin
+
+probes:
+  # Any HTTP request / probe → HTTP.sys 404 Not Found with a live Date.
+  - name: wsd_any
+    signature: { offset: 0, min_length: 1 }
+    response_file: responses/httpsys_404.bin
+    rewrite_rules: [{ type: http_date }]

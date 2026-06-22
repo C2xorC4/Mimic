@@ -1,0 +1,24 @@
+# Delivery Optimization (DoSvc) — TCP 7680, plaintext HTTP over HTTP.sys.
+#
+# Win10/11 client SKUs open 7680 for peer-to-peer update content delivery; it is
+# HTTP.sys-hosted, so it answers HTTP probes with `Server: Microsoft-HTTPAPI/2.0`
+# (nmap -sV: "Microsoft HTTPAPI httpd 2.0"). A real DoSvc peer port returns the
+# canonical HTTP.sys 404 to an unrecognized request — byte-identical to the
+# captured WinRM/HTTP.sys 404. Live Date via the http_date rewrite.
+#
+# This is a desktop-persona port (see services/wsd/manifest.yaml). Edition-gated
+# to workstation in ShouldStartService.
+
+name: deliveryopt
+port: 7680
+protocol: tcp
+stateful: false
+description: "Windows Delivery Optimization (DoSvc) — Microsoft-HTTPAPI/2.0"
+
+default_response: responses/httpsys_404.bin
+
+probes:
+  - name: do_any
+    signature: { offset: 0, min_length: 1 }
+    response_file: responses/httpsys_404.bin
+    rewrite_rules: [{ type: http_date }]
