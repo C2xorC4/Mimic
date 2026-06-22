@@ -246,23 +246,34 @@ op), and much of the "cost" was a self-inflicted bug (TS incoherence, below).
     from manifest) + `mergeUint16`. Opt out with `closed_port_behavior: reset` (keeps
     nmap closed-port probe for higher -O confidence). Established-accept + `preserve_ports`
     keep SSH alive — **preserve_ports MUST list the SSH port** under this mode.
-  - **Exposure — desktop-persona ports** (`EditionExposesPort` extended: 5040/5357/7680
-    = workstation-only, mirror of 135/139/445 = server/dc-only). New templates
-    `services/{wsd,deliveryopt,cdpsvc}`: wsd/5357 + deliveryopt/7680 = HTTP.sys 404
+  - **Exposure — desktop-persona ports** (`EditionExposesPort` extended: 5357/7680
+    = workstation-only, mirror of 135/139/445 = server/dc-only). Templates
+    `services/{wsd,deliveryopt}`: wsd/5357 + deliveryopt/7680 = HTTP.sys 404
     (`Server: Microsoft-HTTPAPI/2.0`, byte-identical to the captured WinRM 404, live
-    `http_date`); cdpsvc/5040 = opaque accept (no probes). `ShouldStartService` gates
-    all three to workstation. 5985/WinRM left ungated (real Op-1 client had it).
-  - **Live proof (ss-book nmap → argus Win11/workstation, services rdp+winrm+wsd+
-    deliveryopt+cdpsvc):** 135/139/445 → **filtered** (no-response, not RST); 3389/5040/
-    5357/5985/7680 → **open**; 2222 (SSH) preserved; TTL 128. `-sV`: 5357/5985/7680 →
-    "Microsoft HTTPAPI httpd 2.0"; 5040 → tcpwrapped (real CDPSvc also tcpwraps `-sV` —
-    plausibly faithful). rdp-ntlm-info still returns Product_Version 10.0.26200 (no
-    regression). Files: `internal/config/{edition_ports.go,services.go}` (+tests),
-    `cmd/mimic/run.go`, `services/{wsd,deliveryopt,cdpsvc}/`.
-  - **CAVEAT / capture-pending:** cdpsvc/5040 is modeled, not captured (opaque binary
-    protocol). tcpwrapped is plausibly faithful but should be confirmed against a real
-    Win11 client capture (proxmox 9011) — the user's "add port captures where missing"
-    directive. wsd/7680 HTTP.sys bytes are high-confidence (reuse real WinRM capture).
+    `http_date`). `ShouldStartService` gates both to workstation. 5985/WinRM left
+    ungated (real Op-1 client had it).
+  - **Live proof (ss-book nmap → argus Win11/workstation):** 135/139/445 → **filtered**
+    (no-response, not RST); 3389/5357/5985/7680 → **open**; 2222 (SSH) preserved; TTL 128.
+    `-sV`: 5357/5985/7680 → "Microsoft HTTPAPI httpd 2.0". rdp-ntlm-info still returns
+    Product_Version 10.0.26200 (no regression).
+- ✅ **cdpsvc/5040 REMOVED after capture-validation (Item 1, 2026-06-22).** Two `capture.ps1`
+  runs against a fresh Win11 23H2 clone (9011, fw off) confirmed **5040 is CLOSED/RST — CDPSvc
+  does NOT listen by default** (Op-1's box was an outlier). The full default-listening set was
+  135/139/445/3389/5357/5985/7680 OPEN, 5040 the *only* closed port. So opening 5040 (→
+  tcpwrapped) was LESS faithful than leaving it filtered. Removed the `cdpsvc` template +
+  5040 from `EditionExposesPort`/`ShouldStartService`; 5040 now falls under workstation
+  default-drop → **filtered** (matches a firewalled client w/o CDPSvc). Validated: ss-book
+  nmap shows 5040 filtered, desktop ports still open, `-O` still Win10/11 (98%). Reference
+  pcaps in `captures/proxmox/win11/` (gitignored) — incl. `deskports_*` (real 5357/5985/7680
+  bytes for future fidelity checks).
+- ✅ **Firewall loopback-exemption bug FIXED (Item 1 regression gate, 2026-06-22).** The
+  workstation default-drop (`internal/services/firewall.go` `EnableDrop`) dropped ALL non-
+  allowlisted inbound TCP **including loopback** — surfaced by `go test ./...` on argus
+  (rdp `TestCredSSPNTLMChallengeIntegration` dial to 127.0.0.1 *timed out* while the persona
+  firewall was active). A real Windows firewall never blocks 127.0.0.1, and as-is mimic would
+  break the host's own local services. Added `iifname "lo" accept` after established-accept.
+  Validated: cache-bypassed rdp test passes with the firewall active; doesn't weaken the
+  external persona (a remote scanner can't reach lo).
   - **argus state note:** argus mimic is NOW running the **workstation test config**
     `/tmp/mimic_ws.yaml` (Win11), NOT the prior Server 2022 `/tmp/mimic_all.yaml`.
     Restart with the all-services Server config to restore the earlier state.

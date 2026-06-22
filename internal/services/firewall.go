@@ -54,6 +54,14 @@ func (f *FirewallManager) EnableDrop(openPorts, preservePorts []uint16) error {
 		return fmt.Errorf("firewall established-accept: %w", err)
 	}
 
+	// 1b. Always accept loopback. A real Windows firewall never blocks 127.0.0.1,
+	// and dropping it would break the host's own local services (and any process
+	// dialing a local port) — the default-drop is for the EXTERNAL persona only,
+	// which a loopback exemption does not weaken (a remote scanner can't reach lo).
+	if err := nftAddRule("iifname", "lo", "accept"); err != nil {
+		return fmt.Errorf("firewall loopback-accept: %w", err)
+	}
+
 	// 2. Accept the allow-listed + preserved TCP ports.
 	allow := mergePorts(openPorts, preservePorts)
 	if len(allow) > 0 {
