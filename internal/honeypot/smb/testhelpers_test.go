@@ -41,10 +41,20 @@ func testPipeContext() PipeContext {
 	return PipeContext{
 		Shares: defaultShares(),
 		Env: PipeRPCEnv{
-			ComputerName: cfg.ComputerName,
-			DomainName:   cfg.DomainName,
+			ComputerName:  cfg.ComputerName,
+			DomainName:    cfg.DomainName,
+			Users:         baitUsers([]Credential{{Username: "svc_backup"}}),
+			Authenticated: true,
 		},
 	}
+}
+
+// testPipeContextAnon is testPipeContext with an unauthenticated (guest/null)
+// session — SAMR user enumeration must deny it.
+func testPipeContextAnon() PipeContext {
+	ctx := testPipeContext()
+	ctx.Env.Authenticated = false
+	return ctx
 }
 
 // doAuth performs NEGOTIATE → SESSION_SETUP×2 → TREE_CONNECT on conn,

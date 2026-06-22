@@ -83,12 +83,17 @@ type Server struct {
 	}
 }
 
-func (s *Server) pipeContext() PipeContext {
+// pipeContext builds the per-request input for named-pipe RPC. authenticated is
+// true when the SMB session bound with a real credential (not guest/null); it
+// gates SAMR user enumeration (anonymous SAM enum is denied on modern Windows).
+func (s *Server) pipeContext(authenticated bool) PipeContext {
 	return PipeContext{
 		Shares: s.cfg.Shares,
 		Env: PipeRPCEnv{
-			ComputerName: s.cfg.ComputerName,
-			DomainName:   s.cfg.DomainName,
+			ComputerName:  s.cfg.ComputerName,
+			DomainName:    s.cfg.DomainName,
+			Users:         baitUsers(s.cfg.Credentials),
+			Authenticated: authenticated,
 		},
 	}
 }
@@ -1241,7 +1246,7 @@ func (s *Server) handleWrite(sess *Session, req smb2Header, body []byte, frame [
 		start := int(4) + int(dataOff)
 		end := start + int(writeLen)
 		if end <= len(frame) {
-			h.pipe.Write(frame[start:end], s.pipeContext())
+			h.pipe.Write(frame[start:end], s.pipeContext(!sess.isGuest()))
 		}
 	}
 
@@ -1288,7 +1293,7 @@ func (s *Server) handleIOCtl(sess *Session, req smb2Header, body []byte, frame [
 		}
 	}
 
-	output := h.pipe.Transceive(input, s.pipeContext())
+	output := h.pipe.Transceive(input, s.pipeContext(!sess.isGuest()))
 
 	// IOCTL response: StructureSize=49, fixed body 48 bytes
 	// OutputOffset = 64 (SMB2 header) + 48 (fixed body) = 112

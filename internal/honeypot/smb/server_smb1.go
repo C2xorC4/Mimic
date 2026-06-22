@@ -329,7 +329,7 @@ func (s *Server) handleSMBv1WriteAndX(sess *Session, frame []byte, h smb1Header)
 		end = len(frame)
 	}
 	if start < len(frame) && start < end {
-		ps.Write(frame[start:end], s.pipeContext())
+		ps.Write(frame[start:end], s.pipeContext(!sess.isGuest()))
 	}
 
 	// Response: 6 words = 12 bytes
@@ -446,7 +446,7 @@ func (s *Server) handleSMBv1Transaction(sess *Session, frame []byte, h smb1Heade
 		pipeData = frame[start:end]
 	}
 
-	respData := ps.Transceive(pipeData, s.pipeContext())
+	respData := ps.Transceive(pipeData, s.pipeContext(!sess.isGuest()))
 
 	// Build TRANSACTION response.
 	// DataOffset = SMBv1 hdr(32) + WordCount(1) + params(20) + ByteCount(2) + pad(1) = 56

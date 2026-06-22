@@ -52,11 +52,61 @@ func TestPipeStateSamrConnectAndEnumerateDomains(t *testing.T) {
 	openResp := ps.Transceive(buildDCERPCRequest(5, samrOpOpenDomain, nil), ctx)
 	assertRPCSuccess(t, openResp)
 
+	// Authenticated session: EnumUsers returns the bait list (built-ins + svc_backup).
 	usersResp := ps.Transceive(buildDCERPCRequest(6, samrOpEnumerateUsersInDomain, nil), ctx)
 	assertRPCSuccess(t, usersResp)
 	usersStub := usersResp[24:]
-	if binary.LittleEndian.Uint32(usersStub[0:4]) != 0 {
-		t.Fatalf("EntriesRead = %d, want 0", binary.LittleEndian.Uint32(usersStub[0:4]))
+	// Layout: EnumerationContext[0:4], Buffer referent[4:8], EntriesRead[8:12].
+	if got := binary.LittleEndian.Uint32(usersStub[8:12]); got == 0 {
+		t.Fatalf("authenticated EnumUsers EntriesRead = 0, want >0 (bait users)")
+	}
+	if binary.LittleEndian.Uint32(usersStub[len(usersStub)-4:]) != 0 {
+		t.Fatalf("EnumUsers NTSTATUS = %x, want 0", binary.LittleEndian.Uint32(usersStub[len(usersStub)-4:]))
+	}
+	for _, want := range []string{"Administrator", "svc_backup"} {
+		if !bytes.Contains(usersStub, utf16LEBytes(want)) {
+			t.Fatalf("EnumUsers should list %q, got %x", want, usersStub)
+		}
+	}
+
+	// Per-user walk: OpenUser(RID=500) → QueryInformationUser2(level 21). The
+	// UserHandle echoes the RID at [4:8]; QueryInfoUser2 must return a parseable
+	// level-21 stub with that RID so samrdump prints the account.
+	openUserStub := make([]byte, 28) // DomainHandle(20)+DesiredAccess(4)+RID(4)
+	binary.LittleEndian.PutUint32(openUserStub[24:28], 500)
+	ouResp := ps.Transceive(buildDCERPCRequest(7, samrOpOpenUser, openUserStub), ctx)
+	assertRPCSuccess(t, ouResp)
+	handle := ouResp[24:]
+	if binary.LittleEndian.Uint32(handle[4:8]) != 500 {
+		t.Fatalf("OpenUser handle should echo RID 500, got %x", handle[:20])
+	}
+	// QueryInformationUser2 input: UserHandle(20) + InfoClass(2). Echo the handle.
+	qReq := append(append([]byte{}, handle[:20]...), 0x15, 0x00)
+	qResp := ps.Transceive(buildDCERPCRequest(8, samrOpQueryInformationUser2, qReq), ctx)
+	assertRPCSuccess(t, qResp)
+	qStub := qResp[24:]
+	if binary.LittleEndian.Uint32(qStub[len(qStub)-4:]) != 0 {
+		t.Fatalf("QueryInfoUser2 ErrorCode = %x, want 0", binary.LittleEndian.Uint32(qStub[len(qStub)-4:]))
+	}
+	if binary.LittleEndian.Uint32(qStub[samrUserIDOffset:samrUserIDOffset+4]) != 500 {
+		t.Fatalf("QueryInfoUser2 UserId not patched to 500")
+	}
+}
+
+// TestPipeStateSamrEnumUsersAnonDenied verifies that an unauthenticated
+// (guest/null) session is denied SAM user enumeration (RestrictAnonymousSAM),
+// matching a hardened modern Windows rather than leaking the user list.
+func TestPipeStateSamrEnumUsersAnonDenied(t *testing.T) {
+	ps := newPipeState("samr")
+	ps.bound = true
+	ps.ctxID = 0
+	anon := testPipeContextAnon()
+
+	resp := ps.Transceive(buildDCERPCRequest(2, samrOpEnumerateUsersInDomain, nil), anon)
+	assertRPCSuccess(t, resp)
+	stub := resp[24:]
+	if status := binary.LittleEndian.Uint32(stub[len(stub)-4:]); status != 0xC0000022 {
+		t.Fatalf("anon EnumUsers NTSTATUS = %#x, want STATUS_ACCESS_DENIED (0xC0000022)", status)
 	}
 }
 
