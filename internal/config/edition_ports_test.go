@@ -22,13 +22,15 @@ func TestEditionExposesPort(t *testing.T) {
 		{"dc", 139, true},
 		{"server", 445, true},
 		// Desktop-persona ports: workstation exposes, server/dc filter, non-Windows n/a.
-		{"workstation", 5040, true},
 		{"workstation", 5357, true},
 		{"workstation", 7680, true},
-		{"server", 5040, false},
 		{"server", 5357, false},
 		{"dc", 7680, false},
 		{"", 5357, true},
+		// 5040 (CDPSvc) is NOT a persona port (not a default Win11 listener) — it
+		// hits the generic default, exposed everywhere, never specially gated.
+		{"workstation", 5040, true},
+		{"server", 5040, true},
 		// WinRM (5985) is not edition-gated here — generic default applies.
 		{"workstation", 5985, true},
 		{"server", 5985, true},

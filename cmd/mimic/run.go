@@ -281,7 +281,7 @@ func runMimic(cmd *cobra.Command, args []string) error {
 	// FILTERED, matching a real firewalled Win11 client (OSE-2026-001 Op-1 dropped
 	// ~all ports; closed-not-filtered on the server ports was the server-vs-client
 	// tell). The allow-list is DERIVED from the actually-served decoy ports so the
-	// client persona's open surface (3389/5040/5357/5985/7680, etc.) stays reachable.
+	// client persona's open surface (3389/5357/5985/7680, etc.) stays reachable.
 	// Operators opt out with closed_port_behavior: reset (keeps the nmap closed-port
 	// probe for higher -O confidence, at the cost of the persona). Other editions
 	// only drop when explicitly configured.

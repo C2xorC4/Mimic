@@ -11,18 +11,24 @@ import (
 // EditionExposesPort reports whether a Windows edition should listen on a
 // well-known persona port. Two port classes distinguish a server from a
 // workstation (OSE-2026-001: Mimic's server-shaped open set 135/139/443/445/3389
-// was the tell vs. a real Win11 client's 3389/5040/5357/5985/7680 with
-// 135/139/445 FILTERED):
+// was the tell vs. a real Win11 client's open desktop ports with 135/139/445
+// FILTERED):
 //
 //   - 135/139/445 (RPC, NetBIOS, SMB): exposed by Server/DC; a firewalled
 //     workstation filters them.
-//   - 5040/5357/7680 (CDPSvc, WSDAPI, Delivery Optimization): client-SKU
-//     "desktop" ports a workstation exposes but a server does not.
+//   - 5357/7680 (WSDAPI, Delivery Optimization): client-SKU "desktop" ports a
+//     workstation exposes but a server does not. Both validated as genuine
+//     default Win11 listeners (2026-06-22 capture: HTTPAPI httpd 2.0 / DoSvc).
 //
 // 5985 (WinRM) is intentionally NOT gated here — a real Win11 client in
 // OSE-2026-001 had it on, so it answers faithfully whenever enabled (see
-// services/winrm/manifest.yaml). Non-Windows profiles (edition "") expose all
-// ports — the concept does not apply.
+// services/winrm/manifest.yaml).
+//
+// 5040 (CDPSvc) is deliberately NOT a persona port: a 2026-06-22 capture of a
+// fresh Win11 confirmed CDPSvc does NOT listen by default (5040 closed/RST),
+// and its binary protocol can't be modeled convincingly — so 5040 is left to
+// the workstation default-drop (→ filtered), matching a firewalled client where
+// CDPSvc is absent. Non-Windows profiles (edition "") expose all ports.
 func EditionExposesPort(edition string, port uint16) bool {
 	if edition == "" {
 		return true
@@ -30,7 +36,7 @@ func EditionExposesPort(edition string, port uint16) bool {
 	switch port {
 	case 135, 139, 445:
 		return edition == "server" || edition == "dc"
-	case 5040, 5357, 7680:
+	case 5357, 7680:
 		return edition == "workstation"
 	default:
 		return true

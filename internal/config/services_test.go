@@ -68,7 +68,7 @@ func TestResolveRunServicesWorkstationGatesRPC(t *testing.T) {
 
 func TestDesktopPersonaPortGating(t *testing.T) {
 	dir := t.TempDir()
-	for _, name := range []string{"wsd", "deliveryopt", "cdpsvc", "http", "msrpc"} {
+	for _, name := range []string{"wsd", "deliveryopt", "http", "msrpc"} {
 		svcDir := filepath.Join(dir, name)
 		if err := os.MkdirAll(svcDir, 0o755); err != nil {
 			t.Fatal(err)
@@ -83,7 +83,7 @@ func TestDesktopPersonaPortGating(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"wsd", "deliveryopt", "cdpsvc", "http"} {
+	for _, want := range []string{"wsd", "deliveryopt", "http"} {
 		if !contains(ws, want) {
 			t.Fatalf("workstation should expose %s, got %v", want, ws)
 		}
@@ -97,7 +97,7 @@ func TestDesktopPersonaPortGating(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, gated := range []string{"wsd", "deliveryopt", "cdpsvc"} {
+	for _, gated := range []string{"wsd", "deliveryopt"} {
 		if contains(srv, gated) {
 			t.Fatalf("server should gate desktop port %s, got %v", gated, srv)
 		}
