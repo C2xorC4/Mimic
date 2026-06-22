@@ -235,9 +235,37 @@ op), and much of the "cost" was a self-inflicted bug (TS incoherence, below).
   **3.1.1** session (dialect 0x0311), enumerates the full C$ tree, AND downloads a
   332-byte bait file (passwords.txt) — the exact Op-5 failure, now working. AES-CMAC
   also RFC-4493-vector-validated (signing_test.go).
-- 📋 **Port persona wrong for edition:** Mimic "Win11" exposed 135/139/443/445/3389;
-  real Win11 client (Op-1) exposed 3389/5040/5357/5985/7680 with 135/139/445
-  FILTERED (overlap = only 3389). Decoy set reads as server, not DESKTOP client.
+- ✅ **Port persona wrong for edition — DONE + VALIDATED (argus + ss-book nmap, 2026-06-22).**
+  Was: Mimic "Win11" exposed 135/139/443/445/3389 (server-shaped); real Win11 client
+  (Op-1) exposed 3389/5040/5357/5985/7680 with 135/139/445 FILTERED. Two-part fix:
+  - **Disposition — auto firewalled-client drop for workstation editions** (`run.go`):
+    a workstation profile now DEFAULTS to default-drop (unserved ports incl. 135/139/445
+    → **filtered**, matching a real firewalled client; closed-not-filtered on the server
+    ports was the tell). Allow-list **derived from actually-served ports** via
+    `config.ServiceListenPorts` (honeypot ports known statically, template ports read
+    from manifest) + `mergeUint16`. Opt out with `closed_port_behavior: reset` (keeps
+    nmap closed-port probe for higher -O confidence). Established-accept + `preserve_ports`
+    keep SSH alive — **preserve_ports MUST list the SSH port** under this mode.
+  - **Exposure — desktop-persona ports** (`EditionExposesPort` extended: 5040/5357/7680
+    = workstation-only, mirror of 135/139/445 = server/dc-only). New templates
+    `services/{wsd,deliveryopt,cdpsvc}`: wsd/5357 + deliveryopt/7680 = HTTP.sys 404
+    (`Server: Microsoft-HTTPAPI/2.0`, byte-identical to the captured WinRM 404, live
+    `http_date`); cdpsvc/5040 = opaque accept (no probes). `ShouldStartService` gates
+    all three to workstation. 5985/WinRM left ungated (real Op-1 client had it).
+  - **Live proof (ss-book nmap → argus Win11/workstation, services rdp+winrm+wsd+
+    deliveryopt+cdpsvc):** 135/139/445 → **filtered** (no-response, not RST); 3389/5040/
+    5357/5985/7680 → **open**; 2222 (SSH) preserved; TTL 128. `-sV`: 5357/5985/7680 →
+    "Microsoft HTTPAPI httpd 2.0"; 5040 → tcpwrapped (real CDPSvc also tcpwraps `-sV` —
+    plausibly faithful). rdp-ntlm-info still returns Product_Version 10.0.26200 (no
+    regression). Files: `internal/config/{edition_ports.go,services.go}` (+tests),
+    `cmd/mimic/run.go`, `services/{wsd,deliveryopt,cdpsvc}/`.
+  - **CAVEAT / capture-pending:** cdpsvc/5040 is modeled, not captured (opaque binary
+    protocol). tcpwrapped is plausibly faithful but should be confirmed against a real
+    Win11 client capture (proxmox 9011) — the user's "add port captures where missing"
+    directive. wsd/7680 HTTP.sys bytes are high-confidence (reuse real WinRM capture).
+  - **argus state note:** argus mimic is NOW running the **workstation test config**
+    `/tmp/mimic_ws.yaml` (Win11), NOT the prior Server 2022 `/tmp/mimic_all.yaml`.
+    Restart with the all-services Server config to restore the earlier state.
 - ✅ **Thin decoys → interactive services (COMPLETE, 2026-06-18).** Root cause:
   `listener.go` did `return` (silent FIN) on any probe-miss, and TLS services only
   static-replayed JARM probes — so real clients "ACK the ClientHello, get nothing."
@@ -386,6 +414,27 @@ pipeline inverted) after Linux benchmarks pass.
    smb2-security-mode, smb2-capabilities, smb2-time, smb-protocols, smb-security-mode,
    smb-mbenum, smb-enum-sessions (empty), smb-vuln-ms08-067 (PATCHED). Commits:
    `5b276a5`, `562421e`, `76ab37e`.
+   - ✅ **SAMR + LSARPC named-pipe RPC (WRAPPED + VALIDATED 2026-06-22, impacket
+     v0.11.0 → argus 127.0.0.1:445).** New `\samr` + `\lsarpc` pipe handlers
+     (`internal/honeypot/smb/{samr.go,lsarpc.go,ndr_rpc.go,rpcenv.go}`, dispatched in
+     `pipe.go`) with hand-rolled NDR. SAMR: Connect/2/4/5, **LookupDomain (opnum 5)**,
+     EnumDomains, OpenDomain, EnumUsers, Close. LSARPC: OpenPolicy/2, QueryInfoPolicy
+     (Primary/Account/DNS domain), Close. Domain SID is the shared standalone-
+     workstation machine SID — self-consistent across SAMR & LSA. **Live gap found +
+     fixed:** the user-enum chain broke because `SamrLookupDomainInSamServer` (opnum 5)
+     returned STATUS_NOT_SUPPORTED → impacket `Error unpacking 'DomainId | PRPC_SID'`
+     (a broken-server tell); added opnum-5 SID reply. **Validated:** `impacket-samrdump`
+     (authenticated svc_backup AND `-no-pass` null session) now completes the full
+     Connect→EnumDomains→LookupDomain→OpenDomain→EnumUsers chain with ZERO unpack
+     errors → domain `DESKTOP-G6JUGNO`, "No entries received" (realistic hardened-box
+     anon-enum-restricted result, no tell). Unit tests assert NDR layout incl. opnum 5
+     (`samr_lsarpc_test.go`). **DEFERRED (larger, not blocking):** (a) bait-user
+     population in EnumUsers (currently 0 — would feed the cred-leak loop but is a
+     deception-feature expansion); (b) `SamrQueryInformationDomain` (opnum 8) for nmap
+     smb-enum-domains password-policy fields (union encoding — implement against a real
+     nmap client, not blind); (c) LSA `LsarLookupSids/Names` for impacket-lookupsid
+     SID↔name translation. nmap smb-enum-domains/users script validation pending a
+     working client (Kali 9511 was down 2026-06-22; Win nmap blocked by OpenSSL-legacy).
 6. ⏸️ **eBPF / host-telemetry stealth (DEPRIORITIZED 2026-06-18):** post-shell
    Linux-host tells (`ss`, BPF audit) out of OSE scope unless a concrete need emerges.
    Network-layer OSE remains the priority.
@@ -405,11 +454,13 @@ pipeline inverted) after Linux benchmarks pass.
   1.25.6 at `/usr/local/go/bin`, repo at `~/mimic/`.
 - Boot persistence: `/etc/modules-load.d/mimic.conf` loads `nft_reject` +
   `nft_reject_inet`.
-- **As of 2026-06-18: mimic RUNNING** on argus from `/tmp/mimic_all.yaml` (profile
-  Server 2022; `--services all`; netbios_name `DESKTOP-G6JUGNO`; dynamic RPC 8 ports;
-  log → `/tmp/mimic.log`). Deploy: `git archive` → `tar xzf` → `make build` →
-  `sudo pkill -x mimic` → restart. **Verify:** `grep opNetrPathCompare pipe.go` and
-  `grep Dynamic /tmp/mimic.log` after every deploy.
+- **As of 2026-06-22: mimic RUNNING** on argus from `/tmp/mimic_ws.yaml` (profile
+  **Windows 11 / workstation**; services rdp+winrm+wsd+deliveryopt+cdpsvc; netbios_name
+  `DESKTOP-G6JUGNO`; firewalled-client default-drop, preserve_ports 2222; log →
+  `/tmp/mimic_ws.log`) — switched from the prior Server 2022 `/tmp/mimic_all.yaml` for
+  the port-persona validation. Restore Server 2022 by restarting with `/tmp/mimic_all.yaml`.
+  Deploy: `tar xzf` → `make build` → `sudo pkill -x mimic` → restart. **Verify:**
+  `grep opNetrPathCompare pipe.go` and `grep -iE "persona|Dynamic" /tmp/mimic*.log`.
 
 ### Kali attack client (for stateful-protocol validation — #4/#1)
 - **VM 9511 `kali-mimic-client` @ 10.0.254.70** (proxmox node nexus, linked clone of
