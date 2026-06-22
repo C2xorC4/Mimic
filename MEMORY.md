@@ -484,6 +484,21 @@ pipeline inverted) after Linux benchmarks pass.
      fragments (PFC_FIRST/LAST flags) and dispatches the concatenated stub — a general
      robustness fix for any large RPC request. Files: `internal/honeypot/smb/{lsarpc.go,
      ndr_rpc.go,pipe.go,samr_lsarpc_test.go}`. **SAMR/LSA enumeration queue (Items 2–4) COMPLETE.**
+   - ✅ **`mimic verify` cross-layer coherence oracle (Item 5, DONE + VALIDATED 2026-06-22).**
+     New `cmd/mimic/verify.go` + `internal/verify/` — the codified OSE-2026-001 threat model
+     (a skilled operator caught the deception pre-shell by cross-correlating layers). Probes
+     a live instance and FLAGS self-contradiction, exit non-zero for CI. Checks: (1) profile
+     self-consistency — declared version vs declared stack era (Win11 build ≥22000 ⇒
+     window 65535 + TS-on; the documented "21H2 vs 25H2" tell, caught at the source, no
+     probe); (2) TLS cert CN == computer name (live crypto/tls; the static Schannel JARM
+     path reports NOTE = accepted dual-path divergence, not a tell); (3) HTTP.sys banner
+     (Microsoft-HTTPAPI/2.0) on winrm/wsd. **Validated on argus:** coherent Win11 instance →
+     all OK ("COHERENT"); a config with the wrong netbios_name → TLS TELL + exit 1. Unit
+     tests cover the profile/version/header logic. **Prober structure is extensible** — the
+     next probers (live SMB-NTLM build via the lenient NTLMSSP scan, RDP Product_Version,
+     nmap -O stack) drop in as `Result`-returning funcs; SMB/RDP build-coherence is already
+     construction-guaranteed (derived from profile.Version) + unit-tested, so deferring the
+     live re-check is low-risk. Files: `cmd/mimic/verify.go`, `internal/verify/{verify.go,verify_test.go}`.
 6. ⏸️ **eBPF / host-telemetry stealth (DEPRIORITIZED 2026-06-18):** post-shell
    Linux-host tells (`ss`, BPF audit) out of OSE scope unless a concrete need emerges.
    Network-layer OSE remains the priority.
