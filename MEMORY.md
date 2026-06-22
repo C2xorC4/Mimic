@@ -499,6 +499,17 @@ pipeline inverted) after Linux benchmarks pass.
      nmap -O stack) drop in as `Result`-returning funcs; SMB/RDP build-coherence is already
      construction-guaranteed (derived from profile.Version) + unit-tested, so deferring the
      live re-check is low-risk. Files: `cmd/mimic/verify.go`, `internal/verify/{verify.go,verify_test.go}`.
+   - ✅ **Cross-profile coverage matrix (Item 6, VALIDATED 2026-06-22, argus + ss-book).**
+     All 6 Windows profiles deployed with `--services all` and audited; **every one COHERENT
+     (`mimic verify`) with correct edition gating:**
+     | Profile | verify | Listening (TCP) |
+     |---|---|---|
+     | Windows 10 / 11 (workstation) | COHERENT | 443,3389,**5357,5985,7680** — 135/139/445 FILTERED, 5040 absent |
+     | Server 2016/2019/2022/2025 | COHERENT | **135,139,445**,443,3389,5985 — desktop 5357/7680 gated off |
+     Live spot-checks (ss-book nmap): **Win11** `-O`→Win10/11 (98%), rdp-ntlm-info
+     Product_Version **10.0.26200**; **Server 2025** `-O`→"Windows 10|11", Product_Version
+     **10.0.26100** — per-profile build propagation correct. **Near-term queue (Items 1–6)
+     COMPLETE.** No new code (validation only); coverage table recorded here.
 6. ⏸️ **eBPF / host-telemetry stealth (DEPRIORITIZED 2026-06-18):** post-shell
    Linux-host tells (`ss`, BPF audit) out of OSE scope unless a concrete need emerges.
    Network-layer OSE remains the priority.
