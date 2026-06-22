@@ -466,8 +466,24 @@ pipeline inverted) after Linux benchmarks pass.
      (MinLen=7/Props=1, Threshold=10, Modified OK); unit test asserts NTSTATUS+scalars;
      go test ./... green; nmap -O still Windows. Files: `internal/honeypot/smb/{samr.go,
      samr_lsarpc_test.go}`.
-   - **DEFERRED (Item 4, queued):** LSA `LsarLookupSids/Names` for impacket-lookupsid SID↔name.
-     Tip: generate union/struct stubs via impacket getData() (as Items 2–3 did) to nail NDR.
+   - ✅ **LSA LsarLookupSids + QueryInformationPolicy2 (Item 4, DONE + VALIDATED 2026-06-22,
+     impacket-lookupsid → argus).** lookupsid's flow now fully works: `LsarOpenPolicy2` →
+     `LsarQueryInformationPolicy2` (opnum 46, reuses the opnum-7 policy encoder for the
+     account-domain SID) → `LsarLookupSids` (opnum 15) RID-cycling. `parseLookupSidRIDs`
+     scans the request for our domain-SID prefix + RID; `encodeLsarLookupSids` builds the
+     ReferencedDomains + TranslatedNames arrays dynamically (SidTypeUser+name+DomainIndex 0
+     for bait RIDs, SidTypeUnknown otherwise; NTSTATUS SUCCESS/SOME_NOT_MAPPED/NONE_MAPPED).
+     **Validated:** lookupsid resolves 500 Administrator / 501 Guest / 503 DefaultAccount /
+     504 WDAGUtilityAccount / **1000 svc_backup** at correct RIDs (consistent with SAMR).
+     **Two real bugs found + fixed via the live oracle:** (1) `parsePolicyInformationClass`
+     required a 4-byte class but the real client sends a 2-byte enum (was returning 0 →
+     NOT_SUPPORTED; opnum-7 was unit-test-only so latent) — now reads the USHORT at [20:22];
+     (2) **DCE/RPC request reassembly** (`pipe.go`) — a large request (lookupsid's ~18KB
+     LookupSids) fragments into max-xmit-frag PDUs, and the handler processed only the LAST
+     fragment → mis-aligned reply (names at wrong RIDs). Now buffers stub bytes across
+     fragments (PFC_FIRST/LAST flags) and dispatches the concatenated stub — a general
+     robustness fix for any large RPC request. Files: `internal/honeypot/smb/{lsarpc.go,
+     ndr_rpc.go,pipe.go,samr_lsarpc_test.go}`. **SAMR/LSA enumeration queue (Items 2–4) COMPLETE.**
 6. ⏸️ **eBPF / host-telemetry stealth (DEPRIORITIZED 2026-06-18):** post-shell
    Linux-host tells (`ss`, BPF audit) out of OSE scope unless a concrete need emerges.
    Network-layer OSE remains the priority.

@@ -176,6 +176,44 @@ func TestPipeStateLsarpcPolicyQuery(t *testing.T) {
 	}
 }
 
+func TestLsarLookupSids(t *testing.T) {
+	env := testPipeContext().Env // Users = built-ins + svc_backup (RID 1000)
+
+	// Parser: two user SIDs (RID 500 = Administrator, RID 9999 = unmapped).
+	var stub []byte
+	stub = append(stub, userSIDPrefix()...)
+	stub = append(stub, 0xf4, 0x01, 0, 0) // RID 500
+	stub = append(stub, userSIDPrefix()...)
+	stub = append(stub, 0x0f, 0x27, 0, 0) // RID 9999
+	rids := parseLookupSidRIDs(stub)
+	if len(rids) != 2 || rids[0] != 500 || rids[1] != 9999 {
+		t.Fatalf("parseLookupSidRIDs = %v, want [500 9999]", rids)
+	}
+
+	// Encoder: 1 mapped (Administrator) + 1 unmapped → SOME_NOT_MAPPED, MappedCount 1.
+	b := encodeLsarLookupSids(rids, env)
+	if binary.LittleEndian.Uint32(b[len(b)-4:]) != 0x00000107 {
+		t.Fatalf("status = %#x, want STATUS_SOME_NOT_MAPPED", binary.LittleEndian.Uint32(b[len(b)-4:]))
+	}
+	if binary.LittleEndian.Uint32(b[len(b)-8:len(b)-4]) != 1 {
+		t.Fatalf("MappedCount = %d, want 1", binary.LittleEndian.Uint32(b[len(b)-8:len(b)-4]))
+	}
+	if !bytes.Contains(b, utf16LEBytes("Administrator")) {
+		t.Fatal("response should contain mapped name Administrator")
+	}
+	if !bytes.Contains(b, utf16LEBytes(env.ComputerName)) {
+		t.Fatalf("response should contain referenced domain %q", env.ComputerName)
+	}
+
+	// All-mapped → SUCCESS; none-mapped → NONE_MAPPED.
+	if s := encodeLsarLookupSids([]uint32{500, 1000}, env); binary.LittleEndian.Uint32(s[len(s)-4:]) != 0 {
+		t.Fatalf("all-mapped status = %#x, want SUCCESS", binary.LittleEndian.Uint32(s[len(s)-4:]))
+	}
+	if s := encodeLsarLookupSids([]uint32{9998, 9999}, env); binary.LittleEndian.Uint32(s[len(s)-4:]) != 0xC0000073 {
+		t.Fatalf("none-mapped status = %#x, want NONE_MAPPED", binary.LittleEndian.Uint32(s[len(s)-4:]))
+	}
+}
+
 func assertRPCSuccess(t *testing.T, resp []byte) {
 	t.Helper()
 	if len(resp) < 28 {

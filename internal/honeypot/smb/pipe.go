@@ -43,11 +43,19 @@ const werrInvalidName = uint32(123)
 
 // PipeState tracks the DCE/RPC state for a single named-pipe handle.
 type PipeState struct {
-	name    string // canonical pipe name, e.g. "srvsvc"
-	bound   bool
-	ctxID   uint16
-	pending []byte // response queued for next SMB2_READ
+	name     string // canonical pipe name, e.g. "srvsvc"
+	bound    bool
+	ctxID    uint16
+	pending  []byte // response queued for next SMB2_READ
+	reasmHdr []byte // first fragment's 24-byte header of an in-progress request
+	reasm    []byte // accumulated stub bytes of a fragmented request (FIRST seen, LAST pending)
 }
+
+// DCE/RPC PFC (fragment) flags in the PDU header at byte offset 3.
+const (
+	pfcFirstFrag = 0x01
+	pfcLastFrag  = 0x02
+)
 
 func newPipeState(name string) *PipeState {
 	return &PipeState{name: name}
@@ -65,8 +73,33 @@ func (p *PipeState) Write(data []byte, ctx PipeContext) {
 	case dcerpcBind:
 		p.pending = p.buildBindAck(data, callID)
 	case dcerpcRequest:
-		if p.bound {
+		if !p.bound {
+			return
+		}
+		flags := data[3]
+		// Fast path: a single, complete request PDU (FIRST+LAST, no reassembly active).
+		if flags&pfcFirstFrag != 0 && flags&pfcLastFrag != 0 && p.reasm == nil {
 			p.pending = p.handleRequest(data, callID, ctx)
+			return
+		}
+		// Fragmented request: buffer stub bytes (data[24:]) until PFC_LAST_FRAG. A large
+		// request (e.g. lookupsid's RID-cycling LookupSids, ~18KB) is split into
+		// max-xmit-frag-sized PDUs; processing only one fragment mis-aligns the reply.
+		if len(data) < 24 {
+			return
+		}
+		if flags&pfcFirstFrag != 0 {
+			p.reasmHdr = append([]byte(nil), data[:24]...) // keep first frag's opnum/header
+			p.reasm = append([]byte(nil), data[24:]...)
+		} else if p.reasm != nil {
+			p.reasm = append(p.reasm, data[24:]...)
+		}
+		if flags&pfcLastFrag != 0 && p.reasm != nil {
+			full := append(append([]byte(nil), p.reasmHdr...), p.reasm...)
+			p.pending = p.handleRequest(full, callID, ctx)
+			p.reasm, p.reasmHdr = nil, nil
+		} else {
+			p.pending = nil // no reply until the final fragment arrives
 		}
 	}
 }
