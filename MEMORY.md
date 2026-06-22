@@ -457,9 +457,17 @@ pipeline inverted) after Linux benchmarks pass.
      zero unpack errors; null session ACCESS_DENIED; `go test ./...` green; nmap -O still
      Windows. Files: `internal/honeypot/smb/{samr.go,rpcenv.go,server.go,server_smb1.go,
      samr_lsarpc_test.go,testhelpers_test.go}`.
-   - **DEFERRED (Items 3–4, queued):** (b) `SamrQueryInformationDomain` (opnum 8) for nmap
-     smb-enum-domains password-policy; (c) LSA `LsarLookupSids/Names` for impacket-lookupsid.
-     Tip: generate union/struct stubs via impacket getData() (as Item 2 did) to nail NDR.
+   - ✅ **SAMR QueryInformationDomain (Item 3, DONE + VALIDATED 2026-06-22).** opnum 8
+     returns the domain policy nmap smb-enum-domains reads: class 1 Password
+     (MinPasswordLength 7, complexity ON), class 12 Lockout (threshold 10), class 8
+     Modified; unsupported classes → STATUS_INVALID_INFO_CLASS. Each reply is a byte-exact
+     impacket-getData() template (static policy, no per-request patching). **Validated:**
+     impacket `hSamrQueryInformationDomain` on the live honeypot parses all three classes
+     (MinLen=7/Props=1, Threshold=10, Modified OK); unit test asserts NTSTATUS+scalars;
+     go test ./... green; nmap -O still Windows. Files: `internal/honeypot/smb/{samr.go,
+     samr_lsarpc_test.go}`.
+   - **DEFERRED (Item 4, queued):** LSA `LsarLookupSids/Names` for impacket-lookupsid SID↔name.
+     Tip: generate union/struct stubs via impacket getData() (as Items 2–3 did) to nail NDR.
 6. ⏸️ **eBPF / host-telemetry stealth (DEPRIORITIZED 2026-06-18):** post-shell
    Linux-host tells (`ss`, BPF audit) out of OSE scope unless a concrete need emerges.
    Network-layer OSE remains the priority.

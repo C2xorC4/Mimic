@@ -93,6 +93,39 @@ func TestPipeStateSamrConnectAndEnumerateDomains(t *testing.T) {
 	}
 }
 
+// TestPipeStateSamrQueryInformationDomain verifies the domain-policy replies
+// (password class 1, lockout class 12, modified class 8) parse with NTSTATUS=0
+// and carry the expected policy scalars.
+func TestPipeStateSamrQueryInformationDomain(t *testing.T) {
+	ps := newPipeState("samr")
+	ps.bound = true
+	ps.ctxID = 0
+	ctx := testPipeContext()
+
+	query := func(class uint16) []byte {
+		stub := make([]byte, 22) // DomainHandle(20) + class(2)
+		binary.LittleEndian.PutUint16(stub[20:22], class)
+		resp := ps.Transceive(buildDCERPCRequest(2, samrOpQueryInformationDomain, stub), ctx)
+		assertRPCSuccess(t, resp)
+		return resp[24:]
+	}
+
+	for _, class := range []uint16{1, 12, 8} {
+		s := query(class)
+		if binary.LittleEndian.Uint32(s[len(s)-4:]) != 0 {
+			t.Fatalf("class %d ErrorCode = %x, want 0", class, binary.LittleEndian.Uint32(s[len(s)-4:]))
+		}
+	}
+	// Class 1 (password): MinPasswordLength=7 at offset 8 (referent[0:4]+tag[4:6]+pad[6:8]).
+	if pw := query(1); binary.LittleEndian.Uint16(pw[8:10]) != 7 {
+		t.Fatalf("password MinPasswordLength = %d, want 7", binary.LittleEndian.Uint16(pw[8:10]))
+	}
+	// Unsupported class → STATUS_INVALID_INFO_CLASS.
+	if s := query(2); binary.LittleEndian.Uint32(s[len(s)-4:]) != 0xC0000003 {
+		t.Fatalf("class 2 status = %x, want INVALID_INFO_CLASS", binary.LittleEndian.Uint32(s[len(s)-4:]))
+	}
+}
+
 // TestPipeStateSamrEnumUsersAnonDenied verifies that an unauthenticated
 // (guest/null) session is denied SAM user enumeration (RestrictAnonymousSAM),
 // matching a hardened modern Windows rather than leaking the user list.
