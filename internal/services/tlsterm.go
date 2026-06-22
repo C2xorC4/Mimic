@@ -1,6 +1,7 @@
 package services
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
@@ -9,6 +10,7 @@ import (
 	"fmt"
 	"math/big"
 	"net"
+	"strings"
 	"time"
 )
 
@@ -85,17 +87,55 @@ func newTLSConfig(commonName string) (*tls.Config, error) {
 	}, nil
 }
 
-// iisHTTPResponse builds a believable Microsoft-IIS HTTP/1.1 response for a
-// request received over a terminated TLS channel. It is intentionally minimal —
-// a default IIS welcome page — so the port answers as a working web server.
-func iisHTTPResponse(req []byte) []byte {
-	body := "<!DOCTYPE html><html><head><title>IIS Windows Server</title></head>" +
+// parseHTTPPath returns the request target from an HTTP/1.x request line.
+func parseHTTPPath(req []byte) string {
+	lineEnd := bytes.IndexByte(req, '\n')
+	if lineEnd < 0 {
+		return ""
+	}
+	line := strings.TrimRight(string(req[:lineEnd]), "\r")
+	parts := strings.Fields(line)
+	if len(parts) < 2 {
+		return ""
+	}
+	return parts[1]
+}
+
+func iisWelcomeBody() string {
+	return "<!DOCTYPE html><html><head><title>IIS Windows Server</title></head>" +
 		"<body><img src=\"iisstart.png\" alt=\"IIS\"></body></html>"
+}
+
+func iisHTTP404Body() string {
+	return "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Strict//EN\" " +
+		"\"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd\">\r\n" +
+		"<html xmlns=\"http://www.w3.org/1999/xhtml\">\r\n<head>\r\n" +
+		"<title>404 - File or directory not found.</title>\r\n</head>\r\n" +
+		"<body><h2>404 - File or directory not found.</h2></body>\r\n</html>\r\n"
+}
+
+func iisHTTPResponseWithStatus(statusLine, body string) []byte {
+	now := time.Now().UTC().Format("Mon, 02 Jan 2006 15:04:05 GMT")
 	return []byte(fmt.Sprintf(
-		"HTTP/1.1 200 OK\r\n"+
+		"%s\r\n"+
 			"Content-Type: text/html\r\n"+
 			"Server: Microsoft-IIS/10.0\r\n"+
-			"X-Powered-By: ASP.NET\r\n"+
-			"Content-Length: %d\r\n"+
-			"Connection: close\r\n\r\n%s", len(body), body))
+			"Date: %s\r\n"+
+			"Connection: close\r\n"+
+			"Content-Length: %d\r\n\r\n%s",
+		statusLine, now, len(body), body))
+}
+
+// iisHTTPResponse builds a believable Microsoft-IIS HTTP/1.1 response for a
+// request received over a terminated TLS channel. Only the site root (and
+// index.html) return 200; other paths get a real 404 so gobuster wildcard
+// detection cannot collapse the surface to a single response length.
+func iisHTTPResponse(req []byte) []byte {
+	path := parseHTTPPath(req)
+	switch path {
+	case "/", "/index.html", "/iisstart.png":
+		return iisHTTPResponseWithStatus("HTTP/1.1 200 OK", iisWelcomeBody())
+	default:
+		return iisHTTPResponseWithStatus("HTTP/1.1 404 Not Found", iisHTTP404Body())
+	}
 }

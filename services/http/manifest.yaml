@@ -26,35 +26,53 @@ probes:
     response_file: responses/iis_backup_creds_200.bin
     rewrite_rules: [{ type: http_date }]
 
-  # --- GET -> full page ---
-  - name: http_get_windows
-    signature: { pattern: 'GET ', offset: 0, min_length: 4 }
+  # --- GET / (site root only — other paths fall through to 404 catch-all) ---
+  - name: http_get_root_windows
+    signature: { pattern: 'GET / HTTP', offset: 0, min_length: 10 }
     response_file: responses/iis_200_full.bin
     requires: { os_family: "windows" }
     rewrite_rules: [{ type: http_date }]
-  - name: http_get_linux
-    signature: { pattern: 'GET ', offset: 0, min_length: 4 }
+  - name: http_get_root_linux
+    signature: { pattern: 'GET / HTTP', offset: 0, min_length: 10 }
     response_file: responses/nginx_200_full.bin
     requires: { os_family: "linux" }
     rewrite_rules: [{ type: http_date }]
-  - name: http_get_generic
-    signature: { pattern: 'GET ', offset: 0, min_length: 4 }
+  - name: http_get_root_generic
+    signature: { pattern: 'GET / HTTP', offset: 0, min_length: 10 }
+    response_file: responses/iis_200_full.bin
+    rewrite_rules: [{ type: http_date }]
+  - name: http_get_index_windows
+    signature: { pattern: 'GET /index.html HTTP', offset: 0, min_length: 18 }
+    response_file: responses/iis_200_full.bin
+    requires: { os_family: "windows" }
+    rewrite_rules: [{ type: http_date }]
+  - name: http_get_index_generic
+    signature: { pattern: 'GET /index.html HTTP', offset: 0, min_length: 18 }
     response_file: responses/iis_200_full.bin
     rewrite_rules: [{ type: http_date }]
 
-  # --- HEAD / OPTIONS -> headers only ---
-  - name: http_head_windows
-    signature: { pattern: 'HEAD ', offset: 0, min_length: 5 }
+  # --- HEAD / (site root only — other paths fall through to 404 catch-all) ---
+  - name: http_head_root_windows
+    signature: { pattern: 'HEAD / HTTP', offset: 0, min_length: 11 }
     response_file: responses/iis_200_headers.bin
     requires: { os_family: "windows" }
     rewrite_rules: [{ type: http_date }]
-  - name: http_head_linux
-    signature: { pattern: 'HEAD ', offset: 0, min_length: 5 }
+  - name: http_head_root_linux
+    signature: { pattern: 'HEAD / HTTP', offset: 0, min_length: 11 }
     response_file: responses/nginx_200_headers.bin
     requires: { os_family: "linux" }
     rewrite_rules: [{ type: http_date }]
-  - name: http_head_generic
-    signature: { pattern: 'HEAD ', offset: 0, min_length: 5 }
+  - name: http_head_root_generic
+    signature: { pattern: 'HEAD / HTTP', offset: 0, min_length: 11 }
+    response_file: responses/iis_200_headers.bin
+    rewrite_rules: [{ type: http_date }]
+  - name: http_head_index_windows
+    signature: { pattern: 'HEAD /index.html HTTP', offset: 0, min_length: 19 }
+    response_file: responses/iis_200_headers.bin
+    requires: { os_family: "windows" }
+    rewrite_rules: [{ type: http_date }]
+  - name: http_head_index_generic
+    signature: { pattern: 'HEAD /index.html HTTP', offset: 0, min_length: 19 }
     response_file: responses/iis_200_headers.bin
     rewrite_rules: [{ type: http_date }]
   - name: http_options_windows
