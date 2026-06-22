@@ -187,6 +187,9 @@ func (s *Server) handleSMBv1TreeConnect(sess *Session, frame []byte, uid uint16)
 	// Validate share name: reject unknown shares so tools like nmap can confirm we
 	// correctly distinguish valid from invalid shares.
 	shareName := shareFromTree(uncPath)
+	if !sess.canAccessAdminShare() && isAdminShare(shareName) {
+		return buildSMB1Response(smb1CmdTreeConnect, 0xC0000022, 0, uid, []byte{0xFF, 0, 0, 0}, nil)
+	}
 	if !s.isKnownShare(shareName) {
 		return buildSMB1Response(smb1CmdTreeConnect, 0xC00000CC, 0, uid, []byte{0xFF, 0, 0, 0}, nil)
 	}
@@ -326,7 +329,7 @@ func (s *Server) handleSMBv1WriteAndX(sess *Session, frame []byte, h smb1Header)
 		end = len(frame)
 	}
 	if start < len(frame) && start < end {
-		ps.Write(frame[start:end], s.cfg.Shares)
+		ps.Write(frame[start:end], s.pipeContext())
 	}
 
 	// Response: 6 words = 12 bytes
@@ -443,7 +446,7 @@ func (s *Server) handleSMBv1Transaction(sess *Session, frame []byte, h smb1Heade
 		pipeData = frame[start:end]
 	}
 
-	respData := ps.Transceive(pipeData, s.cfg.Shares)
+	respData := ps.Transceive(pipeData, s.pipeContext())
 
 	// Build TRANSACTION response.
 	// DataOffset = SMBv1 hdr(32) + WordCount(1) + params(20) + ByteCount(2) + pad(1) = 56

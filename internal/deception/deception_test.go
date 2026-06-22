@@ -1,6 +1,7 @@
 package deception
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -103,21 +104,59 @@ func TestMazeFileNodeAttrs(t *testing.T) {
 
 // --- default tree (byte-identical attribute reproduction) ---
 
+func TestRegistryHiveStub(t *testing.T) {
+	sam := RegistryHiveStub("SAM")
+	if len(sam) != registryHiveStubSize {
+		t.Fatalf("hive size = %d", len(sam))
+	}
+	if string(sam[0:4]) != "regf" {
+		t.Fatalf("hive magic = %q", sam[0:4])
+	}
+	sys := RegistryHiveStub("SYSTEM")
+	if bytes.Equal(sam, sys) {
+		t.Fatal("expected distinct hive stubs per name")
+	}
+}
+
+func TestStaticNodeTimesSpread(t *testing.T) {
+	a, _ := staticNodeTimes(`C$\Windows\System32\ntoskrnl.exe`)
+	b, _ := staticNodeTimes(`C$\Windows\System32\kernel32.dll`)
+	if a.Equal(b) {
+		t.Fatalf("expected different mtimes for distinct paths, both %v", a)
+	}
+	// Same path must be stable across calls.
+	c1, m1 := staticNodeTimes(`C$\Users\Administrator\Documents\passwords.txt`)
+	c2, m2 := staticNodeTimes(`C$\Users\Administrator\Documents\passwords.txt`)
+	if !c1.Equal(c2) || !m1.Equal(m2) {
+		t.Fatalf("staticNodeTimes not deterministic: %v/%v vs %v/%v", c1, m1, c2, m2)
+	}
+}
+
 func TestDefaultTreeAttrs(t *testing.T) {
 	tr := DefaultTree(DefaultMazeConfig())
 	c := tr.Roots["C$"]
 	if c == nil {
 		t.Fatal("C$ root missing")
 	}
-	sys32 := c.FindChild("Windows").FindChild("System32")
+	win := c.FindChild("Windows")
+	if win.FindChild("win.ini") == nil {
+		t.Error("Windows\\win.ini missing")
+	}
+	if c.FindChild("inetpub") == nil || c.FindChild("inetpub").FindChild("wwwroot") == nil {
+		t.Error("inetpub\\wwwroot missing")
+	}
+	sys32 := win.FindChild("System32")
 
 	ntos := sys32.FindChild("ntoskrnl.exe")
 	if !ntos.System || !ntos.Normal || ntos.Archive {
 		t.Errorf("ntoskrnl.exe flags: System=%v Normal=%v Archive=%v; want System|Normal", ntos.System, ntos.Normal, ntos.Archive)
 	}
 	sam := sys32.FindChild("config").FindChild("SAM")
-	if !sam.ReadOnly || !sam.System || !sam.Normal {
-		t.Errorf("SAM flags: RO=%v System=%v Normal=%v; want RO|System|Normal", sam.ReadOnly, sam.System, sam.Normal)
+	if !sam.ReadOnly || !sam.System || sam.Normal {
+		t.Errorf("SAM flags: RO=%v System=%v Normal=%v; want RO|System, !Normal", sam.ReadOnly, sam.System, sam.Normal)
+	}
+	if len(sam.Content) == 0 || string(sam.Content[0:4]) != "regf" {
+		t.Errorf("SAM hive stub missing or invalid: len=%d", len(sam.Content))
 	}
 	pw := c.FindChild("Users").FindChild("Administrator").FindChild("Documents").FindChild("passwords.txt")
 	if pw == nil || !pw.Archive || pw.Normal || len(pw.Content) == 0 {

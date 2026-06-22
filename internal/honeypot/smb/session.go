@@ -42,6 +42,8 @@ type Session struct {
 	preauth       []byte // 64-byte running SHA-512 preauth hash
 	signingKey    []byte // 16-byte SMB2 signing key (set on verified-cred auth)
 	signingActive bool   // sign responses on this session
+	guestSession  bool   // true for guest/null sessions (IS_GUEST / anonymous)
+	seededAuth    bool   // verified config-seeded credential; maze/admin-share access
 
 	mu sync.Mutex
 }
@@ -99,6 +101,42 @@ func (s *Session) getChallenge() [8]byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.challenge
+}
+
+func (s *Session) setGuest(guest bool) {
+	s.mu.Lock()
+	s.guestSession = guest
+	s.mu.Unlock()
+}
+
+func (s *Session) isGuest() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.guestSession
+}
+
+func (s *Session) setSeededAuth(seeded bool) {
+	s.mu.Lock()
+	s.seededAuth = seeded
+	s.mu.Unlock()
+}
+
+func (s *Session) isSeededAuth() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.seededAuth
+}
+
+// canAccessAdminShare reports whether this session may tree-connect C$/ADMIN$.
+// Guest/null sessions are blocked; verified seeded credentials are always allowed
+// even when the SESSION_SETUP response carried IS_GUEST so the client skips signing.
+func (s *Session) canAccessAdminShare() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.seededAuth {
+		return true
+	}
+	return !s.guestSession
 }
 
 // allocTree registers a new tree connection and returns the assigned tree ID.

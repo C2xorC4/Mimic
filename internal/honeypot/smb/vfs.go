@@ -9,6 +9,20 @@ import (
 	"github.com/c2xorc4/mimic/internal/deception"
 )
 
+func isAdminShare(name string) bool {
+	u := strings.ToUpper(name)
+	return u == "C$" || u == "ADMIN$"
+}
+
+func isRegistryHiveFile(name string) bool {
+	switch strings.ToUpper(name) {
+	case "SAM", "SYSTEM", "SECURITY":
+		return true
+	default:
+		return false
+	}
+}
+
 // File attribute constants (MS-FSCC 2.6)
 const (
 	FileAttrReadOnly  = uint32(0x00000001)

@@ -31,7 +31,10 @@ func TestConfigDrivenVFS(t *testing.T) {
 		Maze: deception.DefaultMazeConfig(),
 	}
 
-	srv := New(Config{ComputerName: "TESTBOX", DomainName: "TESTDOM", Filesystem: fs, CredStore: store})
+	cfg := testServerConfig()
+	cfg.Filesystem = fs
+	cfg.CredStore = store
+	srv := New(cfg)
 
 	// The advertised shares must reflect the config (so isKnownShare accepts BACKUPS).
 	if !srv.isKnownShare("BACKUPS") {

@@ -84,6 +84,40 @@ func BaseTime() time.Time {
 	return time.Date(2024, 9, 14, 8, 23, 11, 0, time.UTC)
 }
 
+// staticNodeTimes returns deterministic Created/Modified times for a canonical
+// VFS path. Spreads mtimes across a plausible window so directory listings do
+// not show one identical second-stamp (an emulation tell from OSE-2026-001).
+func staticNodeTimes(path string) (created, modified time.Time) {
+	rng := newLCG(pathSeed(strings.ToUpper(path)))
+	base := BaseTime()
+	created = base.Add(-time.Duration(1+rng.next()%uint64(180*24)) * time.Hour)
+	modified = created.Add(time.Duration(1+rng.next()%uint64(72*24)) * time.Hour)
+	if modified.After(base) {
+		modified = base.Add(-time.Duration(rng.next()%uint64(24)) * time.Hour)
+	}
+	if !modified.After(created) {
+		modified = created.Add(time.Hour)
+	}
+	return created, modified
+}
+
+// stampStaticTimes walks a static subtree and assigns path-seeded timestamps.
+func stampStaticTimes(shareRoot string, n *Node) {
+	var path string
+	switch {
+	case n.Name == "":
+		path = shareRoot
+	case shareRoot == "":
+		path = n.Name
+	default:
+		path = shareRoot + `\` + n.Name
+	}
+	n.Created, n.Modified = staticNodeTimes(path)
+	for _, ch := range n.Children {
+		stampStaticTimes(path, ch)
+	}
+}
+
 // Resolve walks rootName + filePath (either separator, case-insensitive) by
 // membership: at each step the name must be among the current directory's
 // effective children — its explicit children plus, for a generative (maze) node,
@@ -156,17 +190,17 @@ func (t *Tree) Children(n *Node) []*Node {
 
 // DirNode builds a directory node with the given children.
 func DirNode(name string, children ...*Node) *Node {
-	t := BaseTime()
-	return &Node{Name: name, Dir: true, Children: children, Created: t, Modified: t}
+	created, modified := staticNodeTimes(name)
+	return &Node{Name: name, Dir: true, Children: children, Created: created, Modified: modified}
 }
 
 // FileNode builds a file node. When content is nil the Normal attribute is set,
 // matching the original smb fileNode() semantics for byte-identical attrs.
 func FileNode(name string, content []byte, readonly, system, archive bool) *Node {
-	t := BaseTime()
+	created, modified := staticNodeTimes(name)
 	n := &Node{
 		Name: name, ReadOnly: readonly, System: system, Archive: archive,
-		Content: content, Created: t, Modified: t,
+		Content: content, Created: created, Modified: modified,
 	}
 	if content == nil {
 		n.Normal = true
@@ -179,15 +213,16 @@ func FileNode(name string, content []byte, readonly, system, archive bool) *Node
 func DefaultTree(maze MazeConfig) *Tree {
 	cRoot := DirNode("",
 		DirNode("Windows",
+			FileNode("win.ini", []byte("; for 16-bit app support\r\n[fonts]\r\n[extensions]\r\n[mci extensions]\r\n[files]\r\n[Mail]\r\nMAPI=1\r\n"), false, false, true),
 			DirNode("System32",
 				FileNode("ntoskrnl.exe", nil, false, true, false),
 				FileNode("kernel32.dll", nil, false, true, false),
 				FileNode("advapi32.dll", nil, false, true, false),
 				DirNode("drivers"),
 				DirNode("config",
-					FileNode("SAM", nil, true, true, false),
-					FileNode("SYSTEM", nil, true, true, false),
-					FileNode("SECURITY", nil, true, true, false),
+					FileNode("SAM", RegistryHiveStub("SAM"), true, true, false),
+					FileNode("SYSTEM", RegistryHiveStub("SYSTEM"), true, true, false),
+					FileNode("SECURITY", RegistryHiveStub("SECURITY"), true, true, false),
 				),
 			),
 			DirNode("Temp"),
@@ -228,18 +263,29 @@ func DefaultTree(maze MazeConfig) *Tree {
 		DirNode("ProgramData",
 			DirNode("Microsoft"),
 		),
+		DirNode("inetpub",
+			DirNode("wwwroot",
+				FileNode("iisstart.htm", []byte("<html><head><title>IIS Windows</title></head><body><img src=\"iisstart.png\" alt=\"IIS\"></body></html>"), false, false, true),
+			),
+		),
 		FileNode("pagefile.sys", nil, true, true, false),
 		FileNode("hiberfil.sys", nil, true, true, false),
 	)
 
 	winNode := cRoot.FindChild("Windows")
+	stampStaticTimes("C$", cRoot)
+	ipcRoot := DirNode("")
+	stampStaticTimes("IPC$", ipcRoot)
+	if winNode != nil {
+		stampStaticTimes("ADMIN$", winNode)
+	}
 
 	m := maze
 	return &Tree{
 		Roots: map[string]*Node{
 			"C$":     cRoot,
 			"ADMIN$": winNode,
-			"IPC$":   DirNode(""),
+			"IPC$":   ipcRoot,
 		},
 		Maze: &m,
 	}
@@ -273,6 +319,7 @@ func BuildTree(cfg TreeConfig, store *CredStore, baseDir string) (*Tree, error) 
 			root.MazePath = shareKey // generative tarpit root (maze depth starts here)
 			root.MazeDepth = 0
 		}
+		stampStaticTimes(shareKey, root)
 		roots[shareKey] = root
 	}
 	m := cfg.Maze
@@ -289,7 +336,7 @@ func buildGroup(g NodeDefGroup, store *CredStore, baseDir, pathPrefix string) ([
 		out = append(out, n)
 	}
 	for _, f := range g.Files {
-		n, err := buildFile(f, store, baseDir)
+		n, err := buildFile(f, store, baseDir, pathPrefix)
 		if err != nil {
 			return nil, err
 		}
@@ -299,8 +346,9 @@ func buildGroup(g NodeDefGroup, store *CredStore, baseDir, pathPrefix string) ([
 }
 
 func buildDir(d DirDef, store *CredStore, baseDir, pathPrefix string) (*Node, error) {
-	n := DirNode(d.Name)
 	myPath := pathPrefix + `\` + d.Name
+	created, modified := staticNodeTimes(myPath)
+	n := &Node{Name: d.Name, Dir: true, Created: created, Modified: modified}
 	kids, err := buildGroup(NodeDefGroup{Dirs: d.Dirs, Files: d.Files}, store, baseDir, myPath)
 	if err != nil {
 		return nil, err
@@ -313,7 +361,7 @@ func buildDir(d DirDef, store *CredStore, baseDir, pathPrefix string) (*Node, er
 	return n, nil
 }
 
-func buildFile(f FileDef, store *CredStore, baseDir string) (*Node, error) {
+func buildFile(f FileDef, store *CredStore, baseDir, pathPrefix string) (*Node, error) {
 	var content []byte
 	switch {
 	case f.SeedFile != "":
@@ -341,10 +389,11 @@ func buildFile(f FileDef, store *CredStore, baseDir string) (*Node, error) {
 		content = []byte(s)
 	}
 
-	t := BaseTime()
+	filePath := pathPrefix + `\` + f.Name
+	created, modified := staticNodeTimes(filePath)
 	n := &Node{
 		Name: f.Name, ReadOnly: f.ReadOnly, System: f.System, Hidden: f.Hidden, Archive: f.Archive,
-		Content: content, Created: t, Modified: t,
+		Content: content, Created: created, Modified: modified,
 	}
 	// Mirror fileNode: empty files are Normal; otherwise default a flag-less file
 	// to Archive (a typical user file).

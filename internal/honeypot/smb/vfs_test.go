@@ -135,6 +135,48 @@ func wrapSPNEGO(ntlm []byte) []byte {
 	return asn1CTX(0, inner)
 }
 
+// buildNTLMType3WithNTResponse builds NTLMSSP_AUTH with a populated NTResponse field.
+func buildNTLMType3WithNTResponse(domain, user, workstation string, ntResponse []byte) []byte {
+	const fixedLen = 72
+	domBuf := utf16LE(domain)
+	userBuf := utf16LE(user)
+	wsBuf := utf16LE(workstation)
+
+	msg := make([]byte, fixedLen+len(domBuf)+len(userBuf)+len(wsBuf)+len(ntResponse))
+	copy(msg[0:8], "NTLMSSP\x00")
+	binary.LittleEndian.PutUint32(msg[8:12], 3)
+
+	off := uint32(fixedLen)
+	putField := func(idx int, buf []byte) {
+		binary.LittleEndian.PutUint16(msg[idx:idx+2], uint16(len(buf)))
+		binary.LittleEndian.PutUint16(msg[idx+2:idx+4], uint16(len(buf)))
+		binary.LittleEndian.PutUint32(msg[idx+4:idx+8], off)
+		copy(msg[off:], buf)
+		off += uint32(len(buf))
+	}
+	putField(12, nil)
+	putField(20, ntResponse)
+	putField(28, domBuf)
+	putField(36, userBuf)
+	putField(44, wsBuf)
+	return msg
+}
+
+func buildSessionSetup2BodyCred(challenge [8]byte, cred Credential) []byte {
+	blob := []byte{0x01, 0x01, 0, 0, 0, 0, 0, 0, 0xAA, 0xBB, 0xCC, 0xDD}
+	ntResp := buildNTLMv2Response(cred.Password, cred.Username, cred.Domain, challenge, blob)
+	ntlmAuth := buildNTLMType3WithNTResponse(cred.Domain, cred.Username, "SCANNER", ntResp)
+	spnego := wrapSPNEGOAuth(ntlmAuth)
+
+	secBufOff := uint16(88)
+	body := make([]byte, 24)
+	binary.LittleEndian.PutUint16(body[0:2], 25)
+	binary.LittleEndian.PutUint16(body[12:14], secBufOff)
+	binary.LittleEndian.PutUint16(body[14:16], uint16(len(spnego)))
+	body = append(body, spnego...)
+	return body
+}
+
 // buildSessionSetup2Body builds the NTLM auth (type 3) body from a session.
 func buildSessionSetup2Body(challenge [8]byte) []byte {
 	ntlmAuth := buildNTLMType3("TESTDOM", "testuser", "SCANNER", challenge)
@@ -312,7 +354,7 @@ func extractVolatileID(frame []byte) uint64 {
 
 // TestVFSStateMachine tests the Phase 3 VFS path via a raw TCP connection.
 func TestVFSStateMachine(t *testing.T) {
-	srv := New(Config{ComputerName: "TESTBOX", DomainName: "TESTDOM"})
+	srv := New(testServerConfig())
 
 	// Find a free port by binding then releasing
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -354,8 +396,9 @@ func TestVFSStateMachine(t *testing.T) {
 	sessionID := respSessionID(resp)
 	challenge := extractChallengeFromSS1(resp)
 
-	// 3. SESSION_SETUP round 2
-	resp = sendRecv(t, conn, buildTestPacket(CmdSessionSetup, sessionID, 0, nextMsg(), buildSessionSetup2Body(challenge)))
+	// 3. SESSION_SETUP round 2 (seeded cred — guest cannot tree-connect admin shares)
+	cred := testAuthCredential()
+	resp = sendRecv(t, conn, buildTestPacket(CmdSessionSetup, sessionID, 0, nextMsg(), buildSessionSetup2BodyCred(challenge, cred)))
 	if respStatus(resp) != StatusSuccess {
 		t.Fatalf("ss2: want 0, got %#x", respStatus(resp))
 	}

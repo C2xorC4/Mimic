@@ -49,12 +49,12 @@ func TestPipeStateNetSessEnumAndPathCompare(t *testing.T) {
 	ps.ctxID = 0
 
 	bind := buildDCERPCBind(1, opNetrNetSessEnum)
-	ps.Write(bind, defaultShares())
+	ps.Write(bind, testPipeContext())
 	if ack := ps.Read(); len(ack) == 0 {
 		t.Fatal("expected bind ack")
 	}
 
-	sessResp := ps.Transceive(buildDCERPCRequest(2, opNetrNetSessEnum, nil), defaultShares())
+	sessResp := ps.Transceive(buildDCERPCRequest(2, opNetrNetSessEnum, nil), testPipeContext())
 	if len(sessResp) < 28 {
 		t.Fatalf("NetSessEnum response too short: %d bytes", len(sessResp))
 	}
@@ -63,7 +63,7 @@ func TestPipeStateNetSessEnumAndPathCompare(t *testing.T) {
 		t.Fatalf("NetSessEnum return = %x, want 0", binary.LittleEndian.Uint32(sessStub[len(sessStub)-4:]))
 	}
 
-	pathResp := ps.Transceive(buildDCERPCRequest(3, opNetrPathCompare, nil), defaultShares())
+	pathResp := ps.Transceive(buildDCERPCRequest(3, opNetrPathCompare, nil), testPipeContext())
 	pathStub := pathResp[24:]
 	if binary.LittleEndian.Uint32(pathStub[0:4]) != werrInvalidName {
 		t.Fatalf("PathCompare return = %d, want %d", binary.LittleEndian.Uint32(pathStub[0:4]), werrInvalidName)

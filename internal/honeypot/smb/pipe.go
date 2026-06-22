@@ -54,7 +54,7 @@ func newPipeState(name string) *PipeState {
 }
 
 // Write processes an incoming DCE/RPC PDU and queues a response for the next Read.
-func (p *PipeState) Write(data []byte, shares []ShareInfo) {
+func (p *PipeState) Write(data []byte, ctx PipeContext) {
 	if len(data) < 16 {
 		return
 	}
@@ -66,7 +66,7 @@ func (p *PipeState) Write(data []byte, shares []ShareInfo) {
 		p.pending = p.buildBindAck(data, callID)
 	case dcerpcRequest:
 		if p.bound {
-			p.pending = p.handleRequest(data, callID, shares)
+			p.pending = p.handleRequest(data, callID, ctx)
 		}
 	}
 }
@@ -79,8 +79,8 @@ func (p *PipeState) Read() []byte {
 }
 
 // Transceive is the combined write+read for FSCTL_PIPE_TRANSCEIVE.
-func (p *PipeState) Transceive(data []byte, shares []ShareInfo) []byte {
-	p.Write(data, shares)
+func (p *PipeState) Transceive(data []byte, ctx PipeContext) []byte {
+	p.Write(data, ctx)
 	return p.Read()
 }
 
@@ -141,11 +141,19 @@ func (p *PipeState) buildBindAck(data []byte, callID uint32) []byte {
 	return b
 }
 
-func (p *PipeState) handleRequest(data []byte, callID uint32, shares []ShareInfo) []byte {
+func (p *PipeState) handleRequest(data []byte, callID uint32, ctx PipeContext) []byte {
 	if len(data) < 24 {
 		return nil
 	}
+	switch p.name {
+	case "samr":
+		return p.handleSamrRequest(data, callID, ctx.Env)
+	case "lsarpc":
+		return p.handleLsarpcRequest(data, callID, ctx.Env)
+	}
+
 	opnum := binary.LittleEndian.Uint16(data[22:24])
+	shares := ctx.Shares
 
 	switch opnum {
 	case opNetrShareEnum, opNetrShareEnumAlt:

@@ -13,7 +13,7 @@ import (
 func TestQueryDirectoryFileName(t *testing.T) {
 	nameOffFor := map[byte]int{1: 64, 2: 68, 3: 94, 37: 104}
 	for _, infoClass := range []byte{1, 2, 3, 37} {
-		srv := New(Config{ComputerName: "TESTBOX", DomainName: "TESTDOM"})
+		srv := New(testServerConfig())
 		ln, err := newFreeListener()
 		if err != nil {
 			t.Fatal(err)

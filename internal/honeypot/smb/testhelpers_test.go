@@ -24,12 +24,36 @@ func extractPort(addr string) int {
 	return tcpAddr.Port
 }
 
+func testAuthCredential() Credential {
+	return Credential{Username: "svc_backup", Password: "V33m@Backup!23", Domain: "CORP"}
+}
+
+func testServerConfig() Config {
+	return Config{
+		ComputerName: "TESTBOX",
+		DomainName:   "TESTDOM",
+		Credentials:  []Credential{testAuthCredential()},
+	}
+}
+
+func testPipeContext() PipeContext {
+	cfg := testServerConfig()
+	return PipeContext{
+		Shares: defaultShares(),
+		Env: PipeRPCEnv{
+			ComputerName: cfg.ComputerName,
+			DomainName:   cfg.DomainName,
+		},
+	}
+}
+
 // doAuth performs NEGOTIATE → SESSION_SETUP×2 → TREE_CONNECT on conn,
 // returning (sessionID, treeID) on success or fatally logging on any error.
 func doAuth(t *testing.T, conn net.Conn, uncPath string) (uint64, uint32) {
 	t.Helper()
 	var msgID uint64
 	next := func() uint64 { msgID += 5; return msgID }
+	cred := testAuthCredential()
 
 	resp := sendRecv(t, conn, buildTestPacket(CmdNegotiate, 0, 0, next(), buildNegotiateBody()))
 	if respStatus(resp) != StatusSuccess {
@@ -43,7 +67,7 @@ func doAuth(t *testing.T, conn net.Conn, uncPath string) (uint64, uint32) {
 	sessionID := respSessionID(resp)
 	challenge := extractChallengeFromSS1(resp)
 
-	resp = sendRecv(t, conn, buildTestPacket(CmdSessionSetup, sessionID, 0, next(), buildSessionSetup2Body(challenge)))
+	resp = sendRecv(t, conn, buildTestPacket(CmdSessionSetup, sessionID, 0, next(), buildSessionSetup2BodyCred(challenge, cred)))
 	if respStatus(resp) != StatusSuccess {
 		t.Fatalf("doAuth ss2: %#x", respStatus(resp))
 	}

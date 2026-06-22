@@ -112,7 +112,7 @@ func (s *Server) buildNegotiateResponse(sess *Session, req smb2Header, offered [
 	var ctxOff uint32
 	if dialect == dialect311 {
 		ctxs = s.buildNegotiateContexts()
-		ctxCount = 1 // PreauthIntegrity only — see buildNegotiateContexts
+		ctxCount = 2 // PreauthIntegrity + NetName — see buildNegotiateContexts
 		// Offset from SMBv2 header start: header(64) + fixed-body(64) + spnego + padding.
 		// Since 64 is divisible by 8, padding needed = (-len(spnego)) mod 8.
 		raw := 128 + len(spnego)
@@ -168,13 +168,14 @@ func (s *Server) buildNegotiateResponse(sess *Session, req smb2Header, offered [
 
 // buildNegotiateContexts returns the serialised NegotiateContext list for SMB 3.1.1.
 //
-// We emit ONLY the mandatory SMB2_PREAUTH_INTEGRITY_CAPABILITIES context. The
-// SMB2_ENCRYPTION_CAPABILITIES context is deliberately omitted: advertising a cipher
-// makes clients (impacket/netexec/smbmap) set SupportsEncryption=True and wrap every
-// post-auth request in an SMB2_TRANSFORM_HEADER (\xfdSMB). The honeypot has no session
-// key material and cannot decrypt those frames, so it would tear the connection down.
-// Omitting the context keeps the whole session in cleartext while still presenting a
-// spec-correct 3.1.1 negotiate (PreauthIntegrity is the only required context).
+// We emit the mandatory SMB2_PREAUTH_INTEGRITY_CAPABILITIES context plus
+// SMB2_NETNAME_NEGOTIATE_CONTEXT_ID (server network name = profile netbios_name).
+// The SMB2_ENCRYPTION_CAPABILITIES context is deliberately omitted: advertising a
+// cipher makes clients (impacket/netexec/smbmap) set SupportsEncryption=True and wrap
+// every post-auth request in an SMB2_TRANSFORM_HEADER (\xfdSMB). The honeypot has no
+// session key material and cannot decrypt those frames, so it would tear the
+// connection down. Omitting encryption keeps the session in cleartext while still
+// presenting a spec-correct 3.1.1 negotiate.
 func (s *Server) buildNegotiateContexts() []byte {
 	var all []byte
 
@@ -191,6 +192,10 @@ func (s *Server) buildNegotiateContexts() []byte {
 	binary.LittleEndian.PutUint16(data[4:6], 0x0001) // SHA-512
 	copy(data[6:], salt[:])
 	all = appendContext(all, ctxPreauthIntegrity, data)
+
+	// SMB2_NETNAME_NEGOTIATE_CONTEXT_ID — UTF-16LE null-terminated computer name.
+	netName := append(utf16LE(s.cfg.ComputerName), 0x00, 0x00)
+	all = appendContext(all, ctxNetName, netName)
 
 	return all
 }

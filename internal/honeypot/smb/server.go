@@ -83,6 +83,16 @@ type Server struct {
 	}
 }
 
+func (s *Server) pipeContext() PipeContext {
+	return PipeContext{
+		Shares: s.cfg.Shares,
+		Env: PipeRPCEnv{
+			ComputerName: s.cfg.ComputerName,
+			DomainName:   s.cfg.DomainName,
+		},
+	}
+}
+
 // New creates a new honeypot Server with the given config.
 func New(cfg Config) *Server {
 	if cfg.Port == 0 {
@@ -526,11 +536,14 @@ func (s *Server) doAccept(sess *Session, req smb2Header, ntlmBlob []byte) []byte
 				// are accepted by signing-enforcing clients (SMB3). Without it the
 				// session authenticates but every file read fails "Bad SMB2
 				// signature" (OSE-2026-001 Op-5). If a signing key can't be derived
-				// (e.g. 3.1.1 without a preauth chain), fall back to a guest-flagged
-				// session so the client skips signing and can still read bait.
+				// (e.g. 3.1.1 without a preauth chain), advertise IS_GUEST so the
+				// client skips signing — but keep seededAuth set so maze/admin-share
+				// access is not conflated with anonymous guest enumeration.
+				sess.setSeededAuth(true)
+				sess.setGuest(false)
 				sessFlags := uint16(0)
 				if !s.setupSigning(sess, *cred, creds) {
-					sessFlags = 0x0001 // IS_GUEST
+					sessFlags = 0x0001 // IS_GUEST (wire only — not guestSession ACL)
 				}
 				return buildPacket(req, StatusSuccess, sessID, 0,
 					buildSessionSetupBody(sessFlags, buildSPNEGOAcceptToken()))
@@ -544,6 +557,7 @@ func (s *Server) doAccept(sess *Session, req smb2Header, ntlmBlob []byte) []byte
 	}
 	atomic.AddUint64(&s.stats.authentications, 1)
 	sess.setState(StateAuthenticated)
+	sess.setGuest(true)
 	// SessionFlags IS_GUEST (0x0001) so clients count the session as authenticated.
 	// SPNEGO accept-completed token finalises the GSSAPI handshake (without it
 	// impacket's SMBConnection sends an immediate LOGOFF).
@@ -565,6 +579,7 @@ func (s *Server) doAnonymous(sess *Session, req smb2Header) []byte {
 	}
 	atomic.AddUint64(&s.stats.authentications, 1)
 	sess.setState(StateAuthenticated)
+	sess.setGuest(true)
 	return buildPacket(req, StatusSuccess, sessID, 0, buildSessionSetupBody(0x0001, buildSPNEGOAcceptToken()))
 }
 
@@ -611,6 +626,9 @@ func (s *Server) handleTreeConnect(sess *Session, req smb2Header, body []byte, f
 
 	sharePath := extractTreePath(body, frame)
 	shareName := shareFromTree(sharePath)
+	if !sess.canAccessAdminShare() && isAdminShare(shareName) {
+		return buildPacket(req, StatusAccessDenied, sess.id, 0, buildErrorBody())
+	}
 	if !s.isKnownShare(shareName) {
 		if s.log != nil {
 			s.log.Warn("Tree connect rejected", map[string]interface{}{
@@ -1160,6 +1178,10 @@ func (s *Server) handleRead(sess *Session, req smb2Header, body []byte) []byte {
 		return buildPacket(req, StatusInvalidParam, sess.id, req.TreeID, buildErrorBody())
 	}
 
+	if isRegistryHiveFile(h.node.name) {
+		return buildPacket(req, StatusAccessDenied, sess.id, req.TreeID, buildErrorBody())
+	}
+
 	content := h.node.content
 	if offset >= uint64(len(content)) {
 		return buildPacket(req, StatusEndOfFile, sess.id, req.TreeID, buildErrorBody())
@@ -1219,7 +1241,7 @@ func (s *Server) handleWrite(sess *Session, req smb2Header, body []byte, frame [
 		start := int(4) + int(dataOff)
 		end := start + int(writeLen)
 		if end <= len(frame) {
-			h.pipe.Write(frame[start:end], s.cfg.Shares)
+			h.pipe.Write(frame[start:end], s.pipeContext())
 		}
 	}
 
@@ -1266,7 +1288,7 @@ func (s *Server) handleIOCtl(sess *Session, req smb2Header, body []byte, frame [
 		}
 	}
 
-	output := h.pipe.Transceive(input, s.cfg.Shares)
+	output := h.pipe.Transceive(input, s.pipeContext())
 
 	// IOCTL response: StructureSize=49, fixed body 48 bytes
 	// OutputOffset = 64 (SMB2 header) + 48 (fixed body) = 112
