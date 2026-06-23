@@ -59,6 +59,7 @@ type winProfile struct {
 	windowInRST   uint16
 	opt1          uint8 // second option kind (drives the Linux SACK-first template)
 	ecnEcho       bool  // Linux/macOS echo ECE (CC=Y) + keep native ECN opts; Windows clears ECE (#12)
+	winQuirks     bool  // Windows profile → apply Windows-only quirks (ICMP CD=Z, A=O RST); off for Linux (#13)
 }
 
 func toWinProfile(p *config.OSProfile) *winProfile {
@@ -89,6 +90,7 @@ func toWinProfile(p *config.OSProfile) *winProfile {
 	case "linux", "macos":
 		wp.ecnEcho = true
 	}
+	wp.winQuirks = strings.EqualFold(p.Family, "windows")
 	return wp
 }
 
@@ -279,7 +281,7 @@ func (b *windowsBackend) applyEgress(pkt []byte, p *winProfile) bool {
 			modified = true
 		}
 	case 1: // ICMP
-		if applyICMP(pkt, ihl) {
+		if applyICMP(pkt, ihl, p.winQuirks) {
 			modified = true
 		}
 	}
@@ -467,15 +469,16 @@ func (b *windowsBackend) applyTCP(pkt []byte, ihl int, p *winProfile) bool {
 
 // applyICMP clears DF (Windows IE DFI=N / U1 DF=N) and forces echo-reply code 0
 // (Windows CD=Z). Port of the ICMP block in fingerprint.c at IP offset 0.
-func applyICMP(pkt []byte, ihl int) bool {
+func applyICMP(pkt []byte, ihl int, winQuirks bool) bool {
 	modified := false
 	fo := binary.BigEndian.Uint16(pkt[6:8])
-	if fo&0x4000 != 0 {
+	if fo&0x4000 != 0 { // DF-clear: both Windows (DFI=N) and Linux ICMP, so ungated
 		binary.BigEndian.PutUint16(pkt[6:8], fo&^0x4000)
 		modified = true
 	}
-	if len(pkt) >= ihl+2 {
-		// ICMP type at pkt[ihl], code at pkt[ihl+1]. Echo reply type 0.
+	// Force echo-reply code 0 (Windows CD=Z) only for Windows profiles; Linux
+	// echoes the request code (CD=S), so a Linux profile leaves it (#13).
+	if winQuirks && len(pkt) >= ihl+2 {
 		if pkt[ihl] == 0 && pkt[ihl+1] != 0 {
 			pkt[ihl+1] = 0
 			modified = true

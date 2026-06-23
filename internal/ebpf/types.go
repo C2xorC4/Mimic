@@ -23,7 +23,10 @@ type OSProfileBPF struct {
 	// TCP options order (max 10 options, 0 = end)
 	TCPOptionsOrder [10]uint8
 	TCPOptionsCount uint8
-	_pad2           uint8
+	// WinQuirks: 1 = Windows profile → apply Windows-only stack quirks (shared
+	// IP-ID/SS=S, A=O RST ack, ICMP CD=Z). 0 (Linux/macOS) leaves the host's native
+	// behavior. Repurposes the former _pad2 byte (no struct-layout change).
+	WinQuirks uint8
 
 	// RST behavior
 	AckInRST    uint8

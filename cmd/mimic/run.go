@@ -20,9 +20,9 @@ import (
 	"github.com/c2xorc4/mimic/internal/defense"
 	"github.com/c2xorc4/mimic/internal/events"
 	honeyftp "github.com/c2xorc4/mimic/internal/honeypot/ftp"
-	honeyssh "github.com/c2xorc4/mimic/internal/honeypot/ssh"
 	honeyrdp "github.com/c2xorc4/mimic/internal/honeypot/rdp"
 	honeysmb "github.com/c2xorc4/mimic/internal/honeypot/smb"
+	honeyssh "github.com/c2xorc4/mimic/internal/honeypot/ssh"
 	"github.com/c2xorc4/mimic/internal/logging"
 	"github.com/c2xorc4/mimic/internal/netfilter"
 	"github.com/c2xorc4/mimic/internal/platform"
@@ -321,13 +321,18 @@ func runMimic(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		// Start T2/T3 probe response rules (nmap OS fingerprint probes, all ports)
-		probeMgr = services.NewProbeResponseManager()
-		if err := probeMgr.Start(); err != nil {
-			logging.Warn("T2/T3 probe response unavailable", map[string]interface{}{
-				"error": err.Error(),
-			})
-			probeMgr = nil
+		// Start T2/T3 probe response rules (nmap OS fingerprint probes, all ports).
+		// These emit the Windows RST+ACK T2/T3 behavior — a Windows tell — so they
+		// run ONLY for Windows profiles. A Linux/macOS profile leaves the host's
+		// native (Linux) T-series responses, so it fingerprints cleanly as Linux (#13).
+		if profile != nil && strings.EqualFold(profile.Family, "windows") {
+			probeMgr = services.NewProbeResponseManager()
+			if err := probeMgr.Start(); err != nil {
+				logging.Warn("T2/T3 probe response unavailable", map[string]interface{}{
+					"error": err.Error(),
+				})
+				probeMgr = nil
+			}
 		}
 
 		// Closed-port disposition. Workstation editions DEFAULT to the firewalled-Windows

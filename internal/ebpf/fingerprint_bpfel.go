@@ -25,7 +25,7 @@ type fingerprintOsProfile struct {
 	Ttl                   uint8
 	DfBit                 uint8
 	IpIdBehavior          uint8
-	Pad1                  uint8
+	EcnEcho               uint8
 	WindowSize            uint16
 	WindowScale           uint8
 	TcpTimestamps         uint8
@@ -34,7 +34,7 @@ type fingerprintOsProfile struct {
 	EcnSupport            uint8
 	TcpOptionsOrder       [10]uint8
 	TcpOptionsCount       uint8
-	Pad2                  uint8
+	WinQuirks             uint8
 	AckInRst              uint8
 	Pad3                  uint8
 	WindowInRst           uint16

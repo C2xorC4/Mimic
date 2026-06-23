@@ -53,7 +53,7 @@ struct os_profile {
     // TCP options order (max 10 options, 0 = end)
     __u8  tcp_options_order[10];
     __u8  tcp_options_count;
-    __u8  _pad2;
+    __u8  win_quirks;   // 1 = Windows profile: apply Windows-only stack quirks (shared IP-ID/SS=S, A=O RST, ICMP CD=Z). 0 (Linux/macOS) leaves the host's native behavior.
 
     // RST behavior
     __u8  ack_in_rst;
@@ -265,10 +265,12 @@ int fingerprint_egress(struct __sk_buff *skb) {
         bpf_l3_csum_replace(skb, 14 + 10, old_frag_off, new_frag_off, 2);
     }
 
-    // === IP ID Modification ===
-    // Always override using our shared counter so TCP and ICMP share the same
-    // sequence (SS=S in nmap). Linux uses per-flow counters that diverge.
-    {
+    // === IP ID Modification (Windows profiles only) ===
+    // Override from our shared counter so TCP and ICMP share one sequence (SS=S),
+    // the Windows trait. For a Linux/macOS profile this is SKIPPED: the host is
+    // Linux, whose native per-socket IP-ID is already the correct behavior (random,
+    // SS=O) — forcing the shared counter would itself be a Windows tell (#13).
+    if (profile->win_quirks) {
         struct ip_id_state *id_state = bpf_map_lookup_elem(&ip_id_map, &key);
         if (id_state) {
             __be16 new_id;
@@ -710,8 +712,9 @@ int fingerprint_egress(struct __sk_buff *skb) {
 
             // A=O: bare RST (no ACK flag) — set ack_seq to probe's SEQ.
             // Linux sends bare RST with ack_seq=0 (A=Z); Windows uses incoming SEQ (A=O).
-            // Applies to T4 (ACK→open port) and T6 (ACK→closed port).
-            if (!(tcp_flags & 0x10)) {
+            // Applies to T4 (ACK→open port) and T6 (ACK→closed port). Windows profiles
+            // only — a Linux profile keeps the host's native A=Z (#13).
+            if (!(tcp_flags & 0x10) && profile->win_quirks) {
                 __u32 ip_daddr;
                 __be16 tcp_sport, tcp_dport;
                 if (bpf_skb_load_bytes(skb, 14 + 16, &ip_daddr, 4) >= 0 &&
@@ -776,10 +779,11 @@ int fingerprint_egress(struct __sk_buff *skb) {
                 }
             }
         }
-        // For ICMP echo replies (type=0): force code=0 (Windows: CD=Z)
-        // Linux echoes the probe's code back which gives CD=S.
+        // For ICMP echo replies (type=0): force code=0 (Windows: CD=Z). Windows
+        // profiles only — Linux echoes the probe's code (CD=S), which is the host's
+        // native behavior, so a Linux profile leaves it untouched (#13).
         __u8 icmp_ihl;
-        if (bpf_skb_load_bytes(skb, 14, &icmp_ihl, 1) >= 0) {
+        if (profile->win_quirks && bpf_skb_load_bytes(skb, 14, &icmp_ihl, 1) >= 0) {
             __u32 icmp_start = 14 + ((__u32)(icmp_ihl & 0x0F) * 4);
             __u8 icmp_hdr2[2];
             if (bpf_skb_load_bytes(skb, icmp_start, icmp_hdr2, 2) >= 0) {
