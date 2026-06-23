@@ -8,7 +8,241 @@
 > write-ups (`net_impacket_*`, `net_smb_*`). Recall LJM before re-deriving;
 > don't duplicate Knowledge entries here.
 
-## Current Status (as of 2026-06-06; latest work 2026-06-18)
+## Current Status (as of 2026-06-06; latest work 2026-06-22)
+
+> **NEW MAJOR TRACK — Windows app + Linux honeypots + RBAC-ready control plane**
+> (plan approved 2026-06-22). Sequence: regression harness → **Windows port
+> (WinDivert)** → Linux interactive honeypots; RBAC/control seam designed-in now,
+> engine later; tray UI future (uses `Mimic.ico`). Decisions + full plan in
+> `~/.claude/plans/let-s-plan-our-windows-silly-kazoo.md`.
+>
+> **Phase 0a — cross-platform backend seam: DONE + VALIDATED (2026-06-22).** The
+> packet-mutation + elevation layers are now behind interfaces so a Windows build
+> compiles without the Linux-only deps (cilium/ebpf + netlink) leaking in:
+> - `internal/stack` — `Backend` interface (Load/SetProfile/Enable/Disable/IsEnabled/
+>   InterfaceName/Close) + `Teardown` + `TeardownResult`. `backend_linux.go` wraps the
+>   existing `ebpf.FingerprintManager` (pure extraction, **zero Linux behavior change**);
+>   `backend_other.go` (`//go:build !linux`) returns `ErrUnsupported` (Windows WinDivert
+>   impl lands Phase 1b, will retag to `!linux && !windows`).
+> - `internal/platform` — `IsElevated()` + `PrivilegeName()` (linux euid / windows
+>   Admin-token via x/sys/windows / permissive default) replacing inline `os.Geteuid()`.
+> - `internal/ebpf/{loader,teardown}.go` tagged `//go:build linux`; `types.go` stays
+>   cross-platform. `cmd/mimic` (`main/run/stop/serve/install/capture`) rewired off
+>   `internal/ebpf` onto `internal/stack`. `go mod tidy` promoted x/sys to direct.
+> - **DEVIATIONS from plan (deliberate, lower-risk):** (1) `internal/netfilter` Firewall
+>   interface deferred to **Phase 1c** — the nft/closed-port/T2-T3 code in
+>   `internal/services` is `os/exec`-based and already compiles cross-platform, so it
+>   was never a Windows blocker; the abstraction lands when there's a Windows impl to
+>   put behind it. (2) `run.go` kept UNIFIED (not split into run_linux/run_windows) — it
+>   compiles cross-platform via the seam today; the split + Windows-graceful nft
+>   degradation happens in **Phase 1a** with the Windows service lifecycle.
+> - **VALIDATED:** Windows (ss-book) `go build ./... && go vet ./... && go test ./...`
+>   ALL GREEN (Npcap+cgo present, so even capture/cmd build natively). Linux (argus)
+>   `make build` (incl. `make generate` — bpf2go still finds the directive under the
+>   linux tag) + `go test ./cmd/... ./internal/...` GREEN; rebuilt binary restarted
+>   under `/tmp/mx2.yaml` (Server 2025/all): eBPF `deceiver_fingerprint` filter
+>   attaches via the seam (jited, tc egress), `mimic verify` = **COHERENT**. eBPF
+>   bytes unchanged ⇒ nmap -O vector preserved (asserted mechanically in Phase 0b).
+> - **argus state note:** mimic now running rebuilt binary from `/tmp/mx2.yaml`
+>   (Windows Server 2025, services=all, preserve 2222). `tmp-llmnr/` is pre-existing
+>   untracked scratch (two conflicting pkgs) — NOT ours; scope tests to `./cmd/... ./internal/...`.
+
+> **Phase 0b — fingerprint/coherence regression harness: DONE + VALIDATED (2026-06-22).**
+> Two tiers, both green on Windows (ss-book) AND Linux (argus):
+> - **Offline (CI gate, no scanner)** in `internal/verify/`: `nmapxml.go` parses
+>   `nmap -O -sV -oX` into a normalized `ScanResult`; `golden.go` (`Golden` YAML +
+>   `CompareScan`) diffs a scan against a per-profile golden (OS family/gen, persona
+>   port disposition open-vs-closed/filtered, service-banner substring) → `Result`/TELL.
+>   Tests (`nmapxml_test.go`) run against a REAL recorded fixture
+>   (`testdata/nmap_srv2025_argus.xml`): parse, golden-match (no false TELL), and
+>   drift-detection (wrong golden ⇒ ≥5 TELLs). `profiles_test.go`
+>   (`TestAllProfilesSelfConsistent`) loads every shipped profile and asserts the
+>   version<->stack-era coherence in `go test` — the OSE tell caught at the source.
+> - **Live (per-item gate)** `test/matrix/main.go` + `make matrix MATRIX_TARGET=<ip>
+>   [MATRIX_GOLDEN=f.yaml | MATRIX_ALL=1]`: scans a running target, diffs every golden
+>   via the SAME parser/comparator, exits non-zero on any TELL. `make test-unit` =
+>   scoped unit run (skips the stray `tmp-llmnr/`).
+> - **Goldens captured + live-PASS** (`test/golden/`): `windows-server-2025.yaml`
+>   (server edition — 135/139/445 **open**) and `windows-11.yaml` (workstation —
+>   135/139/445 **filtered**, desktop 3389/5357/5985/7680 open). Both nmap-attributed
+>   "Windows 10|11". Covers BOTH edition dispositions. Remaining 4 Windows goldens
+>   (Win10, Server 2016/2019/2022) + Linux goldens are captured incrementally during
+>   each profile's Phase-1 validation pass (plan: "each item ends with a matrix re-run").
+> - **Note:** this also re-confirmed Phase 0a preserved the stack fingerprint — the
+>   live Server 2025 scan through the rebuilt seam binary = "Windows 10|11", server
+>   port surface intact. Windows scanner (ss-book) nmap at
+>   `C:\Program Files (x86)\Nmap\nmap.exe`; Kali (10.0.254.70) was powered off.
+
+> **Phase 1a — service-emulation layer runs as a Windows application: CODE-COMPLETE
+> (2026-06-22); over-the-wire VM validation BATCHED with 1b (user decision).** `mimic
+> run` now degrades to service-only where there's no stack/host-shaping backend:
+> - `stack.Available()` + `netfilter.Supported()` gates (linux true / other false) in
+>   `run.go`: stack-backend goroutine and the whole nft host-shaping block (closed-port/
+>   T2-T3/firewall persona) are skipped off-Linux; a profile with no stack backend logs
+>   "service emulation only" instead of aborting; `-i` no longer required when no backend.
+>   `stop.go` nft teardown gated by `netfilter.Supported()`. Linux behavior UNCHANGED
+>   (both gates true) — re-validated on argus (build+vet+test green, restart, verify COHERENT).
+> - **Windows binary is Npcap-free:** `cmd/mimic/capture.go` tagged `//go:build linux`
+>   (live/pcap capture is a Linux operator workflow + links cgo libpcap); `capture_other.go`
+>   stub returns "Linux-only". `go list -deps ./cmd/mimic` on windows shows NO
+>   gopacket/pcap — so a deployed Windows honeypot binary needs no Npcap just to serve.
+> - **Windows Service lifecycle:** `service_windows.go` (svc.IsWindowsService → svc.Run
+>   handler; SCM Stop→`serviceStopCh` graceful shutdown, a new nil-by-default chan selected
+>   in run.go's main loop), `service_other.go` no-op. `install.go` tagged linux (systemd);
+>   `install_windows.go` registers an SCM service (mgr.CreateService, ImagePath=`run -c
+>   <ProgramData\Mimic\config.yaml>`), copies binary+profiles+services to Program Files,
+>   writes a windows-pathed starter config; uninstall stops+deletes. `copyFile`+starter
+>   embed moved to shared `fsutil.go`.
+> - **Validated:** Windows (ss-book) `go build ./... && go vet` green; `mimic list` works,
+>   `mimic capture` → "Linux-only" msg, `mimic serve` non-elevated → "requires
+>   administrator privileges" (platform.IsElevated works on Windows). internal/services +
+>   honeypot unit tests already green on Windows. **PENDING (batched into 1b's Windows-VM
+>   session):** over-the-wire `serve` on a clean Win11 clone (non-conflicting ports
+>   redis/vnc/telnet — native SMB/RPC/WinRM occupy the persona ports) scanned from ss-book.
+> - **Proxmox reachable** (`infra/proxmox/lab.py list`): Win templates 9010/9011/9116/9119/
+>   9122/9125; existing clone `9501 mimic-lab-win11` (stopped). Use for the 1b VM session.
+
+> **Phase 1b — WinDivert stack-mutation backend: DONE + VALIDATED ON A WINDOWS VM
+> (2026-06-22).** Direct WinDivert 2.x bindings (no third-party module):
+> - `internal/stack/windivert_windows.go` — `windows.NewLazyDLL("WinDivert.dll")`
+>   bindings for Open/Recv/Send/Close/HelperCalcChecksums; `wdAddress` mirrors the
+>   80-byte WINDIVERT_ADDRESS v2 (Outbound bit = (Bitfield>>17)&1). Network layer:
+>   packets start at the IP header (no Ethernet) and CalcChecksums fixes IP/TCP/ICMP
+>   csums after edits — so NONE of fingerprint.c's incremental-checksum math is ported.
+> - `internal/stack/backend_windows.go` — `windowsBackend` implements `Backend` +
+>   `New`/`Available()=true`/`Teardown`(no-op). Load opens filter `outbound and ip and
+>   (tcp or icmp)` and runs a recv→mutate→CalcChecksums→send pump (ALWAYS re-sends, else
+>   host traffic drops; mutates only when enabled). `applyEgress`/`applyTCP`/`applyICMP`
+>   port fingerprint.c at IP-offset-0: TTL, DF, IP-ID (shared counter), window, the
+>   20/12/16-byte SYN/SYN-ACK option templates (XP/Win7+/Win10-11-TS/Linux/macOS),
+>   W6=0xFFDC, TS coherence on established 12-byte segments (uptimeMs via
+>   GetTickCount64), RST window=0, ECN ECE-clear, ICMP DF-clear + echo code 0.
+>   `backend_other.go` retagged `!linux && !windows`. atomic.Pointer[winProfile] +
+>   atomic.Bool for live SetProfile/Enable.
+> - **DEFERRED (refinement):** A=O RST ack rewrite (needs inbound SEQ seq-cache /
+>   2nd handle) — refines nmap T4/T6 only; primary attribution covered.
+> - **VALIDATED on a Windows VM (2026-06-22, proxmox win11 clone 9521 @ 10.0.250.228,
+>   nmap -O from ss-book):** Native baseline = "Windows 10|11" TTL 128. With mimic
+>   `run --profile Ubuntu` (WinDivert active), the emitted fingerprint = **TTL 64
+>   (T=40), WIN W1=7210 (29200), OPS NW7 (WS 7), TI=RD/II=RI (random IP-ID), TS=A,
+>   ECN CC=N (ECE cleared), U1 DF=N + IE DFI=N (ICMP DF cleared), T2/T4/T6 W=0** —
+>   every Ubuntu stack field correct on the wire. Stop mimic → reverts cleanly to
+>   "Windows 10|11" TTL 128 (Close unloads WinDivert). Counters: recv==outbound==
+>   modified, send_err=0.
+> - **KEY FINDING (pre-existing, NOT a WinDivert bug):** nmap gives "no exact match"
+>   for the Ubuntu profile because the **TCP options ORDER stays Windows-style
+>   (M5B4NW7ST10 = MSS,NOP,WS,SACK,TS)** while TTL/window are Linux — incoherent, so
+>   nmap can't cleanly label it Linux. Root cause is in `fingerprint.c`'s template
+>   logic (the `ws>0 && ts` Windows branch precedes the Linux branch), so it affects
+>   BOTH backends, and `backend_windows.go` faithfully reproduces it. **Making Linux
+>   profiles convincing needs a proper Linux options branch in BOTH fingerprint.c and
+>   applyTCP** — tracked as a follow-up (ties into Phase 2 Linux work). The primary
+>   Windows-profile path uses the well-tested Windows branches and is unaffected.
+> - **Debug aid:** `MIMIC_WD_DEBUG=1` env enables per-packet + 3s counter logging in
+>   the WinDivert loop (gated; off by default).
+> - **Lab note:** the WinRM session-close KILLS `Start-Process` children — launch a
+>   persistent run on Windows via `Invoke-CimMethod Win32_Process Create` (detached) or
+>   the SCM service, NOT Start-Process. Win11 guest creds: user `root` / pass
+>   `root:toor26`; transfer via `Copy-Item -ToSession`; WinDivert.dll + WinDivert64.sys
+>   (v2.2.2 x64) must sit beside mimic.exe (C:\mimic). `lab.py` deploy `--linked --start`
+>   (full clone may land stopped). VM 9521 KEPT WARM for 1c (mimic stopped).
+>
+> **1a over-the-wire (batched, VALIDATED on 9521):** `mimic serve --services
+> redis,vnc,telnet` (non-conflicting ports; native SMB/RPC/WinRM occupy the persona
+> ports) → nmap -sV from ss-book: 23/telnet "Cisco IOS telnetd", 5900/vnc "VNC
+> (protocol 3.8)", 6379 answered (tcpwrapped). Service emulation serves correctly on
+> Windows. **Phase 1a fully validated.**
+
+> **Phase 1c — Windows closed-port firewall persona: DONE + VALIDATED ON A WINDOWS
+> VM (2026-06-22).** WinDivert SYN-drop (self-contained, revertible, does NOT touch
+> the host Windows Firewall config), mirroring the Linux nft default-drop:
+> - `internal/netfilter/firewall.go` — `PersonaFirewall` interface (EnableDrop/
+>   EnableICMPDrop/Stop). `firewall_windows.go` — `winFirewall`: each Enable opens a
+>   WinDivert handle whose filter matches exactly the packets to suppress and a drain
+>   goroutine recv's-and-drops them. TCP filter: `inbound and tcp and tcp.Syn and
+>   !tcp.Ack and !loopback` + `and tcp.DstPort != <p>` per allow-listed port — SYN-ONLY
+>   so the host's own outbound client traffic (inbound responses are SYN-ACK) is
+>   unaffected, loopback exempt. ICMP filter: `inbound and icmp and icmp.Type==8`.
+>   `firewall_other.go` (!windows) → nil (Linux uses the nft path). Minimal drop-only
+>   WinDivert bindings duplicated in `netfilter/windivert_windows.go` to isolate from
+>   the validated stack backend (future: unify into internal/windivert).
+> - `run.go`: after the nft `Supported()` block, a cross-platform persona block — when
+>   `!netfilter.Supported()` and `NewPersonaFirewall()!=nil`, workstation editions
+>   default-drop (autoDrop unless `closed_port_behavior: reset`); allow-list derived from
+>   `config.ServiceListenPorts` + `preserve_ports`; ICMP drop on workstation. Torn down
+>   via `defer winFw.Stop()` on every return path.
+> - **VALIDATED (proxmox win11 clone 9521, nmap from ss-book), config services
+>   redis/vnc/telnet + preserve_ports [5985]:** native-listening **135/139/445/3389 →
+>   FILTERED**; mimic-served **23/5900/6379 → open**; preserved **5985 (WinRM) → open**
+>   (management access kept — established connections survive, only bare SYN dropped);
+>   22 → filtered. Stop mimic → 135/445/3389 revert to **open** (clean teardown, no host
+>   fw config touched). **preserve_ports MUST include the WinRM/management port on Windows.**
+>   VM destroyed after validation.
+>
+> **★ PHASE 1 (Windows application) COMPLETE + VALIDATED ON REAL HARDWARE ★** 1a service
+> emulation, 1b WinDivert stack mutation, 1c firewalled-client persona — all proven
+> over-the-wire on a Win11 VM from a single Npcap-free Windows binary with an SCM
+> service lifecycle. Remaining Windows nicety: `run` requires `-i` on Windows
+> (stack.Available()=true) though WinDivert is host-wide — harmless (pass any value),
+> could relax later. North-star (Windows port) achieved for the Linux benchmark set.
+
+> **Phase 2.0 — Linux capture pass: DONE (8/9, 2026-06-23). #10 options-order fix:
+> DONE + VALIDATED both backends. New gap #12 (ECN quirk gating) found.**
+> - **Capture results (`captures/proxmox/<distro>/{stack,sv,ssh,http}.{xml,txt}`):**
+>   ubuntu-2204/2004, debian-12/11, fedora, arch, **rocky-9** → nmap -O "Linux 4.15-5.19"
+>   (osgen 4.X/5.X). **rocky-8 → "Linux 3.2-4.14"** (osgen 3.X/4.X — older 4.18 kernel,
+>   the version-divergence the user predicted; TWO Linux stack classes). SSH algo lists
+>   (KEX/cipher/MAC) captured for 2a. **kali GAP:** sshd not up on template 9341 (no open
+>   port → "too many fingerprints"); `systemctl enable --now ssh` in setup didn't take —
+>   needs openssh-server install/start or a different open port. Rocky templates' guest
+>   agent lacks guest-exec ({data:null}) → fw-off skipped (non-fatal; cloud-image fw was
+>   already permissive, -O worked anyway).
+> - **#10 (TCP options ORDER): DONE + VALIDATED both backends.** Root cause confirmed:
+>   the `ws>0 && ts` Windows branch preceded the Linux branch, AND the Linux branch left
+>   TS as NOPs. Fix (fingerprint.c + backend_windows.go applyTCP): Linux branch
+>   (`ts && opt[1]==SACK_PERM`) moved BEFORE the Windows-TS branch + emits a REAL TS.
+>   **Validated:** win11+Ubuntu (WinDivert) AND argus+Ubuntu (eBPF) both emit
+>   `OPS O1=M5B4ST11NW7` = MSS,SACK,TS,NOP,WS (Linux order; was `M5B4NW7ST10` Windows).
+>   No Windows-profile regression (Server 2025 still "Windows 10|11"; Win10/11 opt[1]=nop
+>   → unaffected). bpf2go compiles, go test green.
+> - **#12 — ECN family-gating: DONE + VALIDATED (2026-06-23).** Plumbed `ecn_echo` into
+>   OSProfileBPF (repurposed `_pad1` → `EcnEcho`; C `os_profile.ecn_echo`), set from family
+>   in `profileToBPF` + `toWinProfile` (linux/macOS=1). Gated BOTH backends: ECE-clear now
+>   `&& !ecn_echo` (Linux keeps ECE → CC=Y); the 12-byte Windows-ordered ECN-options rewrite
+>   skipped for Linux. **VALIDATED (argus+Ubuntu eBPF):** `CC=Y` (was N), `O=M5B4NNSNW7`
+>   (native Linux, was Windows `M5B4NW7NNS`), **Linux 5.10-5.15 rose to a top match (86%)**.
+>   No Windows regression (Server 2025 → "Windows 10|11"). bpf2go + go test green.
+> - **→ #13 (LOW PRI):** a Linux profile still isn't a *clean* Linux label — nft T2/T3
+>   probe responses, A=O RST, IP-ID sharing (SS=S) are Windows-isms applied regardless of
+>   family; gating needs probeMgr + eBPF family-gating. Windows-host WinDivert has a hard
+>   ISN/SEQ ceiling regardless. Low value (Linux stack layer is low-use); the high-value
+>   Linux work is the interactive honeypots (2a SSH), grounded by the Phase-2.0 captures.
+>
+> > **Original Phase 2.0 harness notes (2026-06-23):** capture REAL Linux distros first, then ground the
+> #10 options fix + Phase-2 honeypots in captured data (capture-driven, not hand-authored).
+> - **Harness `infra/proxmox/capture_linux.py`** (the Linux counterpart of capture.ps1):
+>   per distro — deploy linked clone (lab.py) → guest-agent up + IP → guest-agent exec
+>   (fw OFF across firewalld/ufw/nft/iptables) → run an nmap SUITE from ss-book → save
+>   XML+txt to `captures/proxmox/<distro>/` → destroy. Fully out-of-band via the QEMU
+>   guest agent (reuses lab.py `_token`/`BASE`/`NODE`; no in-guest SSH creds needed).
+>   nmap suite: `stack` (-O --osscan-guess, the Linux OS vector for #10 + goldens),
+>   `sv`, `ssh` (ssh2-enum-algos/hostkey/auth-methods — 2a fidelity), `http`.
+> - **Distro set (user-chosen, broad incl. older where packets differ):** ubuntu-2204
+>   (9302) + 2004 (9303), debian-12 (9304) + 11 (9305), rocky-9 (9306) + 8 (9307),
+>   fedora (9310), arch (9311), kali (9341).
+> - **Validated on ubuntu-2204:** native nmap -O = **"Linux 4.15 - 5.19"** (osgen
+>   4.X/5.X) — the golden target; `ssh.xml` captured the full KEX/cipher/MAC lists.
+>   Full `--all --no-pcap` batch running in background (~30 min) → per-distro
+>   captures/proxmox/<distro>/{stack,sv,ssh,http}.{xml,txt}.
+> - **KEY: the nmap suite is the primary, working artifact** — `nmap -O` emits the OS
+>   options-order (OPS=) + the osmatch golden; ssh-enum gives the honeypot algo lists.
+>   No pcap needed for #10/2a/goldens.
+> - **pcap pull DEFERRED (known limitation):** guest-agent `tcpdump` + `file-read` pull
+>   fails — backgrounded tcpdump is reaped when the agent `exec` returns (child-lifetime,
+>   like Windows Start-Process), and file-read needs debugging. Byte-exact SERVICE
+>   templates (`mimic capture pcap`, the 2c stateless-replay path) will need a `setsid`
+>   detach + working file-read (or scp via the argus_lab key on cloud templates). Not a
+>   blocker for the interactive-honeypot Phase-2 direction. Run harness with `--no-pcap`.
 
 > **Thin-decoys queue (order 3,2,4,1):** **ALL DONE + VALIDATED** (2026-06-18).
 > (#3) WinRM, (#2) MSRPC ept_map, (#4) NetBIOS/139, (#1) RDP/3389 CredSSP.
@@ -523,6 +757,17 @@ pipeline inverted) after Linux benchmarks pass.
    vnc+winrm + smb/rdp honeypots). SMB enumeration scripts closed (item #5).
 
 ## Operational
+
+### ⚠ Lab guest credentials (corrected 2026-06-23 — DO NOT mis-parse)
+- **Username:** `root` (workstations) / `Administrator` (Windows servers).
+- **Password:** the LITERAL string **`root:toor26`** — the colon IS part of the
+  password. It is **NOT** a `user:password` pair; the whole thing incl. `:` is the
+  password. (capture.ps1 proves it: `ConvertTo-SecureString 'root:toor26'` is passed
+  as the *password* arg.) Security-question answer: `root`. This has been mis-read
+  repeatedly — when SSHing/WinRM-ing to any lab clone, the password is `root:toor26`.
+- create-cloud Linux templates also carry the `~/.ssh/argus_lab.pub` key (key auth);
+  the Kali (9341)/older templates may NOT — fall back to the password or the QEMU
+  guest-agent exec (out-of-band, no SSH needed).
 
 ### argus-lab (test target)
 - IP `10.0.254.45`, iface `ens18`, SSH key `~/.ssh/argus_lab` (port 2222), Go
