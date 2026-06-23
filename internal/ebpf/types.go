@@ -4,10 +4,13 @@ package ebpf
 // Must match the struct os_profile in fingerprint.c exactly
 type OSProfileBPF struct {
 	// IP layer
-	TTL           uint8
-	DFBit         uint8
-	IPIDBehavior  uint8
-	_pad1         uint8
+	TTL          uint8
+	DFBit        uint8
+	IPIDBehavior uint8
+	// EcnEcho: 1 = OS echoes ECE in the SYN-ACK (Linux/macOS → nmap CC=Y) and keeps
+	// its native ECN-probe options; 0 = clear ECE + force Windows-ordered ECN options
+	// (Windows → CC=N). Repurposes the former _pad1 byte (no struct-layout change).
+	EcnEcho uint8
 
 	// TCP layer
 	WindowSize    uint16
@@ -28,10 +31,10 @@ type OSProfileBPF struct {
 	WindowInRST uint16
 
 	// ICMP
-	ICMPQuoteSize   uint8
-	ICMPDFInQuote   uint8
-	ICMPTTLInQuote  uint8
-	ICMPRateLimit   uint8
+	ICMPQuoteSize  uint8
+	ICMPDFInQuote  uint8
+	ICMPTTLInQuote uint8
+	ICMPRateLimit  uint8
 
 	// UDP
 	UDPClosedPortResponse uint8

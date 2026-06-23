@@ -40,7 +40,7 @@ struct os_profile {
     __u8  ttl;
     __u8  df_bit;
     __u8  ip_id_behavior;
-    __u8  _pad1;
+    __u8  ecn_echo;   // 1 = echo ECE in SYN-ACK (Linux/macOS CC=Y) + keep native ECN opts; 0 = Windows (clear ECE, force Win ECN opts)
 
     // TCP layer
     __u16 window_size;
@@ -413,6 +413,46 @@ int fingerprint_egress(struct __sk_buff *skb) {
                     new_opts[10] = TCPOPT_SACK_PERM;
                     new_opts[11] = 2;
                 }
+            } else if (profile->tcp_timestamps && opt1 == TCPOPT_SACK_PERM) {
+                // Linux style: MSS(4) + SACK(2) + TS(10) + NOP + WS(3) = 20 bytes.
+                // Checked BEFORE the Windows ws>0&&ts branch: Linux profiles put
+                // SACK_PERM at option index 1, Windows profiles put NOP there — so
+                // opt1==SACK_PERM cleanly selects the Linux order. Emits a REAL
+                // timestamp (was previously skipped as NOPs, which broke TS=A and
+                // left a Windows-ordered OPS on a Linux profile — the #10 bug).
+                __u32 lin_tsecr = 0;
+                if (old_opts[8] == TCPOPT_TIMESTAMP && old_opts[9] == TCPOLEN_TIMESTAMP) {
+                    lin_tsecr = ((__u32)old_opts[14]<<24)|((__u32)old_opts[15]<<16)|((__u32)old_opts[16]<<8)|old_opts[17];
+                } else if (old_opts[6] == TCPOPT_TIMESTAMP && old_opts[7] == TCPOLEN_TIMESTAMP) {
+                    lin_tsecr = ((__u32)old_opts[12]<<24)|((__u32)old_opts[13]<<16)|((__u32)old_opts[14]<<8)|old_opts[15];
+                } else if (old_opts[4] == TCPOPT_TIMESTAMP && old_opts[5] == TCPOLEN_TIMESTAMP) {
+                    lin_tsecr = ((__u32)old_opts[10]<<24)|((__u32)old_opts[11]<<16)|((__u32)old_opts[12]<<8)|old_opts[13];
+                }
+                __u32 lin_tsval = (__u32)(bpf_ktime_get_ns() / 1000000ULL);
+                new_opts[0] = TCPOPT_MSS;
+                new_opts[1] = 4;
+                new_opts[2] = (mss_val >> 8) & 0xFF;
+                new_opts[3] = mss_val & 0xFF;
+                if (use_sack) {
+                    new_opts[4] = TCPOPT_SACK_PERM;
+                    new_opts[5] = 2;
+                }
+                new_opts[6] = TCPOPT_TIMESTAMP;
+                new_opts[7] = TCPOLEN_TIMESTAMP;
+                new_opts[8]  = (lin_tsval >> 24) & 0xFF;
+                new_opts[9]  = (lin_tsval >> 16) & 0xFF;
+                new_opts[10] = (lin_tsval >> 8) & 0xFF;
+                new_opts[11] = lin_tsval & 0xFF;
+                new_opts[12] = (lin_tsecr >> 24) & 0xFF;
+                new_opts[13] = (lin_tsecr >> 16) & 0xFF;
+                new_opts[14] = (lin_tsecr >> 8) & 0xFF;
+                new_opts[15] = lin_tsecr & 0xFF;
+                new_opts[16] = TCPOPT_NOP;
+                if (profile->window_scale > 0) {
+                    new_opts[17] = TCPOPT_WSCALE;
+                    new_opts[18] = 3;
+                    new_opts[19] = profile->window_scale;
+                }
             } else if (profile->window_scale > 0 && profile->tcp_timestamps) {
                 // Windows 10/11: MSS(4) + NOP(1) + WS(3) + SACK(2) + TS(10) = 20 bytes
                 // The kernel already set TSecr correctly in the original packet (it echoes
@@ -454,23 +494,6 @@ int fingerprint_egress(struct __sk_buff *skb) {
                 new_opts[17] = (orig_tsecr >> 16) & 0xFF;
                 new_opts[18] = (orig_tsecr >> 8) & 0xFF;
                 new_opts[19] = orig_tsecr & 0xFF;
-            } else if (profile->tcp_timestamps && opt1 == TCPOPT_SACK_PERM) {
-                // Linux style: MSS(4) + SACK(2) + TS(10) + NOP + WS(3)
-                new_opts[0] = TCPOPT_MSS;
-                new_opts[1] = 4;
-                new_opts[2] = (mss_val >> 8) & 0xFF;
-                new_opts[3] = mss_val & 0xFF;
-                if (use_sack) {
-                    new_opts[4] = TCPOPT_SACK_PERM;
-                    new_opts[5] = 2;
-                }
-                // Skip timestamp (leave as NOPs) - bytes 6-15
-                new_opts[16] = TCPOPT_NOP;
-                if (profile->window_scale > 0) {
-                    new_opts[17] = TCPOPT_WSCALE;
-                    new_opts[18] = 3;
-                    new_opts[19] = profile->window_scale;
-                }
             } else {
                 // Default/macOS style: MSS(4) + NOP + WS(3) + SACK(2) + NOPs
                 new_opts[0] = TCPOPT_MSS;
@@ -530,7 +553,7 @@ int fingerprint_egress(struct __sk_buff *skb) {
         // === 12-byte options template (ECN probe, no timestamps negotiated) ===
         // nmap's ECN probe sends SYN with MSS+NOP+NOP+SACK+NOP+WS(7) = 12 bytes.
         // Rewrite to Windows order: MSS+NOP+WS(profile)+NOP+NOP+SACK = 12 bytes.
-        if (opt_len == 12 && profile->window_scale > 0 && profile->tcp_options_count > 0 && is_syn) {
+        if (opt_len == 12 && profile->window_scale > 0 && profile->tcp_options_count > 0 && is_syn && !profile->ecn_echo) {
             __u32 opt12_start = tcp_offset + 20;
             __u8 old12[12];
             if (bpf_skb_load_bytes(skb, opt12_start, old12, 12) >= 0) {
@@ -728,7 +751,8 @@ int fingerprint_egress(struct __sk_buff *skb) {
         // ecn_support in the profile means the OS initiates ECN connections, not that it
         // echoes ECE in SYN-ACK back to probers.
         // Only applies to SYN-ACK (SYN=1 + ACK=1, flags & 0x12 == 0x12).
-        if ((tcp_flags & 0x12) == 0x12 && (tcp_flags & 0x40)) {
+        // Gated by !ecn_echo: Linux/macOS echo ECE (CC=Y), so only Windows clears it (#12).
+        if ((tcp_flags & 0x12) == 0x12 && (tcp_flags & 0x40) && !profile->ecn_echo) {
             __u8 no_ece = tcp_flags & ~(__u8)0x40;  // clear ECE (bit 6)
             if (bpf_skb_store_bytes(skb, tcp_offset + 13, &no_ece, 1, 0) >= 0) {
                 bpf_l4_csum_replace(skb, tcp_offset + 16,

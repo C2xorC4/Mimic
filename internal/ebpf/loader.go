@@ -1,3 +1,5 @@
+//go:build linux
+
 package ebpf
 
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang -no-strip -cflags "-O2 -g -Wall -Werror" fingerprint fingerprint.c -- -I/usr/include/bpf -I/usr/include
@@ -5,6 +7,7 @@ package ebpf
 import (
 	"fmt"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/vishvananda/netlink"
@@ -219,13 +222,22 @@ func (fm *FingerprintManager) Close() error {
 // profileToBPF converts an OSProfile to the BPF map structure
 func profileToBPF(profile *config.OSProfile) *OSProfileBPF {
 	bpf := &OSProfileBPF{
-		TTL:           profile.Stack.TTL,
-		WindowSize:    profile.Stack.WindowSize,
-		WindowScale:   profile.Stack.WindowScale,
-		MSS:           profile.Stack.MSS,
-		WindowInRST:   profile.Stack.WindowInRST,
-		ICMPQuoteSize: profile.Stack.ICMPQuoteSize,
+		TTL:            profile.Stack.TTL,
+		WindowSize:     profile.Stack.WindowSize,
+		WindowScale:    profile.Stack.WindowScale,
+		MSS:            profile.Stack.MSS,
+		WindowInRST:    profile.Stack.WindowInRST,
+		ICMPQuoteSize:  profile.Stack.ICMPQuoteSize,
 		ICMPTTLInQuote: profile.Stack.ICMPTTLInQuote,
+	}
+
+	// ECN behaviour by family: Linux/macOS echo ECE in the SYN-ACK (nmap CC=Y) and
+	// keep their native ECN-probe options; Windows clears ECE (CC=N) and uses the
+	// Windows-ordered ECN template. (#12 — gates the Windows-specific ECN quirks so
+	// Linux profiles don't leak a CC=N / Windows-ordered ECN tell.)
+	switch strings.ToLower(profile.Family) {
+	case "linux", "macos":
+		bpf.EcnEcho = 1
 	}
 
 	// DF bit
