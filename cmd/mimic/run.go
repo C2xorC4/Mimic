@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -16,13 +17,15 @@ import (
 	"github.com/c2xorc4/mimic/internal/config"
 	"github.com/c2xorc4/mimic/internal/deception"
 	"github.com/c2xorc4/mimic/internal/defense"
-	"github.com/c2xorc4/mimic/internal/ebpf"
 	"github.com/c2xorc4/mimic/internal/events"
 	honeyftp "github.com/c2xorc4/mimic/internal/honeypot/ftp"
 	honeyrdp "github.com/c2xorc4/mimic/internal/honeypot/rdp"
 	honeysmb "github.com/c2xorc4/mimic/internal/honeypot/smb"
 	"github.com/c2xorc4/mimic/internal/logging"
+	"github.com/c2xorc4/mimic/internal/netfilter"
+	"github.com/c2xorc4/mimic/internal/platform"
 	"github.com/c2xorc4/mimic/internal/services"
+	"github.com/c2xorc4/mimic/internal/stack"
 )
 
 var runCmd = &cobra.Command{
@@ -69,6 +72,12 @@ var (
 	runClosedPorts []int
 )
 
+// serviceStopCh, when non-nil, lets a platform service manager (the Windows SCM
+// handler) request a graceful shutdown of a running `mimic run`. It is nil for
+// interactive/Linux runs; selecting on a nil channel never fires, so the main
+// loop is unaffected. The windows service wrapper sets and closes it.
+var serviceStopCh chan struct{}
+
 func init() {
 	runCmd.Flags().StringVar(&runProfile, "profile", "", "OS profile to apply (overrides config)")
 	runCmd.Flags().StringSliceVar(&runServices, "services", []string{}, "Services to emulate, or 'all' for full catalog with edition gating (overrides config)")
@@ -79,8 +88,8 @@ func init() {
 }
 
 func runMimic(cmd *cobra.Command, args []string) error {
-	if os.Geteuid() != 0 {
-		return fmt.Errorf("this command requires root privileges")
+	if !platform.IsElevated() {
+		return fmt.Errorf("this command requires %s privileges", platform.PrivilegeName())
 	}
 
 	// Load app config
@@ -167,8 +176,10 @@ func runMimic(cmd *cobra.Command, args []string) error {
 		})
 	}
 
-	// Validate required fields
-	if appCfg.Interface == "" {
+	// Validate required fields. The interface is only needed for the stack
+	// backend (eBPF/TC on Linux); on platforms without one, run is service-only
+	// and binds to all interfaces, so no -i is required.
+	if stack.Available() && appCfg.Interface == "" {
 		return fmt.Errorf("interface not specified (use -i or config file)")
 	}
 	if appCfg.Profile == "" && len(appCfg.Services) == 0 {
@@ -245,88 +256,132 @@ func runMimic(cmd *cobra.Command, args []string) error {
 	// Context for shutdown coordination
 	shutdown := make(chan struct{})
 
-	var fm *ebpf.FingerprintManager
+	var fm stack.Backend
 	var svcMgr *services.Manager
 	var closedMgr *services.ClosedPortManager
 	var probeMgr *services.ProbeResponseManager
 	var fwMgr *services.FirewallManager
 
-	// Start closed port listeners (optional - may fail if netfilter unavailable)
-	if len(appCfg.ClosedPorts) > 0 {
-		closedMgr = services.NewClosedPortManager()
-		if err := closedMgr.AddPorts(appCfg.ClosedPorts); err != nil {
-			logging.Warn("Closed ports unavailable - OS fingerprinting may be incomplete", map[string]interface{}{
-				"error": err.Error(),
-				"hint":  "Ensure kernel has nf_tables or nft_reject_inet modules loaded",
-			})
-			closedMgr = nil // Continue without closed ports
-		} else {
-			logging.Info("Closed ports active", map[string]interface{}{
-				"ports": appCfg.ClosedPorts,
-			})
+	// Host packet-disposition shaping — closed-port RST/drop, T2/T3 probe
+	// responses, and the firewalled-client default-drop persona — is nftables-based
+	// (Linux only for now; Windows lands in Phase 1c behind internal/netfilter).
+	// Where unsupported, the whole block is skipped and service emulation runs alone.
+	if netfilter.Supported() {
+		// Start closed port listeners (optional - may fail if netfilter unavailable)
+		if len(appCfg.ClosedPorts) > 0 {
+			closedMgr = services.NewClosedPortManager()
+			if err := closedMgr.AddPorts(appCfg.ClosedPorts); err != nil {
+				logging.Warn("Closed ports unavailable - OS fingerprinting may be incomplete", map[string]interface{}{
+					"error": err.Error(),
+					"hint":  "Ensure kernel has nf_tables or nft_reject_inet modules loaded",
+				})
+				closedMgr = nil // Continue without closed ports
+			} else {
+				logging.Info("Closed ports active", map[string]interface{}{
+					"ports": appCfg.ClosedPorts,
+				})
+			}
 		}
-	}
 
-	// Start T2/T3 probe response rules (nmap OS fingerprint probes, all ports)
-	probeMgr = services.NewProbeResponseManager()
-	if err := probeMgr.Start(); err != nil {
-		logging.Warn("T2/T3 probe response unavailable", map[string]interface{}{
-			"error": err.Error(),
-		})
-		probeMgr = nil
-	}
-
-	// Closed-port disposition. Workstation editions DEFAULT to the firewalled-Windows
-	// persona (default-drop): unserved ports — including 135/139/445 — read as
-	// FILTERED, matching a real firewalled Win11 client (OSE-2026-001 Op-1 dropped
-	// ~all ports; closed-not-filtered on the server ports was the server-vs-client
-	// tell). The allow-list is DERIVED from the actually-served decoy ports so the
-	// client persona's open surface (3389/5357/5985/7680, etc.) stays reachable.
-	// Operators opt out with closed_port_behavior: reset (keeps the nmap closed-port
-	// probe for higher -O confidence, at the cost of the persona). Other editions
-	// only drop when explicitly configured.
-	//
-	// Rules are added AFTER the T2/T3 + closed-port rules so those terminal RST rules
-	// match first and the default-drop catches only the remaining (filtered) ports.
-	// Established connections are always accepted, so applying this never severs the
-	// live SSH session — but new logins need their port in firewall.preserve_ports.
-	fwBehavior := strings.ToLower(appCfg.Firewall.ClosedPortBehavior)
-	isWorkstation := profile != nil && profile.ResolvedEdition() == "workstation"
-	autoDrop := isWorkstation && fwBehavior != "reset"
-	if fwBehavior == "drop" || fwBehavior == "filtered" || autoDrop {
-		openPorts := appCfg.Firewall.OpenPorts
-		if autoDrop {
-			// Derive the allow-list from the served decoy ports (+ any configured ones)
-			// so the workstation persona doesn't filter its own open ports.
-			openPorts = mergeUint16(openPorts, config.ServiceListenPorts(appCfg.Services, profile, appCfg.ServicesDir))
-		}
-		fwMgr = services.NewFirewallManager()
-		if err := fwMgr.EnableDrop(openPorts, appCfg.Firewall.PreservePorts); err != nil {
-			logging.Warn("Default-drop firewall unavailable — closed ports will RST (Linux default), a Windows-client persona tell", map[string]interface{}{
+		// Start T2/T3 probe response rules (nmap OS fingerprint probes, all ports)
+		probeMgr = services.NewProbeResponseManager()
+		if err := probeMgr.Start(); err != nil {
+			logging.Warn("T2/T3 probe response unavailable", map[string]interface{}{
 				"error": err.Error(),
 			})
-			fwMgr = nil
-		} else if autoDrop {
-			logging.Info("Workstation persona: firewalled-client default-drop active (135/139/445 + unserved ports → filtered)", map[string]interface{}{
-				"open_ports":     openPorts,
-				"preserve_ports": appCfg.Firewall.PreservePorts,
-			})
+			probeMgr = nil
 		}
-	}
-	// Workstation persona: drop inbound ping (Op-1 control filtered ICMP entirely).
-	if isWorkstation {
-		if fwMgr == nil {
+
+		// Closed-port disposition. Workstation editions DEFAULT to the firewalled-Windows
+		// persona (default-drop): unserved ports — including 135/139/445 — read as
+		// FILTERED, matching a real firewalled Win11 client (OSE-2026-001 Op-1 dropped
+		// ~all ports; closed-not-filtered on the server ports was the server-vs-client
+		// tell). The allow-list is DERIVED from the actually-served decoy ports so the
+		// client persona's open surface (3389/5357/5985/7680, etc.) stays reachable.
+		// Operators opt out with closed_port_behavior: reset (keeps the nmap closed-port
+		// probe for higher -O confidence, at the cost of the persona). Other editions
+		// only drop when explicitly configured.
+		//
+		// Rules are added AFTER the T2/T3 + closed-port rules so those terminal RST rules
+		// match first and the default-drop catches only the remaining (filtered) ports.
+		// Established connections are always accepted, so applying this never severs the
+		// live SSH session — but new logins need their port in firewall.preserve_ports.
+		fwBehavior := strings.ToLower(appCfg.Firewall.ClosedPortBehavior)
+		isWorkstation := profile != nil && profile.ResolvedEdition() == "workstation"
+		autoDrop := isWorkstation && fwBehavior != "reset"
+		if fwBehavior == "drop" || fwBehavior == "filtered" || autoDrop {
+			openPorts := appCfg.Firewall.OpenPorts
+			if autoDrop {
+				// Derive the allow-list from the served decoy ports (+ any configured ones)
+				// so the workstation persona doesn't filter its own open ports.
+				openPorts = mergeUint16(openPorts, config.ServiceListenPorts(appCfg.Services, profile, appCfg.ServicesDir))
+			}
 			fwMgr = services.NewFirewallManager()
+			if err := fwMgr.EnableDrop(openPorts, appCfg.Firewall.PreservePorts); err != nil {
+				logging.Warn("Default-drop firewall unavailable — closed ports will RST (Linux default), a Windows-client persona tell", map[string]interface{}{
+					"error": err.Error(),
+				})
+				fwMgr = nil
+			} else if autoDrop {
+				logging.Info("Workstation persona: firewalled-client default-drop active (135/139/445 + unserved ports → filtered)", map[string]interface{}{
+					"open_ports":     openPorts,
+					"preserve_ports": appCfg.Firewall.PreservePorts,
+				})
+			}
 		}
-		if err := fwMgr.EnableICMPDrop(); err != nil {
-			logging.Warn("ICMP drop unavailable — host will answer ping unlike a firewalled Win11 client", map[string]interface{}{
-				"error": err.Error(),
-			})
+		// Workstation persona: drop inbound ping (Op-1 control filtered ICMP entirely).
+		if isWorkstation {
+			if fwMgr == nil {
+				fwMgr = services.NewFirewallManager()
+			}
+			if err := fwMgr.EnableICMPDrop(); err != nil {
+				logging.Warn("ICMP drop unavailable — host will answer ping unlike a firewalled Win11 client", map[string]interface{}{
+					"error": err.Error(),
+				})
+			}
+		}
+	} // end netfilter.Supported()
+
+	// Windows (and any non-nft platform with a packet backend) firewalled-client
+	// persona: the Linux nft default-drop above is skipped, so install the same
+	// disposition via the platform PersonaFirewall (WinDivert SYN-drop). Workstation
+	// editions default to dropping unserved ports to FILTERED; opt out with
+	// closed_port_behavior: reset. Torn down via defer on every return path.
+	var winFw netfilter.PersonaFirewall
+	defer func() {
+		if winFw != nil {
+			winFw.Stop()
+		}
+	}()
+	if !netfilter.Supported() {
+		if fw := netfilter.NewPersonaFirewall(); fw != nil {
+			fwBehavior := strings.ToLower(appCfg.Firewall.ClosedPortBehavior)
+			isWks := profile != nil && profile.ResolvedEdition() == "workstation"
+			autoDrop := isWks && fwBehavior != "reset"
+			if fwBehavior == "drop" || fwBehavior == "filtered" || autoDrop {
+				open := appCfg.Firewall.OpenPorts
+				if autoDrop {
+					open = mergeUint16(open, config.ServiceListenPorts(appCfg.Services, profile, appCfg.ServicesDir))
+				}
+				if err := fw.EnableDrop(open, appCfg.Firewall.PreservePorts); err != nil {
+					logging.Warn("Persona firewall unavailable — unserved ports will not read as filtered", map[string]interface{}{"error": err.Error()})
+				} else {
+					winFw = fw
+					logging.Info("Workstation persona: firewalled-client default-drop active (unserved ports → filtered)", map[string]interface{}{
+						"open_ports": open, "preserve_ports": appCfg.Firewall.PreservePorts,
+					})
+				}
+				if isWks && winFw != nil {
+					if err := winFw.EnableICMPDrop(); err != nil {
+						logging.Warn("Persona ICMP drop unavailable — host will answer ping unlike a firewalled client", map[string]interface{}{"error": err.Error()})
+					}
+				}
+			}
 		}
 	}
 
 	// Start eBPF fingerprinting in goroutine
-	if profile != nil {
+	if profile != nil && stack.Available() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -335,7 +390,7 @@ func runMimic(cmd *cobra.Command, args []string) error {
 
 			// Create and load fingerprint manager
 			var err error
-			fm, err = ebpf.NewFingerprintManager(appCfg.Interface)
+			fm, err = stack.New(appCfg.Interface)
 			if err != nil {
 				errChan <- fmt.Errorf("creating fingerprint manager: %w", err)
 				return
@@ -367,6 +422,11 @@ func runMimic(cmd *cobra.Command, args []string) error {
 			ebpfLog.Info("Shutting down", nil)
 			fm.Close()
 		}()
+	} else if profile != nil {
+		logging.Warn("Stack fingerprinting backend unavailable on this platform — running service emulation only (no TCP/IP stack spoofing)", map[string]interface{}{
+			"platform": runtime.GOOS,
+			"profile":  profile.Name,
+		})
 	}
 
 	// Start service emulation in goroutine
@@ -636,6 +696,26 @@ func runMimic(cmd *cobra.Command, args []string) error {
 			}
 			if probeMgr != nil {
 				probeMgr.Stop()
+			}
+			if fwMgr != nil {
+				fwMgr.Stop()
+			}
+			logging.Info("Mimic stopped", nil)
+			return nil
+
+		case <-serviceStopCh:
+			// Windows SCM (or any platform service manager) requested stop.
+			logging.Info("Service stop requested", nil)
+			close(shutdown)
+			wg.Wait()
+			if closedMgr != nil {
+				closedMgr.StopAll()
+			}
+			if probeMgr != nil {
+				probeMgr.Stop()
+			}
+			if fwMgr != nil {
+				fwMgr.Stop()
 			}
 			logging.Info("Mimic stopped", nil)
 			return nil

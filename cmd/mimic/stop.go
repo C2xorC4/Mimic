@@ -2,13 +2,14 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
 
 	"github.com/spf13/cobra"
 
 	"github.com/c2xorc4/mimic/internal/config"
-	"github.com/c2xorc4/mimic/internal/ebpf"
+	"github.com/c2xorc4/mimic/internal/netfilter"
+	"github.com/c2xorc4/mimic/internal/platform"
+	"github.com/c2xorc4/mimic/internal/stack"
 )
 
 // mimicNftTables are the nftables tables Mimic owns and may delete wholesale.
@@ -32,8 +33,8 @@ remain after ours are stripped).
 
 Used as the systemd unit's ExecStopPost safety net, and for manual cleanup.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if os.Geteuid() != 0 {
-			return fmt.Errorf("this command requires root privileges")
+		if !platform.IsElevated() {
+			return fmt.Errorf("this command requires %s privileges", platform.PrivilegeName())
 		}
 		rep := teardownStack(resolveIface(), stopPurge)
 		fmt.Print(rep.String())
@@ -62,7 +63,7 @@ func resolveIface() string {
 type teardownReport struct {
 	Iface    string
 	NftFreed []string
-	TC       ebpf.TeardownResult
+	TC       stack.TeardownResult
 	TCErr    error
 }
 
@@ -90,18 +91,21 @@ func teardownStack(ifn string, purgeQdisc bool) teardownReport {
 	rep := teardownReport{Iface: ifn}
 
 	// nftables: delete our named tables. Check existence first so the report
-	// reflects what was actually removed (not just attempted).
-	for _, tbl := range mimicNftTables {
-		if exec.Command("nft", "list", "table", "inet", tbl).Run() != nil {
-			continue // absent
+	// reflects what was actually removed (not just attempted). Skipped where
+	// nftables isn't the host-disposition backend (non-Linux).
+	if netfilter.Supported() {
+		for _, tbl := range mimicNftTables {
+			if exec.Command("nft", "list", "table", "inet", tbl).Run() != nil {
+				continue // absent
+			}
+			_ = exec.Command("nft", "delete", "table", "inet", tbl).Run() //nolint:errcheck
+			rep.NftFreed = append(rep.NftFreed, tbl)
 		}
-		_ = exec.Command("nft", "delete", "table", "inet", tbl).Run() //nolint:errcheck
-		rep.NftFreed = append(rep.NftFreed, tbl)
 	}
 
 	// TC filters (+ optional content-diff qdisc purge).
 	if ifn != "" {
-		rep.TC, rep.TCErr = ebpf.TeardownInterface(ifn, purgeQdisc)
+		rep.TC, rep.TCErr = stack.Teardown(ifn, purgeQdisc)
 	}
 	return rep
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/c2xorc4/mimic/internal/config"
+	"github.com/c2xorc4/mimic/internal/platform"
 	"github.com/c2xorc4/mimic/internal/services"
 )
 
@@ -50,8 +51,8 @@ func init() {
 }
 
 func runServe(cmd *cobra.Command, args []string) error {
-	if os.Geteuid() != 0 {
-		return fmt.Errorf("service emulation requires root privileges (binding to low ports)")
+	if !platform.IsElevated() {
+		return fmt.Errorf("service emulation requires %s privileges (binding to low ports)", platform.PrivilegeName())
 	}
 
 	if len(serveServices) == 0 {

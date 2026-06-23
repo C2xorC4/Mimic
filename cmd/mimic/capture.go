@@ -1,3 +1,5 @@
+//go:build linux
+
 package main
 
 import (
@@ -14,16 +16,17 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/c2xorc4/mimic/internal/capture"
+	"github.com/c2xorc4/mimic/internal/platform"
 )
 
 var (
-	captureIface   string
-	capturePorts   []uint16
+	captureIface    string
+	capturePorts    []uint16
 	captureServerIP string
-	captureOutput  string
-	captureService string
-	captureOS      string
-	capturePcap    string
+	captureOutput   string
+	captureService  string
+	captureOS       string
+	capturePcap     string
 )
 
 var captureCmd = &cobra.Command{
@@ -171,8 +174,8 @@ func parsePorts(cmd *cobra.Command) ([]uint16, error) {
 }
 
 func runCaptureLive(cmd *cobra.Command, args []string) error {
-	if os.Geteuid() != 0 {
-		return fmt.Errorf("live capture requires root privileges")
+	if !platform.IsElevated() {
+		return fmt.Errorf("live capture requires %s privileges", platform.PrivilegeName())
 	}
 
 	serverIP := net.ParseIP(captureServerIP)

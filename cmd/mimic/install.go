@@ -1,21 +1,21 @@
+//go:build linux
+
 package main
 
 import (
 	_ "embed"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+
+	"github.com/c2xorc4/mimic/internal/platform"
 )
 
 //go:embed assets/mimic.service
 var systemdUnit []byte
-
-//go:embed assets/config.starter.yaml
-var starterConfig []byte
 
 const (
 	unitPath    = "/etc/systemd/system/mimic.service"
@@ -35,8 +35,8 @@ var installCmd = &cobra.Command{
 daemon-reload. Does not start or enable the service — edit the config first,
 then: systemctl enable --now mimic`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if os.Geteuid() != 0 {
-			return fmt.Errorf("this command requires root privileges")
+		if !platform.IsElevated() {
+			return fmt.Errorf("this command requires %s privileges", platform.PrivilegeName())
 		}
 
 		// 1. Binary -> /usr/local/bin/mimic (skip if we're already it).
@@ -111,8 +111,8 @@ var uninstallCmd = &cobra.Command{
 also tears down live state (incl. the clsact qdisc if Mimic was its sole user)
 and removes /etc/mimic and the installed binary.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if os.Geteuid() != 0 {
-			return fmt.Errorf("this command requires root privileges")
+		if !platform.IsElevated() {
+			return fmt.Errorf("this command requires %s privileges", platform.PrivilegeName())
 		}
 
 		_ = exec.Command("systemctl", "disable", "--now", "mimic").Run() //nolint:errcheck
@@ -146,33 +146,4 @@ func init() {
 		"also tear down live state + remove config and binary")
 	rootCmd.AddCommand(installCmd)
 	rootCmd.AddCommand(uninstallCmd)
-}
-
-// copyFile copies src to dst with the given mode (atomic via temp + rename).
-func copyFile(src, dst string, mode os.FileMode) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	tmp := dst + ".tmp"
-	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
-		os.Remove(tmp)
-		return err
-	}
-	if err := out.Close(); err != nil {
-		os.Remove(tmp)
-		return err
-	}
-	if err := os.Chmod(tmp, mode); err != nil {
-		os.Remove(tmp)
-		return err
-	}
-	return os.Rename(tmp, dst)
 }

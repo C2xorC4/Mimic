@@ -11,7 +11,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/c2xorc4/mimic/internal/config"
-	"github.com/c2xorc4/mimic/internal/ebpf"
+	"github.com/c2xorc4/mimic/internal/platform"
+	"github.com/c2xorc4/mimic/internal/stack"
 )
 
 var (
@@ -21,6 +22,12 @@ var (
 )
 
 func main() {
+	// When launched by the Windows Service Control Manager, hand off to the SCM
+	// dispatcher (which itself runs the configured cobra command). No-op when run
+	// interactively or on non-Windows platforms.
+	if maybeRunAsService() {
+		return
+	}
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -120,8 +127,8 @@ modify outgoing packets to match the target OS's TCP/IP stack characteristics.
 Requires root privileges.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if os.Geteuid() != 0 {
-			return fmt.Errorf("this command requires root privileges")
+		if !platform.IsElevated() {
+			return fmt.Errorf("this command requires %s privileges", platform.PrivilegeName())
 		}
 
 		if iface == "" {
@@ -143,7 +150,7 @@ Requires root privileges.`,
 		fmt.Printf("Interface: %s\n", iface)
 
 		// Create and load fingerprint manager
-		fm, err := ebpf.NewFingerprintManager(iface)
+		fm, err := stack.New(iface)
 		if err != nil {
 			return fmt.Errorf("creating fingerprint manager: %w", err)
 		}
@@ -189,8 +196,8 @@ var daemonCmd = &cobra.Command{
 	Long: `Starts mimic as a daemon process that applies the configured
 profile and runs in the background. Use with systemd or other init systems.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if os.Geteuid() != 0 {
-			return fmt.Errorf("this command requires root privileges")
+		if !platform.IsElevated() {
+			return fmt.Errorf("this command requires %s privileges", platform.PrivilegeName())
 		}
 
 		// Load app config
@@ -230,7 +237,7 @@ profile and runs in the background. Use with systemd or other init systems.`,
 			profile.Name, appCfg.Interface)
 
 		// Create and load fingerprint manager
-		fm, err := ebpf.NewFingerprintManager(appCfg.Interface)
+		fm, err := stack.New(appCfg.Interface)
 		if err != nil {
 			return fmt.Errorf("creating fingerprint manager: %w", err)
 		}
