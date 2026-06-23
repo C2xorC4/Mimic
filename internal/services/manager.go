@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"gopkg.in/yaml.v3"
@@ -35,6 +36,12 @@ func (m *Manager) SetProfileOptions(profile *config.OSProfile) {
 	}
 	if profile.Name != "" {
 		m.SetOption("os_name", profile.Name)
+	}
+	// os_server selects the apache-vs-nginx HTTP response BODY for a Linux profile
+	// (RHEL family → apache, else nginx) so the page matches the Server header.
+	// Linux only — Windows uses os_family gating (IIS).
+	if strings.EqualFold(profile.Family, "linux") {
+		m.SetOption("os_server", webServerForOS(profile.Name))
 	}
 	if profile.Version != "" {
 		m.SetOption("os_version", profile.Version)

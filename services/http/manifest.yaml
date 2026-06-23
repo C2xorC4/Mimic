@@ -32,10 +32,15 @@ probes:
     response_file: responses/iis_200_full.bin
     requires: { os_family: "windows" }
     rewrite_rules: [{ type: http_date }]
-  - name: http_get_root_linux
+  - name: http_get_root_nginx
     signature: { pattern: 'GET / HTTP', offset: 0, min_length: 10 }
     response_file: responses/nginx_200_full.bin
-    requires: { os_family: "linux" }
+    requires: { os_server: "nginx" }
+    rewrite_rules: [{ type: http_date }]
+  - name: http_get_root_apache
+    signature: { pattern: 'GET / HTTP', offset: 0, min_length: 10 }
+    response_file: responses/apache_200_full.bin
+    requires: { os_server: "apache" }
     rewrite_rules: [{ type: http_date }]
   - name: http_get_root_generic
     signature: { pattern: 'GET / HTTP', offset: 0, min_length: 10 }
@@ -45,6 +50,16 @@ probes:
     signature: { pattern: 'GET /index.html HTTP', offset: 0, min_length: 18 }
     response_file: responses/iis_200_full.bin
     requires: { os_family: "windows" }
+    rewrite_rules: [{ type: http_date }]
+  - name: http_get_index_nginx
+    signature: { pattern: 'GET /index.html HTTP', offset: 0, min_length: 18 }
+    response_file: responses/nginx_200_full.bin
+    requires: { os_server: "nginx" }
+    rewrite_rules: [{ type: http_date }]
+  - name: http_get_index_apache
+    signature: { pattern: 'GET /index.html HTTP', offset: 0, min_length: 18 }
+    response_file: responses/apache_200_full.bin
+    requires: { os_server: "apache" }
     rewrite_rules: [{ type: http_date }]
   - name: http_get_index_generic
     signature: { pattern: 'GET /index.html HTTP', offset: 0, min_length: 18 }
@@ -96,20 +111,30 @@ probes:
     response_file: responses/iis_404_not_found.bin
     requires: { os_family: "windows" }
     rewrite_rules: [{ type: http_date }]
-  - name: http_post_linux
+  - name: http_post_nginx
     signature: { pattern: 'POST ', offset: 0, min_length: 5 }
     response_file: responses/nginx_404.bin
-    requires: { os_family: "linux" }
+    requires: { os_server: "nginx" }
+    rewrite_rules: [{ type: http_date }]
+  - name: http_post_apache
+    signature: { pattern: 'POST ', offset: 0, min_length: 5 }
+    response_file: responses/apache_404.bin
+    requires: { os_server: "apache" }
     rewrite_rules: [{ type: http_date }]
   - name: http_other_windows
     signature: { offset: 0, min_length: 1 }
     response_file: responses/iis_404_not_found.bin
     requires: { os_family: "windows" }
     rewrite_rules: [{ type: http_date }]
-  - name: http_other_linux
+  - name: http_other_nginx
     signature: { offset: 0, min_length: 1 }
     response_file: responses/nginx_404.bin
-    requires: { os_family: "linux" }
+    requires: { os_server: "nginx" }
+    rewrite_rules: [{ type: http_date }]
+  - name: http_other_apache
+    signature: { offset: 0, min_length: 1 }
+    response_file: responses/apache_404.bin
+    requires: { os_server: "apache" }
     rewrite_rules: [{ type: http_date }]
   - name: http_other_generic
     signature: { offset: 0, min_length: 1 }

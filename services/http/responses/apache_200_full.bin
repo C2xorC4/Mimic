@@ -1,0 +1,8 @@
+HTTP/1.1 200 OK
+Server: Apache
+Date: Xxx, 00 Xxx 0000 00:00:00 GMT
+Content-Type: text/html; charset=UTF-8
+Content-Length: 45
+Connection: keep-alive
+
+<html><body><h1>It works!</h1></body></html>

@@ -110,10 +110,25 @@ func (r *Responder) applyServerHeader(response []byte) []byte {
 	return out
 }
 
-// serverStringFor maps a Linux profile name to a plausible, distro-packaged nginx
-// Server string. nginx ships on all these distros, so it stays coherent with the
-// nginx-style response bodies. (A per-distro Apache default-page variant for the
-// RHEL family — where httpd is the out-of-box default — is a future refinement.)
+// webServerForOS reports which web server a Linux distro runs out of the box:
+// the RHEL family (and Fedora) default to Apache httpd; Debian/Ubuntu/Arch/Kali
+// to nginx here. Drives the os_server option that selects the apache-vs-nginx
+// response BODY (see services/http/manifest.yaml) so the page matches the server.
+func webServerForOS(osName string) string {
+	n := strings.ToLower(osName)
+	switch {
+	case strings.Contains(n, "rocky"), strings.Contains(n, "rhel"), strings.Contains(n, "alma"),
+		strings.Contains(n, "centos"), strings.Contains(n, "fedora"), strings.Contains(n, "red hat"):
+		return "apache"
+	default:
+		return "nginx"
+	}
+}
+
+// serverStringFor maps a Linux profile name to a plausible, distro-packaged HTTP
+// Server string — Apache for the RHEL family (their default httpd), nginx for the
+// Debian family/Arch — kept coherent with the apache/nginx response body selected
+// by os_server. Empty for an unknown/blank name (no rewrite).
 func serverStringFor(osName string) string {
 	n := strings.ToLower(osName)
 	switch {
@@ -123,10 +138,14 @@ func serverStringFor(osName string) string {
 		return "nginx/1.26.0 (Debian)"
 	case strings.Contains(n, "debian"):
 		return "nginx/1.22.1"
-	case strings.Contains(n, "rocky"), strings.Contains(n, "rhel"), strings.Contains(n, "alma"), strings.Contains(n, "centos"):
-		return "nginx/1.20.1"
+	case strings.Contains(n, "rocky"):
+		return "Apache/2.4.57 (Rocky Linux)"
+	case strings.Contains(n, "alma"):
+		return "Apache/2.4.57 (AlmaLinux)"
+	case strings.Contains(n, "rhel"), strings.Contains(n, "red hat"), strings.Contains(n, "centos"):
+		return "Apache/2.4.37 (Red Hat Enterprise Linux)"
 	case strings.Contains(n, "fedora"):
-		return "nginx/1.24.0 (Fedora Linux)"
+		return "Apache/2.4.62 (Fedora Linux)"
 	case strings.Contains(n, "arch"):
 		return "nginx/1.27.4"
 	case n == "":

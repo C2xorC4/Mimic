@@ -363,6 +363,29 @@
 > reboot: `python -c "import lab; lab._req('POST', f'/nodes/{lab.NODE}/qemu/404/status/reboot')"`
 > — mimic is started manually (not systemd) so it's gone on boot and the nft drop clears.
 
+> **#14 — per-distro Apache/nginx HTTP (header + body), done right: DONE + VALIDATED
+> (2026-06-23).** RHEL family runs httpd (Apache) by default, so those distros now serve
+> an Apache Server header AND an Apache body (coherent — not the cheap header-only swap).
+> - New `os_server` service option (`webServerForOS(name)`: RHEL/Fedora→apache, else nginx)
+>   set by `SetProfileOptions` for Linux profiles. `serverStringFor` returns Apache version
+>   strings for the RHEL family. Manifest gates the BODY-bearing Linux responses (GET / +
+>   /index 200, 404) on `os_server` (nginx vs apache variant); headers-only (HEAD/OPTIONS)
+>   + the cred-leak page stay shared since `applyServerHeader` fixes their Server header and
+>   they have no server-branded body. New `services/http/responses/apache_200_full.bin`
+>   ("It works!") + `apache_404.bin` (CRLF headers, Date placeholder, Content-Length
+>   auto-recomputed). Also fixed a latent gap: Linux GET /index.html previously served the
+>   IIS body.
+> - **VALIDATED (argus, curl per profile):** Ubuntu → `nginx/1.18.0 (Ubuntu)` + "Welcome to
+>   nginx"; Rocky → `Apache/2.4.57 (Rocky Linux)` + "It works"; Fedora → `Apache/2.4.62
+>   (Fedora Linux)` + "It works". Header+body coherent per distro-family. Unit + full suite green.
+>
+> ⚠️ **OPS: /tmp is wiped on argus reboot.** The lockout-recovery reboot (2026-06-23) cleared
+> /tmp, deleting the config files (mx2.yaml/safe.yaml/etc.). `LoadAppConfig` on a MISSING -c
+> file silently returns defaults (no interface) → `run` exits "interface not specified" (not a
+> crash, just no-op). Recreate configs after any argus reboot. mx2.yaml recreated; argus now
+> runs Server 2025 (server edition, preserve_ports [2222]) again, detached via `setsid ... &lt;
+> /dev/null &` so it survives the ssh session close.
+
 > **Thin-decoys queue (order 3,2,4,1):** **ALL DONE + VALIDATED** (2026-06-18).
 > (#3) WinRM, (#2) MSRPC ept_map, (#4) NetBIOS/139, (#1) RDP/3389 CredSSP.
 > RDP live: Kali `nmap --script rdp-ntlm-info` → Product_Version **10.0.20348**

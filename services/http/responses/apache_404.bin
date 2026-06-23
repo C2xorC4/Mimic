@@ -1,0 +1,16 @@
+HTTP/1.1 404 Not Found
+Server: Apache
+Date: Xxx, 00 Xxx 0000 00:00:00 GMT
+Content-Type: text/html; charset=iso-8859-1
+Content-Length: 196
+Connection: keep-alive
+
+<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML 2.0//EN">
+<html><head>
+<title>404 Not Found</title>
+</head><body>
+<h1>Not Found</h1>
+<p>The requested URL was not found on this server.</p>
+<hr>
+<address>Apache Server Port 80</address>
+</body></html>
