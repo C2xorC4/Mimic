@@ -8,6 +8,15 @@
 *.so
 *.dylib
 
+# Editor backups
+*~
+
+# Local deploy/toolchain tarballs (regenerable; never track — e.g. go125.tgz, mimic_deploy.tgz)
+*.tgz
+
+# One-off local scratch / debugging scripts (not source)
+/tmp_*
+
 # Test binary, built with `go test -c`
 *.test
 
