@@ -1,0 +1,23 @@
+# Golden fingerprint surface for the "Windows 11" profile (workstation edition)
+# under the firewalled-client persona. Recorded 2026-06-22 from a validated argus
+# instance (nmap 7.98 -O -sV, services rdp/winrm/wsd/deliveryopt).
+#
+# This is the WORKSTATION disposition — the mirror of the server goldens: the
+# RPC/NetBIOS/SMB trio (135/139/445) is FILTERED (default-drop), and the desktop
+# persona ports (3389/5357/5985/7680) are open. 5040 (CDPSvc) is absent/filtered.
+# nmap labels the 25H2-class stack "Windows 10|11" (osgen 10/11), as a real box does.
+#
+# Note: 5357/5985/7680 version-detect as tcpwrapped under -sV (HTTP.sys answers
+# the handshake but closes without a banner nmap's probes recognize), so only
+# their open disposition is asserted, not a service token.
+profile: "Windows 11"
+
+os_match:
+  family: windows
+  gens: ["10", "11"]
+
+open_ports: [3389, 5357, 5985, 7680]
+closed_or_filtered: [135, 139, 445, 5040]
+
+services:
+  3389: "ms-wbt-server"

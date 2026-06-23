@@ -1,4 +1,4 @@
-.PHONY: all build generate clean install test
+.PHONY: all build generate clean install test test-unit matrix
 
 # Build configuration
 BINARY_NAME := mimic
@@ -64,6 +64,25 @@ uninstall:
 # Run tests
 test:
 	$(GO) test -v ./...
+
+# Unit tests scoped to the real packages (skips any stray top-level scratch dirs)
+test-unit:
+	$(GO) test ./cmd/... ./internal/...
+
+# Live fingerprint regression matrix: scan a running target and diff every
+# golden against it. Requires nmap and a reachable target running Mimic.
+#   make matrix MATRIX_TARGET=10.0.254.45 MATRIX_GOLDEN=windows-server-2025.yaml
+#   make matrix MATRIX_TARGET=10.0.254.45 MATRIX_ALL=1   # all goldens (target must match each)
+# This is the per-item "no fingerprint regression" gate; the OFFLINE half
+# (parser/comparator/profile self-consistency) runs in `make test-unit`/CI.
+MATRIX_TARGET ?=
+MATRIX_GOLDEN ?=
+MATRIX_ALL    ?=
+matrix:
+	@test -n "$(MATRIX_TARGET)" || { echo "set MATRIX_TARGET=<host>"; exit 2; }
+	$(GO) run ./test/matrix -target $(MATRIX_TARGET) \
+		$(if $(MATRIX_GOLDEN),-golden $(MATRIX_GOLDEN),) \
+		$(if $(MATRIX_ALL),-all,)
 
 # Format code
 fmt:

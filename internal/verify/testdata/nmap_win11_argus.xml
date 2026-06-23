@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<?xml-stylesheet href="file:///C:/Program Files (x86)/Nmap/nmap.xsl" type="text/xsl"?>
+<!-- Nmap 7.98 scan initiated Mon Jun 22 16:46:41 2026 as: &quot;C:\\Program Files (x86)\\Nmap\\nmap.exe&quot; -O -sV -&#45;osscan-guess -Pn -p 135,139,445,3389,5040,5357,5985,7680 -oX D:/repos/security/mimic/internal/verify/testdata/nmap_win11_argus.xml 10.0.254.45 -->
+<nmaprun scanner="nmap" args="&quot;C:\\Program Files (x86)\\Nmap\\nmap.exe&quot; -O -sV -&#45;osscan-guess -Pn -p 135,139,445,3389,5040,5357,5985,7680 -oX D:/repos/security/mimic/internal/verify/testdata/nmap_win11_argus.xml 10.0.254.45" start="1782161201" startstr="Mon Jun 22 16:46:41 2026" version="7.98" xmloutputversion="1.05">
+<scaninfo type="syn" protocol="tcp" numservices="8" services="135,139,445,3389,5040,5357,5985,7680"/>
+<verbose level="0"/>
+<debugging level="0"/>
+<hosthint><status state="up" reason="arp-response" reason_ttl="0"/>
+<address addr="10.0.254.45" addrtype="ipv4"/>
+<address addr="BC:24:11:A5:2C:F8" addrtype="mac" vendor="Proxmox Server Solutions GmbH"/>
+<hostnames>
+</hostnames>
+</hosthint>
+<host starttime="1782161202" endtime="1782161222"><status state="up" reason="arp-response" reason_ttl="0"/>
+<address addr="10.0.254.45" addrtype="ipv4"/>
+<address addr="BC:24:11:A5:2C:F8" addrtype="mac" vendor="Proxmox Server Solutions GmbH"/>
+<hostnames>
+<hostname name="sectestubuntu.blackic.systems" type="PTR"/>
+</hostnames>
+<ports><port protocol="tcp" portid="135"><state state="filtered" reason="no-response" reason_ttl="0"/><service name="msrpc" method="table" conf="3"/></port>
+<port protocol="tcp" portid="139"><state state="filtered" reason="no-response" reason_ttl="0"/><service name="netbios-ssn" method="table" conf="3"/></port>
+<port protocol="tcp" portid="445"><state state="filtered" reason="no-response" reason_ttl="0"/><service name="microsoft-ds" method="table" conf="3"/></port>
+<port protocol="tcp" portid="3389"><state state="open" reason="syn-ack" reason_ttl="128"/><service name="ms-wbt-server" servicefp="SF-Port3389-TCP:V=7.98%I=7%D=6/22%Time=6A399F3D%P=i686-pc-windows-windows%r(TerminalServerCookie,13,&quot;\x03\0\0\x13\x0e\xd0\0\0\x124\0\x02/\x08\0\x02\0\0\0&quot;)%r(TerminalServer,13,&quot;\x03\0\0\x13\x0e\xd0\0\0\x124\0\x02/\x08\0\x02\0\0\0&quot;);" method="probed" conf="10"/></port>
+<port protocol="tcp" portid="5040"><state state="filtered" reason="no-response" reason_ttl="0"/></port>
+<port protocol="tcp" portid="5357"><state state="open" reason="syn-ack" reason_ttl="128"/><service name="tcpwrapped" method="probed" conf="8"/></port>
+<port protocol="tcp" portid="5985"><state state="open" reason="syn-ack" reason_ttl="128"/><service name="tcpwrapped" method="probed" conf="8"/></port>
+<port protocol="tcp" portid="7680"><state state="open" reason="syn-ack" reason_ttl="128"/><service name="tcpwrapped" method="probed" conf="8"/></port>
+</ports>
+<os><portused state="open" proto="tcp" portid="3389"/>
+<portused state="closed" proto="udp" portid="44742"/>
+<osmatch name="Microsoft Windows 10 1703 or Windows 11 21H2" accuracy="98" line="74943">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="10" accuracy="98"><cpe>cpe:/o:microsoft:windows_10</cpe></osclass>
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="11" accuracy="98"><cpe>cpe:/o:microsoft:windows_11</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows 11 21H2" accuracy="97" line="75551">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="11" accuracy="97"><cpe>cpe:/o:microsoft:windows_11</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows 10 1703" accuracy="94" line="74901">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="10" accuracy="94"><cpe>cpe:/o:microsoft:windows_10</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows Server 2022" accuracy="94" line="82111">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="2022" accuracy="94"><cpe>cpe:/o:microsoft:windows_server_2022</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows 10 1507 - 1607" accuracy="94" line="74511">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="10" accuracy="94"><cpe>cpe:/o:microsoft:windows_10</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows 10 1511" accuracy="92" line="74548">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="10" accuracy="92"><cpe>cpe:/o:microsoft:windows_10</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows Longhorn" accuracy="91" line="84438">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="Longhorn" accuracy="91"><cpe>cpe:/o:microsoft:windows</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows 10" accuracy="90" line="74358">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="10" accuracy="90"><cpe>cpe:/o:microsoft:windows_10</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows 10 1511 - 1607" accuracy="90" line="74589">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="10" accuracy="90"><cpe>cpe:/o:microsoft:windows_10</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows Server 2008" accuracy="90" line="79973">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="2008" accuracy="90"><cpe>cpe:/o:microsoft:windows_server_2008</cpe></osclass>
+</osmatch>
+</os>
+<uptime seconds="27885" lastboot="Mon Jun 22 09:02:17 2026"/>
+<distance value="1"/>
+<tcpsequence index="262" difficulty="Good luck!" values="F4986018,F9CAF595,845AFBEB,34531880,54BEB48B,B4556F53"/>
+<ipidsequence class="Incremental" values="42,43,44,45,46,47"/>
+<tcptssequence class="1000HZ" values="1A97C5E,1A97CCB,1A97D38,1A97DA3,1A97E0F,1A97E7D"/>
+<times srtt="3240" rttvar="2495" to="100000"/>
+</host>
+<runstats><finished time="1782161222" timestr="Mon Jun 22 16:47:02 2026" summary="Nmap done at Mon Jun 22 16:47:02 2026; 1 IP address (1 host up) scanned in 20.76 seconds" elapsed="20.76" exit="success"/><hosts up="1" down="0" total="1"/>
+</runstats>
+</nmaprun>

@@ -1,0 +1,23 @@
+# Golden fingerprint surface for the "Windows Server 2025" profile under
+# --services all. Recorded 2026-06-22 from a validated argus instance
+# (nmap 7.98 -O -sV). The live matrix runner diffs each scan against this; any
+# drift (OS attribution, persona port disposition, service banner) is a TELL.
+#
+# Note: nmap labels the 25H2-class stack "Windows 10|11" (osgen 10/11) — the
+# documented, faithful behavior (a real Server 2025 box scans the same way).
+profile: "Windows Server 2025"
+
+os_match:
+  family: windows
+  gens: ["10", "11"]
+
+# Server edition exposes the RPC/NetBIOS/SMB trio; 5040 (CDPSvc) is not a
+# persona port and reads closed/filtered.
+open_ports: [135, 139, 443, 445, 3389, 5985]
+closed_or_filtered: [5040]
+
+services:
+  135: "msrpc"
+  139: "netbios"
+  443: "iis"
+  5985: "httpapi"
