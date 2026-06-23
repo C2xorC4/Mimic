@@ -25,6 +25,7 @@ const (
 	MazeDescent  Type = "maze_descent"
 	Probe        Type = "probe"
 	Block        Type = "block"
+	Control      Type = "control" // control-plane access (RBAC authz + operation audit)
 )
 
 // Severity is a coarse signal level mapped onto syslog severities by sinks.

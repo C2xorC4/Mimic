@@ -237,6 +237,33 @@ type FirewallConfig struct {
 	PreservePorts []uint16 `yaml:"preserve_ports"`
 }
 
+// ControlConfig configures the local control plane — a same-host management
+// endpoint (unix socket on Linux) the `mimic ctl` client talks to for status,
+// logs, and (later) service control. It is the surface RBAC gates.
+type ControlConfig struct {
+	Enabled bool   `yaml:"enabled"` // off by default
+	Socket  string `yaml:"socket"`  // unix socket path; default /run/mimic.sock
+}
+
+// RBACConfig defines role-based access for the control plane: peer credentials
+// (unix uid/gid of the connecting process) are mapped to a role whose Allow list
+// gates which control operations it may invoke. This is the separation-of-duties
+// substrate; with no roles configured, only root may use the control plane
+// (current behaviour), so RBAC is opt-in without breaking existing deployments.
+type RBACConfig struct {
+	Roles       []Role `yaml:"roles"`
+	DefaultDeny bool   `yaml:"default_deny"` // informational; non-root is denied unless a role matches
+}
+
+// Role maps connecting peer credentials to an allow-list of control operations.
+// Allow entries are operation names, "<prefix>.*" wildcards, or "*" (all).
+type Role struct {
+	Name  string   `yaml:"name"`
+	UIDs  []uint32 `yaml:"uids"`
+	GIDs  []uint32 `yaml:"gids"`
+	Allow []string `yaml:"allow"`
+}
+
 // LogConfig contains logging configuration
 type LogConfig struct {
 	Level    string `yaml:"level"`     // debug, info, warn, error
@@ -256,6 +283,8 @@ type AppConfig struct {
 	SMBHoneypot    SMBHoneypotConfig `yaml:"smb_honeypot"`    // Stateful SMB honeypot settings
 	FtpHoneypot    FtpHoneypotConfig `yaml:"ftp_honeypot"`    // Stateful FTP honeypot settings
 	Logging        LogConfig         `yaml:"logging"`         // Logging configuration
+	Control        ControlConfig     `yaml:"control"`         // local control-plane endpoint (RBAC-gated)
+	RBAC           RBACConfig        `yaml:"rbac"`            // role-based access for the control plane
 	Events         events.Config     `yaml:"events"`          // SIEM-ingestible security-event pipeline
 	Defense        defense.Config    `yaml:"defense"`         // abuse detection + active response (alert-only by default)
 	ProfilesDir    string            `yaml:"profiles_dir"`    // Path to profiles directory

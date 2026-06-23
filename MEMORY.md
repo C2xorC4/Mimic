@@ -301,6 +301,30 @@
 > #14 (low pri — nginx runs on all distros, and the Server header, the -sV tell, is already
 > per-distro accurate). Needs `run` (sets os_name/os_family options); `serve` doesn't.
 
+> **#9 — RBAC-ready control plane: DONE + VALIDATED ON ARGUS (2026-06-23).** The
+> design-now-RBAC-later seam from the Phase-0 plan. `internal/control/`:
+> - **Transport:** unix socket (`listen_linux.go`, mode 0660, SO_PEERCRED peer creds);
+>   non-Linux `listen_other.go` returns ErrUnsupported (`Supported()=false`; Windows
+>   named-pipe = future). `control.go` Server: read JSON Request → Authorize → dispatch
+>   → JSON Response, deadline-bounded. Read-only ops now: `ping`/`status`/`logs`
+>   (service-control is future). `Ring` = fixed in-memory events.Sink for `logs`.
+> - **Authz from day one:** `Authorizer` iface + `RoleAuthorizer` (authorizer.go): maps
+>   peer uid/gid → `config.Role` whose `allow` (op / `prefix.*` / `*`) gates the op.
+>   **root (uid 0) bootstrap = admin always** (can't lock out); no roles configured ⇒
+>   only root (preserves prior behaviour). Unit-tested (control_test.go) incl. gid-role
+>   allow/deny, wildcard, empty-config root-only.
+> - **Audit from day one:** every access → `events.Control` event (peer_uid/gid/pid, op,
+>   role, allowed); Sev escalates on denial. New `events.Control` type.
+> - **Config:** `control:{enabled,socket}` + `rbac:{roles:[{name,uids,gids,allow}],...}`
+>   in AppConfig (opt-in; off by default). `mimic ctl <status|logs|ping> [--socket -n]`
+>   client (`cmd/mimic/ctl.go`).
+> - **VALIDATED (argus, /tmp/mimic_ctl.yaml):** control listening on
+>   srw-rw---- /run/mimic.sock; `sudo mimic ctl ping/status/logs` → role=admin + JSON
+>   (profile/services/pid/uptime + the audit-event tail); **non-root `argus` → blocked**
+>   (socket-perm gate); audit events show peer creds+op+role+allowed. Full suite green.
+> - **Future (when needed):** Windows named-pipe transport; service-control ops
+>   (stop/reload — need run.go lifecycle hooks); the tray UI consumes this same API.
+
 > **Thin-decoys queue (order 3,2,4,1):** **ALL DONE + VALIDATED** (2026-06-18).
 > (#3) WinRM, (#2) MSRPC ept_map, (#4) NetBIOS/139, (#1) RDP/3389 CredSSP.
 > RDP live: Kali `nmap --script rdp-ntlm-info` → Product_Version **10.0.20348**

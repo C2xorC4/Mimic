@@ -15,6 +15,7 @@ import (
 
 	"github.com/c2xorc4/mimic/internal/coherence"
 	"github.com/c2xorc4/mimic/internal/config"
+	"github.com/c2xorc4/mimic/internal/control"
 	"github.com/c2xorc4/mimic/internal/deception"
 	"github.com/c2xorc4/mimic/internal/defense"
 	"github.com/c2xorc4/mimic/internal/events"
@@ -160,6 +161,16 @@ func runMimic(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("initializing events: %w", err)
 	}
 	defer events.CloseGlobal()
+
+	// Control-plane event ring: when the control plane is enabled, retain recent
+	// events in memory so `mimic ctl logs` can serve them. Registered as a bus
+	// sink up front so it captures everything from startup.
+	var ctrlRing *control.Ring
+	if appCfg.Control.Enabled && evBus != nil {
+		ctrlRing = control.NewRing(200)
+		evBus.AddSink(ctrlRing)
+	}
+
 	if evBus != nil {
 		logging.Info("Event pipeline active", map[string]interface{}{"sinks": evBus.Sinks()})
 
@@ -223,6 +234,32 @@ func runMimic(cmd *cobra.Command, args []string) error {
 		"profile":   appCfg.Profile,
 		"services":  appCfg.Services,
 	})
+
+	// Control plane (RBAC-gated local management endpoint). Opt-in via config;
+	// unix-socket only for now (no-op + warning elsewhere). statusFn reads the
+	// resolved profile/services at call time.
+	if appCfg.Control.Enabled {
+		if !control.Supported() {
+			logging.Warn("Control plane enabled but not supported on this platform (unix socket only) — skipping", nil)
+		} else {
+			socket := appCfg.Control.Socket
+			if socket == "" {
+				socket = "/run/mimic.sock"
+			}
+			statusFn := func() control.Status {
+				return control.Status{
+					Profile: appCfg.Profile, Edition: editionLabel(profile),
+					Services: appCfg.Services, Pid: os.Getpid(),
+				}
+			}
+			ctrlSrv := control.New(control.NewRoleAuthorizer(appCfg.RBAC), statusFn, ctrlRing)
+			if err := ctrlSrv.Start(socket); err != nil {
+				logging.Warn("Control plane failed to start", map[string]interface{}{"error": err.Error()})
+			} else {
+				defer ctrlSrv.Stop()
+			}
+		}
+	}
 
 	// Build the shared credential pool (used by the SMB honeypot to accept creds
 	// and by leaking services to emit them) and validate the leak wiring. seed_file
