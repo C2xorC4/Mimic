@@ -9,12 +9,13 @@ import (
 )
 
 // StatefulServiceNames are interactive honeypots started by mimic run (not template replay).
-var StatefulServiceNames = []string{"smb_honeypot", "ftp_honeypot", "rdp"}
+var StatefulServiceNames = []string{"smb_honeypot", "ftp_honeypot", "rdp", "ssh_honeypot"}
 
 // templateSupersededBy maps replay templates replaced when a stateful honeypot is enabled.
 var templateSupersededBy = map[string]string{
 	"smb": "smb_honeypot",
 	"rdp": "rdp",
+	"ssh": "ssh_honeypot", // banner-only ssh template → interactive ssh honeypot
 }
 
 // ListTemplateServices returns manifest-backed service names under servicesDir.
@@ -169,6 +170,10 @@ func ShouldStartService(name string, profile *OSProfile, smbHoneypotOn139 bool) 
 	}
 	ed := profile.ResolvedEdition()
 	switch name {
+	case "ssh_honeypot":
+		// SSH honeypot is a Linux persona; don't start it under a Windows/macOS
+		// profile (a real Windows box doesn't run sshd by default — it'd be a tell).
+		return strings.EqualFold(profile.Family, "linux")
 	case "msrpc":
 		return EditionExposesPort(ed, 135)
 	case "netbios":

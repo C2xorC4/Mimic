@@ -44,3 +44,6 @@ lab/vulnlab/network.local.yaml
 # Python cache
 __pycache__/
 *.pyc
+
+# Vendored deps (kept local for offline lab builds; not source)
+vendor/

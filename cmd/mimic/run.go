@@ -19,6 +19,7 @@ import (
 	"github.com/c2xorc4/mimic/internal/defense"
 	"github.com/c2xorc4/mimic/internal/events"
 	honeyftp "github.com/c2xorc4/mimic/internal/honeypot/ftp"
+	honeyssh "github.com/c2xorc4/mimic/internal/honeypot/ssh"
 	honeyrdp "github.com/c2xorc4/mimic/internal/honeypot/rdp"
 	honeysmb "github.com/c2xorc4/mimic/internal/honeypot/smb"
 	"github.com/c2xorc4/mimic/internal/logging"
@@ -465,6 +466,7 @@ func runMimic(cmd *cobra.Command, args []string) error {
 			// Load and start services
 			var honeypotSMB *honeysmb.Server
 			var honeypotFTP *honeyftp.Server
+			var honeypotSSH *honeyssh.Server
 			var honeypotRDP *honeyrdp.Server
 			smbHoneypotOn139 := false
 			if profile != nil {
@@ -597,6 +599,31 @@ func runMimic(cmd *cobra.Command, args []string) error {
 					continue
 				}
 
+				if svcName == "ssh_honeypot" {
+					scfg := honeyssh.Config{
+						CredStore:         credStore,
+						AcceptCredentials: appCfg.SMBHoneypot.AcceptCredentials,
+						Hostname:          appCfg.ServiceOptions.Hostname,
+					}
+					if scfg.Hostname == "" {
+						scfg.Hostname = appCfg.ServiceOptions.NetBIOSName
+					}
+					if profile != nil {
+						scfg.OSName = profile.Name
+					}
+					sshSrv, err := honeyssh.New(scfg)
+					if err != nil {
+						errChan <- fmt.Errorf("creating ssh_honeypot: %w", err)
+						return
+					}
+					honeypotSSH = sshSrv
+					if err := honeypotSSH.Start(); err != nil {
+						errChan <- fmt.Errorf("starting ssh_honeypot: %w", err)
+						return
+					}
+					continue
+				}
+
 				if err := svcMgr.LoadService(svcName); err != nil {
 					errChan <- fmt.Errorf("loading service %s: %w", svcName, err)
 					return
@@ -617,6 +644,9 @@ func runMimic(cmd *cobra.Command, args []string) error {
 			}
 			if honeypotFTP != nil {
 				honeypotFTP.Stop()
+			}
+			if honeypotSSH != nil {
+				honeypotSSH.Stop()
 			}
 			if honeypotRDP != nil {
 				honeypotRDP.Stop()

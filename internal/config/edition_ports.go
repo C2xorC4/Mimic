@@ -51,6 +51,7 @@ var honeypotListenPorts = map[string][]uint16{
 	"smb_honeypot": {445},
 	"rdp":          {3389},
 	"ftp_honeypot": {21},
+	"ssh_honeypot": {22},
 }
 
 // ServiceListenPorts returns the sorted, de-duplicated set of TCP ports the

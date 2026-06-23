@@ -244,6 +244,38 @@
 >   detach + working file-read (or scp via the argus_lab key on cloud templates). Not a
 >   blocker for the interactive-honeypot Phase-2 direction. Run harness with `--no-pcap`.
 
+> **Phase 2a — SSH interactive Linux honeypot: DONE + VALIDATED ON ARGUS (2026-06-23).**
+> `internal/honeypot/ssh/` (server.go/shell.go/vfs.go): full SSH transport via
+> golang.org/x/crypto/ssh + a real terminal (golang.org/x/term) pseudo-shell.
+> - **Banner/identity grounded in Phase-2.0 captures:** `distroFor(profile.Name)` →
+>   per-distro OpenSSH ServerVersion + uname/os-release (ubuntu/debian/rocky/fedora/
+>   arch/kali, generic fallback). Algos set to an OpenSSH-like subset x/crypto supports
+>   (kex/cipher/mac) for ssh2-enum-algos fidelity (not byte-identical — no sntrup761).
+> - **Auth:** seeded creds from the shared `deception.CredStore` (cross-service
+>   cred-leak loop); all attempts logged as events (AuthAttempt/AuthSuccess).
+> - **Pseudo-shell** over an in-memory LINUX VFS (not the Windows deception tree):
+>   pwd/ls/cd/cat/whoami/id/uname/hostname/echo/sudo; /etc/{os-release,passwd,hostname},
+>   /home/<user>, /var/log, and a **cred-leak breadcrumb `/root/.credentials`** that
+>   surfaces a pooled cred. exec + interactive shell paths both via runCommand.
+> - **Wiring:** `ssh_honeypot` registered in StatefulServiceNames + templateSupersededBy
+>   (supersedes the banner-only `ssh` template) + honeypotListenPorts{22}; ShouldStartService
+>   gates it to **linux family only** (won't start under Windows/macOS "all"). run.go
+>   special-cases it like smb/ftp honeypots. Config: `service_options.hostname` +
+>   credentials pool.
+> - **VALIDATED (argus :22, real sshd on 2222 so no conflict):** nmap -sV →
+>   "OpenSSH 8.9p1 Ubuntu 3ubuntu0.15 (Ubuntu Linux; protocol 2.0)"; Go x/crypto client
+>   (test/sshclient) auth svc_backup → `uname -a` Ubuntu kernel, `id` uid=1000, `cat
+>   /root/.credentials` leaks the pooled cred, `ls /etc` clean; wrong password rejected.
+>   Unit tests green (shell_test.go); full argus suite green (vendor mode).
+> - **OFFLINE BUILD NOTE (load-bearing for argus):** argus CANNOT reach proxy.golang.org,
+>   so new modules (x/crypto/x/term/x/net + bumped x/sys) fail `go mod download`. Fix:
+>   `go mod vendor` locally → deploy `vendor/` → `GOFLAGS=-mod=vendor make build-only`
+>   (skip `generate`; the eBPF *_bpfel.go on argus are already current from the #10/#12
+>   build). `vendor/` is gitignored (local deploy convenience, not source). Re-vendor
+>   after any dep change before deploying to argus.
+> - **argus state:** now running `/tmp/mimic_ssh.yaml` (Ubuntu profile + ssh_honeypot on
+>   :22, cred svc_backup/Passw0rd123). Restore Server 2025 with `/tmp/mx2.yaml`.
+
 > **Thin-decoys queue (order 3,2,4,1):** **ALL DONE + VALIDATED** (2026-06-18).
 > (#3) WinRM, (#2) MSRPC ept_map, (#4) NetBIOS/139, (#1) RDP/3389 CredSSP.
 > RDP live: Kali `nmap --script rdp-ntlm-info` → Product_Version **10.0.20348**
