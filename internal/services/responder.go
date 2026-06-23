@@ -78,6 +78,64 @@ func fixHTTPContentLength(response []byte) []byte {
 	return out
 }
 
+// applyServerHeader rewrites the Server header of a Linux HTTP response to the
+// per-distro string (the value nmap -sV / http-server-header reads). The template
+// files carry a generic value; this makes Ubuntu/Debian/Rocky/etc. each report a
+// distro-accurate nginx build instead of one hardcoded Ubuntu string. No-op for
+// non-Linux families and non-HTTP responses; only the header value changes (body
+// untouched, so Content-Length is unaffected).
+func (r *Responder) applyServerHeader(response []byte) []byte {
+	if !strings.EqualFold(r.options["os_family"], "linux") || !bytes.HasPrefix(response, []byte("HTTP/")) {
+		return response
+	}
+	srv := serverStringFor(r.options["os_name"])
+	if srv == "" {
+		return response
+	}
+	const hdr = "Server: "
+	idx := bytes.Index(response, []byte(hdr))
+	if idx < 0 {
+		return response
+	}
+	valStart := idx + len(hdr)
+	rel := bytes.Index(response[valStart:], []byte("\r\n"))
+	if rel < 0 {
+		return response
+	}
+	valEnd := valStart + rel
+	out := make([]byte, 0, len(response)-(valEnd-valStart)+len(srv))
+	out = append(out, response[:valStart]...)
+	out = append(out, srv...)
+	out = append(out, response[valEnd:]...)
+	return out
+}
+
+// serverStringFor maps a Linux profile name to a plausible, distro-packaged nginx
+// Server string. nginx ships on all these distros, so it stays coherent with the
+// nginx-style response bodies. (A per-distro Apache default-page variant for the
+// RHEL family — where httpd is the out-of-box default — is a future refinement.)
+func serverStringFor(osName string) string {
+	n := strings.ToLower(osName)
+	switch {
+	case strings.Contains(n, "ubuntu"):
+		return "nginx/1.18.0 (Ubuntu)"
+	case strings.Contains(n, "kali"):
+		return "nginx/1.26.0 (Debian)"
+	case strings.Contains(n, "debian"):
+		return "nginx/1.22.1"
+	case strings.Contains(n, "rocky"), strings.Contains(n, "rhel"), strings.Contains(n, "alma"), strings.Contains(n, "centos"):
+		return "nginx/1.20.1"
+	case strings.Contains(n, "fedora"):
+		return "nginx/1.24.0 (Fedora Linux)"
+	case strings.Contains(n, "arch"):
+		return "nginx/1.27.4"
+	case n == "":
+		return ""
+	default:
+		return "nginx"
+	}
+}
+
 // NewResponder creates a new responder
 func NewResponder(baseDir string) (*Responder, error) {
 	return NewResponderWithOptions(baseDir, nil)
@@ -121,6 +179,10 @@ func (r *Responder) GetResponse(filename string, originalProbe []byte, rules []c
 	// before any fixed-offset rewrite rules.
 	response = r.applyLeak(response)
 	response = fixHTTPContentLength(response)
+	// Per-distro Server header for Linux HTTP responses (the http -sV /
+	// http-server-header tell). Length-changing, so done here (not as a fixed-offset
+	// rule). No-op for non-Linux / non-HTTP responses.
+	response = r.applyServerHeader(response)
 
 	// Apply rewrite rules
 	for _, rule := range rules {

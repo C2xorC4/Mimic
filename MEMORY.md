@@ -289,6 +289,18 @@
 > Note: pass Unix paths with `MSYS_NO_PATHCONV=1` from Git Bash (else mangled). Re-vendored
 > for pkg/sftp + kr/fs.
 
+> **Phase 2c — deeper Linux HTTP (per-distro Server header): DONE + VALIDATED
+> (2026-06-23).** `internal/services/responder.go`: new `applyServerHeader` transform
+> (length-changing, runs in GetResponse after applyLeak like the leak path) rewrites the
+> `Server:` value of Linux HTTP responses to a per-distro string via `serverStringFor(os_name)`
+> — was hardcoded `nginx/1.18.0 (Ubuntu)` for ALL Linux. Gated `os_family==linux` + HTTP
+> prefix; body/Content-Length untouched. **VALIDATED (argus, curl -I per profile):**
+> Ubuntu→`nginx/1.18.0 (Ubuntu)`, Rocky→`nginx/1.20.1`, Fedora→`nginx/1.24.0 (Fedora Linux)`.
+> Unit tests (serverheader_test.go) + full argus suite green. **Note:** stays nginx for all
+> distros (coherent with the nginx body); RHEL-family Apache default-page bodies = follow-up
+> #14 (low pri — nginx runs on all distros, and the Server header, the -sV tell, is already
+> per-distro accurate). Needs `run` (sets os_name/os_family options); `serve` doesn't.
+
 > **Thin-decoys queue (order 3,2,4,1):** **ALL DONE + VALIDATED** (2026-06-18).
 > (#3) WinRM, (#2) MSRPC ept_map, (#4) NetBIOS/139, (#1) RDP/3389 CredSSP.
 > RDP live: Kali `nmap --script rdp-ntlm-info` → Product_Version **10.0.20348**
