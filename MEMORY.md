@@ -276,6 +276,19 @@
 > - **argus state:** now running `/tmp/mimic_ssh.yaml` (Ubuntu profile + ssh_honeypot on
 >   :22, cred svc_backup/Passw0rd123). Restore Server 2025 with `/tmp/mx2.yaml`.
 
+> **Phase 2b — SFTP subsystem: DONE + VALIDATED ON ARGUS (2026-06-23).**
+> `internal/honeypot/ssh/sftp.go`: an "sftp" subsystem handler over the SSH honeypot
+> using `github.com/pkg/sftp` RequestServer with custom Handlers backed by the SAME
+> in-memory Linux VFS (NOT the real disk — pkg/sftp's NewServer would expose it).
+> READ-ONLY: Fileread (download) + Filelist (List/Stat) served from the vnode tree;
+> Filewrite/Filecmd denied (os.ErrPermission, logged) like a locked-down account.
+> Wired in handleSession ("subsystem" req == "sftp" → serveSFTP). **VALIDATED (argus
+> :22, test/sftpclient pkg/sftp client):** auth svc_backup → `ls /etc` (hostname/issue/
+> os-release/passwd w/ modes+sizes), `get /root/.credentials` downloads the cred-leak
+> breadcrumb; uploads/removes denied. Unit test (sftp_test.go) + full argus suite green.
+> Note: pass Unix paths with `MSYS_NO_PATHCONV=1` from Git Bash (else mangled). Re-vendored
+> for pkg/sftp + kr/fs.
+
 > **Thin-decoys queue (order 3,2,4,1):** **ALL DONE + VALIDATED** (2026-06-18).
 > (#3) WinRM, (#2) MSRPC ept_map, (#4) NetBIOS/139, (#1) RDP/3389 CredSSP.
 > RDP live: Kali `nmap --script rdp-ntlm-info` → Product_Version **10.0.20348**

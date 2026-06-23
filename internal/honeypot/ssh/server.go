@@ -262,6 +262,13 @@ func (s *Server) handleSession(ch xssh.Channel, requests <-chan *xssh.Request, u
 			ch.Write([]byte(out))
 			sendExit(ch, 0)
 			return
+		case "subsystem":
+			if decodeString(req.Payload) == "sftp" {
+				req.Reply(true, nil)
+				s.serveSFTP(ch, remote)
+				return
+			}
+			req.Reply(false, nil)
 		default:
 			req.Reply(false, nil)
 		}
