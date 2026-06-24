@@ -166,9 +166,11 @@ func runMimic(cmd *cobra.Command, args []string) error {
 	// events in memory so `mimic ctl logs` can serve them. Registered as a bus
 	// sink up front so it captures everything from startup.
 	var ctrlRing *control.Ring
-	if appCfg.Control.Enabled && evBus != nil {
+	if appCfg.Control.Enabled {
 		ctrlRing = control.NewRing(200)
-		evBus.AddSink(ctrlRing)
+		if evBus != nil {
+			evBus.AddSink(ctrlRing)
+		}
 	}
 
 	if evBus != nil {
@@ -235,16 +237,16 @@ func runMimic(cmd *cobra.Command, args []string) error {
 		"services":  appCfg.Services,
 	})
 
-	// Control plane (RBAC-gated local management endpoint). Opt-in via config;
-	// unix-socket only for now (no-op + warning elsewhere). statusFn reads the
-	// resolved profile/services at call time.
+	// Control plane (RBAC-gated local management endpoint). statusFn reads the
+	// resolved profile/services at call time; hooks expose config + restart ops.
+	restartReq := make(chan struct{})
 	if appCfg.Control.Enabled {
 		if !control.Supported() {
-			logging.Warn("Control plane enabled but not supported on this platform (unix socket only) — skipping", nil)
+			logging.Warn("Control plane enabled but not supported on this platform — skipping", nil)
 		} else {
 			socket := appCfg.Control.Socket
 			if socket == "" {
-				socket = "/run/mimic.sock"
+				socket = control.DefaultEndpoint()
 			}
 			statusFn := func() control.Status {
 				return control.Status{
@@ -252,7 +254,8 @@ func runMimic(cmd *cobra.Command, args []string) error {
 					Services: appCfg.Services, Pid: os.Getpid(),
 				}
 			}
-			ctrlSrv := control.New(control.NewRoleAuthorizer(appCfg.RBAC), statusFn, ctrlRing)
+			hooks := buildControlHooks(absConfigPath(), defaultProfilesDir(absConfigPath()), defaultServicesDir(absConfigPath()), restartReq)
+			ctrlSrv := control.New(control.NewRoleAuthorizer(appCfg.RBAC), statusFn, ctrlRing, hooks)
 			if err := ctrlSrv.Start(socket); err != nil {
 				logging.Warn("Control plane failed to start", map[string]interface{}{"error": err.Error()})
 			} else {
@@ -391,7 +394,15 @@ func runMimic(cmd *cobra.Command, args []string) error {
 	// editions default to dropping unserved ports to FILTERED; opt out with
 	// closed_port_behavior: reset. Torn down via defer on every return path.
 	var winFw netfilter.PersonaFirewall
+	var winClosed netfilter.ClosedPortResponder
+	var winProbes netfilter.ProbeResponder
 	defer func() {
+		if winProbes != nil {
+			winProbes.Stop()
+		}
+		if winClosed != nil {
+			winClosed.Stop()
+		}
 		if winFw != nil {
 			winFw.Stop()
 		}
@@ -407,7 +418,11 @@ func runMimic(cmd *cobra.Command, args []string) error {
 					open = mergeUint16(open, config.ServiceListenPorts(appCfg.Services, profile, appCfg.ServicesDir))
 				}
 				if err := fw.EnableDrop(open, appCfg.Firewall.PreservePorts); err != nil {
-					logging.Warn("Persona firewall unavailable — unserved ports will not read as filtered", map[string]interface{}{"error": err.Error()})
+					fields := map[string]interface{}{"error": err.Error()}
+					if runtime.GOOS == "windows" && !stack.WinDivertInstalled() {
+						fields["hint"] = platform.WinDivertInstallHint
+					}
+					logging.Warn("Persona firewall unavailable — unserved ports will not read as filtered (WinDivert required on Windows)", fields)
 				} else {
 					winFw = fw
 					logging.Info("Workstation persona: firewalled-client default-drop active (unserved ports → filtered)", map[string]interface{}{
@@ -418,6 +433,47 @@ func runMimic(cmd *cobra.Command, args []string) error {
 					if err := winFw.EnableICMPDrop(); err != nil {
 						logging.Warn("Persona ICMP drop unavailable — host will answer ping unlike a firewalled client", map[string]interface{}{"error": err.Error()})
 					}
+				}
+			}
+		}
+		// Closed-port RST for nmap -O (Linux uses nft above; Windows uses WinDivert).
+		if len(appCfg.ClosedPorts) > 0 {
+			if cp := netfilter.NewClosedPortResponder(); cp != nil {
+				var closedTTL uint8 = 64
+				if profile != nil && profile.Stack.TTL > 0 {
+					closedTTL = profile.Stack.TTL
+				}
+				if err := cp.AddPorts(appCfg.ClosedPorts, closedTTL); err != nil {
+					fields := map[string]interface{}{"error": err.Error(), "ports": appCfg.ClosedPorts}
+					if runtime.GOOS == "windows" && !stack.WinDivertInstalled() {
+						fields["hint"] = platform.WinDivertInstallHint
+					}
+					logging.Warn("Closed ports unavailable — OS fingerprinting may be incomplete", fields)
+				} else {
+					winClosed = cp
+					logging.Info("Closed ports active (WinDivert RST)", map[string]interface{}{
+						"ports": appCfg.ClosedPorts,
+					})
+				}
+			}
+		}
+		// T2/T3 probe responses for Linux personas on Windows (native Linux stack
+		// handles these; Windows stack drops/ignores them → nmap T2(R=N) T3(R=N)).
+		if profile != nil && strings.EqualFold(profile.Family, "linux") {
+			if pr := netfilter.NewProbeResponder(); pr != nil {
+				var probeTTL uint8 = 64
+				if profile.Stack.TTL > 0 {
+					probeTTL = profile.Stack.TTL
+				}
+				ackZero := strings.EqualFold(profile.Stack.AckInRST, "zero")
+				if err := pr.Start(probeTTL, profile.Stack.WindowInRST, ackZero); err != nil {
+					fields := map[string]interface{}{"error": err.Error()}
+					if runtime.GOOS == "windows" && !stack.WinDivertInstalled() {
+						fields["hint"] = platform.WinDivertInstallHint
+					}
+					logging.Warn("T2/T3 probe response unavailable", fields)
+				} else {
+					winProbes = pr
 				}
 			}
 		}
@@ -466,7 +522,13 @@ func runMimic(cmd *cobra.Command, args []string) error {
 			fm.Close()
 		}()
 	} else if profile != nil {
-		logging.Warn("Stack fingerprinting backend unavailable on this platform — running service emulation only (no TCP/IP stack spoofing)", map[string]interface{}{
+		if runtime.GOOS == "windows" && !stack.WinDivertInstalled() {
+			logging.Warn("WinDivert not installed — TCP/IP stack spoofing disabled; copy WinDivert.dll + WinDivert64.sys next to mimic.exe", map[string]interface{}{
+				"profile": profile.Name,
+				"hint":    platform.WinDivertInstallHint,
+			})
+		}
+		logging.Warn("Stack fingerprinting unavailable — running service emulation only (no TCP/IP stack spoofing)", map[string]interface{}{
 			"platform": runtime.GOOS,
 			"profile":  profile.Name,
 		})
@@ -575,6 +637,9 @@ func runMimic(cmd *cobra.Command, args []string) error {
 					cfg.ConfigDir = configDir
 					honeypotSMB = honeysmb.New(cfg)
 					if err := honeypotSMB.Start(); err != nil {
+						if skipBindConflict("smb_honeypot", 445, err) {
+							continue
+						}
 						errChan <- fmt.Errorf("starting smb_honeypot: %w", err)
 						return
 					}
@@ -603,6 +668,9 @@ func runMimic(cmd *cobra.Command, args []string) error {
 					}
 					honeypotRDP = rdpSrv
 					if err := honeypotRDP.Start(); err != nil {
+						if skipBindConflict("rdp", 3389, err) {
+							continue
+						}
 						errChan <- fmt.Errorf("starting rdp honeypot: %w", err)
 						return
 					}
@@ -635,6 +703,9 @@ func runMimic(cmd *cobra.Command, args []string) error {
 					}
 					honeypotFTP = ftpSrv
 					if err := honeypotFTP.Start(); err != nil {
+						if skipBindConflict("ftp_honeypot", 21, err) {
+							continue
+						}
 						errChan <- fmt.Errorf("starting ftp_honeypot: %w", err)
 						return
 					}
@@ -660,6 +731,9 @@ func runMimic(cmd *cobra.Command, args []string) error {
 					}
 					honeypotSSH = sshSrv
 					if err := honeypotSSH.Start(); err != nil {
+						if skipBindConflict("ssh_honeypot", 22, err) {
+							continue
+						}
 						errChan <- fmt.Errorf("starting ssh_honeypot: %w", err)
 						return
 					}
@@ -672,6 +746,10 @@ func runMimic(cmd *cobra.Command, args []string) error {
 				}
 
 				if err := svcMgr.StartService(svcName); err != nil {
+					port := templateServicePort(svcMgr, svcName)
+					if skipBindConflict(svcName, port, err) {
+						continue
+					}
 					errChan <- fmt.Errorf("starting service %s: %w", svcName, err)
 					return
 				}
@@ -791,6 +869,27 @@ func runMimic(cmd *cobra.Command, args []string) error {
 			}
 			logging.Info("Mimic stopped", nil)
 			return nil
+
+		case <-restartReq:
+			logging.Info("Service restart requested", nil)
+			close(shutdown)
+			wg.Wait()
+			if closedMgr != nil {
+				closedMgr.StopAll()
+			}
+			if probeMgr != nil {
+				probeMgr.Stop()
+			}
+			if fwMgr != nil {
+				fwMgr.Stop()
+			}
+			logging.Info("Mimic stopped for restart", nil)
+			// The restart helper respawns mimic run as a detached process — it keeps
+			// running after this terminal returns to the prompt (by design for tray/UI).
+			fmt.Printf("\nMimic is restarting in the background. This terminal will exit.\n")
+			fmt.Printf("  Check:  mimic ctl ping\n")
+			fmt.Printf("  Logs:   %s\n\n", filepath.Join(logging.GetActiveLogDir(), "mimic.log"))
+			return nil
 		}
 	}
 }
@@ -880,6 +979,33 @@ func editionLabel(profile *config.OSProfile) string {
 		return ""
 	}
 	return profile.ResolvedEdition()
+}
+
+// skipBindConflict logs and returns true when a service could not bind because the
+// port is already owned (common on Windows where LanmanServer holds :445).
+func skipBindConflict(service string, port uint16, err error) bool {
+	if !platform.IsAddrInUse(err) {
+		return false
+	}
+	fields := map[string]interface{}{
+		"service": service,
+		"error":   err.Error(),
+		"hint":    platform.NativePortHint(int(port)),
+	}
+	if port > 0 {
+		fields["port"] = port
+	}
+	logging.Warn("Skipping service — port already in use", fields)
+	return true
+}
+
+func templateServicePort(mgr *services.Manager, name string) uint16 {
+	// GetServiceInfo's bool is "running", not "loaded" — read port even when bind failed.
+	cfg, _ := mgr.GetServiceInfo(name)
+	if cfg != nil {
+		return cfg.Port
+	}
+	return 0
 }
 
 func logRunStats(mgr *services.Manager, serviceNames []string) {

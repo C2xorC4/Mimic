@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"unsafe"
 
+	"github.com/c2xorc4/mimic/internal/platform"
 	"golang.org/x/sys/windows"
 )
 
@@ -20,7 +21,9 @@ var (
 	wdDLL       = windows.NewLazyDLL("WinDivert.dll")
 	procWDOpen  = wdDLL.NewProc("WinDivertOpen")
 	procWDRecv  = wdDLL.NewProc("WinDivertRecv")
+	procWDSend  = wdDLL.NewProc("WinDivertSend")
 	procWDClose = wdDLL.NewProc("WinDivertClose")
+	procWDCalcCsm = wdDLL.NewProc("WinDivertHelperCalcChecksums")
 )
 
 const wdLayerNetwork = 0
@@ -37,6 +40,13 @@ type wdAddress struct {
 type wdHandle struct{ h windows.Handle }
 
 func wdOpen(filter string) (*wdHandle, error) {
+	return wdOpenPriority(filter, 0)
+}
+
+func wdOpenPriority(filter string, priority int16) (*wdHandle, error) {
+	if err := wdDLL.Load(); err != nil {
+		return nil, platform.FormatWinDivertLoadError("WinDivert persona firewall", err)
+	}
 	fb, err := windows.BytePtrFromString(filter)
 	if err != nil {
 		return nil, err
@@ -44,12 +54,12 @@ func wdOpen(filter string) (*wdHandle, error) {
 	r1, _, e := procWDOpen.Call(
 		uintptr(unsafe.Pointer(fb)),
 		uintptr(wdLayerNetwork),
-		uintptr(0), // priority
+		uintptr(priority),
 		uintptr(0), // flags
 	)
 	h := windows.Handle(r1)
 	if h == windows.InvalidHandle {
-		return nil, fmt.Errorf("WinDivertOpen(%q): %w", filter, e)
+		return nil, platform.FormatWinDivertLoadError(fmt.Sprintf("WinDivertOpen(%q)", filter), e)
 	}
 	return &wdHandle{h: h}, nil
 }
@@ -67,6 +77,38 @@ func (w *wdHandle) recv(buf []byte, addr *wdAddress) (int, error) {
 		return 0, fmt.Errorf("WinDivertRecv: %w", e)
 	}
 	return int(recvLen), nil
+}
+
+func (w *wdHandle) send(buf []byte, addr *wdAddress) error {
+	var sendLen uint32
+	r1, _, e := procWDSend.Call(
+		uintptr(w.h),
+		uintptr(unsafe.Pointer(&buf[0])),
+		uintptr(len(buf)),
+		uintptr(unsafe.Pointer(&sendLen)),
+		uintptr(unsafe.Pointer(addr)),
+	)
+	if r1 == 0 {
+		return fmt.Errorf("WinDivertSend: %w", e)
+	}
+	return nil
+}
+
+func (w *wdHandle) calcChecksums(buf []byte, addr *wdAddress) {
+	procWDCalcCsm.Call(
+		uintptr(unsafe.Pointer(&buf[0])),
+		uintptr(len(buf)),
+		uintptr(unsafe.Pointer(addr)),
+		uintptr(0),
+	)
+}
+
+func (a *wdAddress) setOutbound(v bool) {
+	if v {
+		a.Bitfield |= 1 << 17
+	} else {
+		a.Bitfield &^= 1 << 17
+	}
 }
 
 func (w *wdHandle) close() error {

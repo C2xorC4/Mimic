@@ -18,3 +18,33 @@ type PersonaFirewall interface {
 	// Stop removes the persona (closes the drop handles; traffic flows normally).
 	Stop()
 }
+
+// ClosedPortResponder makes configured TCP ports answer probes with RST (closed),
+// which nmap -O requires alongside at least one open port. Linux uses nftables;
+// Windows uses WinDivert RST injection.
+type ClosedPortResponder interface {
+	// AddPorts installs RST responders for ports. ttl is the IP TTL on outbound
+	// RST packets (profile stack TTL; 0 → 64).
+	AddPorts(ports []uint16, ttl uint8) error
+	Stop()
+}
+
+// NewClosedPortResponder returns a platform closed-port responder, or nil where
+// none applies (Linux uses the services.ClosedPortManager nft path directly).
+func NewClosedPortResponder() ClosedPortResponder {
+	return newClosedPortResponder()
+}
+
+// ProbeResponder answers inbound nmap T2/T3 OS-fingerprint probes with RST.
+// Linux uses nftables (services.ProbeResponseManager); Windows uses WinDivert.
+type ProbeResponder interface {
+	// Start installs probe interceptors. ttl/window shape the synthetic RST;
+	// ackZero mirrors profile ack_in_rst: zero (Linux A=Z).
+	Start(ttl uint8, window uint16, ackZero bool) error
+	Stop()
+}
+
+// NewProbeResponder returns a platform T2/T3 responder, or nil where none applies.
+func NewProbeResponder() ProbeResponder {
+	return newProbeResponder()
+}
