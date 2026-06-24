@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"unsafe"
 
+	"github.com/c2xorc4/mimic/internal/platform"
 	"golang.org/x/sys/windows"
 )
 
@@ -56,8 +57,29 @@ func (a *wdAddress) Outbound() bool { return (a.Bitfield>>17)&1 == 1 }
 // wdHandle wraps the WinDivert HANDLE.
 type wdHandle struct{ h windows.Handle }
 
+// WinDivertInstalled reports whether WinDivert.dll can be loaded (present on PATH
+// or next to mimic.exe).
+func WinDivertInstalled() bool {
+	return winDivertLoadable()
+}
+
+// winDivertLoadable reports whether WinDivert.dll can be loaded. LazyDLL panics
+// on Call when Load fails — always Load() explicitly before invoking procs.
+func winDivertLoadable() bool {
+	return winDivertDLL.Load() == nil
+}
+
 // wdOpen opens a WinDivert handle for the given filter at the network layer.
 func wdOpen(filter string) (*wdHandle, error) {
+	return wdOpenFlags(filter, 0, wdFlagDefault)
+}
+
+// wdOpenFlags opens a WinDivert handle with an explicit priority and flags (e.g.
+// wdFlagSniff|wdFlagRecvOnly for a passive tap that does not divert traffic).
+func wdOpenFlags(filter string, priority int16, flags int) (*wdHandle, error) {
+	if err := winDivertDLL.Load(); err != nil {
+		return nil, platform.FormatWinDivertLoadError("WinDivert stack backend", err)
+	}
 	fb, err := windows.BytePtrFromString(filter)
 	if err != nil {
 		return nil, err
@@ -65,12 +87,12 @@ func wdOpen(filter string) (*wdHandle, error) {
 	r1, _, e := procWDOpen.Call(
 		uintptr(unsafe.Pointer(fb)),
 		uintptr(wdLayerNetwork),
-		uintptr(0), // priority
-		uintptr(wdFlagDefault),
+		uintptr(priority),
+		uintptr(uint32(flags)),
 	)
 	h := windows.Handle(r1)
 	if h == windows.InvalidHandle {
-		return nil, fmt.Errorf("WinDivertOpen(%q): %w (is WinDivert.dll/.sys present and are we elevated?)", filter, e)
+		return nil, platform.FormatWinDivertLoadError(fmt.Sprintf("WinDivertOpen(%q)", filter), e)
 	}
 	return &wdHandle{h: h}, nil
 }

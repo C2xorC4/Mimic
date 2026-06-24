@@ -7,6 +7,7 @@ import (
 	"io"
 	"math/rand"
 	"net"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -543,7 +544,9 @@ func (l *Listener) serveTLSBackend(tconn *tls.Conn, remoteAddr string) {
 		n, _ := tconn.Read(rbuf)
 		l.applyJitter()
 		tconn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-		if w, err := tconn.Write(iisHTTPResponse(rbuf[:n])); err == nil {
+		httpDir := filepath.Join(filepath.Dir(l.baseDir), "http")
+		resp := l.responder.TLSBackendHTTPResponse(rbuf[:n], httpDir)
+		if w, err := tconn.Write(resp); err == nil {
 			atomic.AddUint64(&l.stats.BytesSent, uint64(w))
 			l.emit(remoteAddr, events.Event{Type: events.Probe, Message: l.config.Name + " HTTPS request served"})
 		}

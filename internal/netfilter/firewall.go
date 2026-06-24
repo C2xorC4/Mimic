@@ -25,7 +25,7 @@ type PersonaFirewall interface {
 type ClosedPortResponder interface {
 	// AddPorts installs RST responders for ports. ttl is the IP TTL on outbound
 	// RST packets (profile stack TTL; 0 → 64).
-	AddPorts(ports []uint16, ttl uint8) error
+	AddPorts(ports []uint16, ttl uint8, linuxPersona bool) error
 	Stop()
 }
 
@@ -35,16 +35,35 @@ func NewClosedPortResponder() ClosedPortResponder {
 	return newClosedPortResponder()
 }
 
-// ProbeResponder answers inbound nmap T2/T3 OS-fingerprint probes with RST.
-// Linux uses nftables (services.ProbeResponseManager); Windows uses WinDivert.
+// ProbeResponder answers inbound nmap T-series OS-fingerprint probes with RST.
+// Linux uses nftables (services.ProbeResponseManager for Windows T2/T3 only);
+// Windows uses WinDivert for Linux-persona T4/T6/T7 on scoped ports.
 type ProbeResponder interface {
-	// Start installs probe interceptors. ttl/window shape the synthetic RST;
-	// ackZero mirrors profile ack_in_rst: zero (Linux A=Z).
-	Start(ttl uint8, window uint16, ackZero bool) error
+	// Start installs probe interceptors. ports scopes T4/T6 (closed + service);
+	// t7Ports scopes T7 (closed only — nmap sends FIN probes to a closed TCP port).
+	Start(ports []uint16, t7Ports []uint16, ttl uint8, window uint16, ackZero bool) error
 	Stop()
 }
 
-// NewProbeResponder returns a platform T2/T3 responder, or nil where none applies.
+// NewProbeResponder returns a platform T-probe responder, or nil where none applies.
 func NewProbeResponder() ProbeResponder {
 	return newProbeResponder()
+}
+
+// ICMPResponder answers inbound ICMP echo (IE) and UDP-closed (U1) OS-fingerprint
+// probes with Linux-shaped replies on Windows-hosted Linux personas.
+type ICMPResponder interface {
+	// udpClosedPorts is the ALLOW-LIST of closed UDP ports the persona answers with
+	// an ICMP port-unreachable (U1). Only inbound UDP to these specific ports is
+	// captured; all other inbound UDP (DNS replies, QUIC, app traffic) flows
+	// untouched. An empty list disables U1 capture entirely. (Previously this was an
+	// EXCLUDE list applied to "all inbound UDP", which blackholed every UDP packet
+	// not bound for a served port — killing host connectivity.)
+	Start(ttl, quoteSize, quoteTTL uint8, quoteDF bool, udpClosedPorts []uint16) error
+	Stop()
+}
+
+// NewICMPResponder returns a platform ICMP responder, or nil where none applies.
+func NewICMPResponder() ICMPResponder {
+	return newICMPResponder()
 }

@@ -1,12 +1,13 @@
 // Package control is the local management/control plane for a running Mimic
-// instance — the RBAC-gated surface the `mimic ctl` client talks to. It listens
-// on a same-host transport (a unix socket on Linux; Windows named-pipe is a
-// future addition), authenticates the connecting peer by OS credentials, runs
-// every request through an Authorizer (role → allowed-operations), serves
-// read-only status/log/ping operations, and audits each access onto the event
-// bus. It is deliberately small and authz-gated from day one so the full RBAC
-// role engine and a future system-tray UI bolt onto the same seam without a
-// retrofit; with no roles configured only root may use it (current behaviour).
+// instance — the RBAC-gated surface the `mimic ctl` client (and future tray UI)
+// talks to. It listens on a same-host transport (unix socket on Linux; named pipe
+// on Windows), authenticates the connecting peer by OS credentials, runs every
+// request through an Authorizer (role → allowed-operations), serves read-only
+// status/log/ping operations, and audits each access onto the event bus. It is
+// deliberately small and authz-gated from day one so config/service ops and a
+// system-tray UI bolt onto the same seam without a retrofit; with no roles
+// configured only the bootstrap admin principal may use it (root on Linux,
+// BUILTIN\Administrators on Windows).
 package control
 
 import (
@@ -22,24 +23,32 @@ import (
 	"github.com/c2xorc4/mimic/internal/logging"
 )
 
-// ErrUnsupported is returned by the platform listener where the control plane is
-// not yet implemented (non-Linux).
-var ErrUnsupported = errors.New("control plane is only supported on Linux (unix socket) for now")
+// ErrUnsupported is returned on platforms without a control transport.
+var ErrUnsupported = errors.New("control plane is not supported on this platform")
 
 // ErrDenied is returned by an Authorizer that rejects a peer/op.
 var ErrDenied = errors.New("access denied")
 
-// Peer is the authenticated identity of a control-plane client (unix peer creds).
+// Peer is the authenticated identity of a control-plane client. Linux fills
+// UID/GID from SO_PEERCRED; Windows fills UserSID/GroupSIDs/IsAdmin from the
+// connecting process token.
 type Peer struct {
-	UID uint32
-	GID uint32
-	PID int32
+	UID  uint32
+	GID  uint32
+	PID  int32
+	UserSID   string
+	GroupSIDs []string
+	IsAdmin   bool
 }
 
 // Request is one control operation (line-delimited JSON).
 type Request struct {
-	Op string `json:"op"`
-	N  int    `json:"n,omitempty"` // for "logs": number of recent events
+	Op     string       `json:"op"`
+	N      int          `json:"n,omitempty"`      // logs: recent in-memory events
+	Lines  int          `json:"lines,omitempty"`  // logs.file: trailing line count
+	File   string       `json:"file,omitempty"`   // logs.file: events|mimic|probes
+	Patch  *ConfigPatch `json:"patch,omitempty"`  // config.set / config.validate
+	DryRun bool         `json:"dry_run,omitempty"` // config.set: validate only
 }
 
 // Response is the reply to a Request.
@@ -71,6 +80,7 @@ type Server struct {
 	authz    Authorizer
 	statusFn func() Status
 	ring     *Ring
+	hooks    *Hooks
 	socket   string
 	start    time.Time
 	log      *logging.Logger
@@ -82,8 +92,9 @@ type Server struct {
 
 // New builds a control server. statusFn supplies the live status snapshot; ring
 // is the event ring buffer served by "logs" (also a bus Sink — register it).
-func New(authz Authorizer, statusFn func() Status, ring *Ring) *Server {
-	return &Server{authz: authz, statusFn: statusFn, ring: ring, start: time.Now(), log: logging.Component("control")}
+// hooks is optional; nil disables config/service/log-file operations.
+func New(authz Authorizer, statusFn func() Status, ring *Ring, hooks *Hooks) *Server {
+	return &Server{authz: authz, statusFn: statusFn, ring: ring, hooks: hooks, start: time.Now(), log: logging.Component("control")}
 }
 
 // Start opens the platform transport at socket and serves in the background.
@@ -96,7 +107,10 @@ func (s *Server) Start(socket string) error {
 	s.wg.Add(1)
 	go s.accept()
 	if s.log != nil {
-		s.log.Info("Control plane listening", map[string]interface{}{"socket": socket})
+		s.log.Info("Control plane listening", map[string]interface{}{
+			"socket": socket,
+			"pid":    s.statusFn().Pid,
+		})
 	}
 	return nil
 }
@@ -131,7 +145,7 @@ func (s *Server) accept() {
 
 func (s *Server) handle(conn net.Conn) {
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
+	_ = conn.SetDeadline(time.Now().Add(30 * time.Second))
 
 	peer, perr := peerCred(conn)
 	dec := json.NewDecoder(bufio.NewReader(conn))
@@ -141,18 +155,19 @@ func (s *Server) handle(conn net.Conn) {
 		return
 	}
 
-	grantedRole, aerr := s.authz.Authorize(peer, req.Op)
-	s.audit(peer, req.Op, grantedRole, aerr == nil && perr == nil)
+	op := NormalizeOp(req.Op)
+	grantedRole, aerr := s.authz.Authorize(peer, op)
+	s.audit(peer, op, grantedRole, aerr == nil && perr == nil)
 	if perr != nil {
 		writeJSON(conn, Response{OK: false, Error: "peer authentication failed"})
 		return
 	}
 	if aerr != nil {
-		writeJSON(conn, Response{OK: false, Error: ErrDenied.Error()})
+		writeJSON(conn, Response{OK: false, Error: AccessDeniedMessage(peer)})
 		return
 	}
 
-	switch req.Op {
+	switch op {
 	case "ping":
 		writeJSON(conn, Response{OK: true, Role: grantedRole, Data: "pong"})
 	case "status":
@@ -166,8 +181,98 @@ func (s *Server) handle(conn net.Conn) {
 			n = 20
 		}
 		writeJSON(conn, Response{OK: true, Role: grantedRole, Data: s.ring.Last(n)})
+	case "logs.file":
+		if s.hooks == nil || s.hooks.TailLogFile == nil {
+			writeJSON(conn, Response{OK: false, Role: grantedRole, Error: "logs.file not available"})
+			return
+		}
+		lines := req.Lines
+		if lines <= 0 {
+			lines = 50
+		}
+		tail, err := s.hooks.TailLogFile(req.File, lines)
+		if err != nil {
+			writeJSON(conn, Response{OK: false, Role: grantedRole, Error: err.Error()})
+			return
+		}
+		writeJSON(conn, Response{OK: true, Role: grantedRole, Data: tail})
+	case "profiles.list":
+		if s.hooks == nil || s.hooks.ListProfiles == nil {
+			writeJSON(conn, Response{OK: false, Role: grantedRole, Error: "profiles.list not available"})
+			return
+		}
+		cat, err := s.hooks.ListProfiles()
+		if err != nil {
+			writeJSON(conn, Response{OK: false, Role: grantedRole, Error: err.Error()})
+			return
+		}
+		writeJSON(conn, Response{OK: true, Role: grantedRole, Data: cat})
+	case "services.list":
+		if s.hooks == nil || s.hooks.ListServices == nil {
+			writeJSON(conn, Response{OK: false, Role: grantedRole, Error: "services.list not available"})
+			return
+		}
+		cat, err := s.hooks.ListServices()
+		if err != nil {
+			writeJSON(conn, Response{OK: false, Role: grantedRole, Error: err.Error()})
+			return
+		}
+		writeJSON(conn, Response{OK: true, Role: grantedRole, Data: cat})
+	case "config.get":
+		if s.hooks == nil || s.hooks.GetConfig == nil {
+			writeJSON(conn, Response{OK: false, Role: grantedRole, Error: "config.get not available"})
+			return
+		}
+		snap, err := s.hooks.GetConfig()
+		if err != nil {
+			writeJSON(conn, Response{OK: false, Role: grantedRole, Error: err.Error()})
+			return
+		}
+		writeJSON(conn, Response{OK: true, Role: grantedRole, Data: snap})
+	case "config.set", "config.validate":
+		if s.hooks == nil || s.hooks.SetConfig == nil {
+			writeJSON(conn, Response{OK: false, Role: grantedRole, Error: "config.set not available"})
+			return
+		}
+		if req.Patch == nil {
+			writeJSON(conn, Response{OK: false, Role: grantedRole, Error: "missing patch"})
+			return
+		}
+		dryRun := req.DryRun || op == "config.validate"
+		result, err := s.hooks.SetConfig(*req.Patch, dryRun)
+		if err != nil {
+			writeJSON(conn, Response{OK: false, Role: grantedRole, Error: err.Error()})
+			return
+		}
+		writeJSON(conn, Response{OK: true, Role: grantedRole, Data: result})
+	case "services.restart":
+		if s.hooks == nil || s.hooks.Restart == nil {
+			writeJSON(conn, Response{OK: false, Role: grantedRole, Error: "services.restart not available"})
+			return
+		}
+		if err := s.hooks.Restart(); err != nil {
+			writeJSON(conn, Response{OK: false, Role: grantedRole, Error: err.Error()})
+			return
+		}
+		writeJSON(conn, Response{OK: true, Role: grantedRole, Data: map[string]string{
+			"message": "restart scheduled",
+		}})
+	case "services.stop":
+		if s.hooks == nil || s.hooks.Stop == nil {
+			writeJSON(conn, Response{OK: false, Role: grantedRole, Error: "services.stop not available"})
+			return
+		}
+		if err := s.hooks.Stop(); err != nil {
+			writeJSON(conn, Response{OK: false, Role: grantedRole, Error: err.Error()})
+			return
+		}
+		writeJSON(conn, Response{OK: true, Role: grantedRole, Data: map[string]string{
+			"message": "stop scheduled",
+		}})
+	case "services.start":
+		writeJSON(conn, Response{OK: false, Role: grantedRole, Error: "services.start not implemented"})
 	default:
-		writeJSON(conn, Response{OK: false, Role: grantedRole, Error: "unknown op: " + req.Op})
+		writeJSON(conn, Response{OK: false, Role: grantedRole, Error: "unknown op: " + op})
 	}
 }
 
@@ -181,7 +286,12 @@ func (s *Server) audit(peer Peer, op, role string, allowed bool) {
 	}
 	events.Emit(events.Event{
 		Type: events.Control, Severity: sev, Service: "control", Message: msg,
-		Fields: map[string]interface{}{"op": op, "role": role, "peer_uid": peer.UID, "peer_gid": peer.GID, "peer_pid": peer.PID, "allowed": allowed},
+		Fields: map[string]interface{}{
+			"op": op, "role": role, "allowed": allowed,
+			"peer_uid": peer.UID, "peer_gid": peer.GID, "peer_pid": peer.PID,
+			"peer_user_sid": peer.UserSID, "peer_is_admin": peer.IsAdmin,
+			"peer_group_count": len(peer.GroupSIDs),
+		},
 	})
 }
 

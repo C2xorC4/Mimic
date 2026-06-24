@@ -8,7 +8,254 @@
 > write-ups (`net_impacket_*`, `net_smb_*`). Recall LJM before re-deriving;
 > don't duplicate Knowledge entries here.
 
-## Current Status (as of 2026-06-06; latest work 2026-06-22)
+## Current Status (as of 2026-06-24; latest work 2026-06-24)
+
+> **CHECKPOINT — Debian single-profile fingerprint (branch `feat/windows-port-linux-fidelity`, 2026-06-24).**
+> **Active goal:** close Debian gaps on Windows-hosted mimic before running
+> `lab/scripts/profile_matrix_scan.sh` (16 Linux profiles from Kali).
+>
+> **Lab topology:**
+> | Role | Host | Notes |
+> |------|------|-------|
+> | mimic target | ss-book `10.0.253.61` | Dev laptop; repo `D:\repos\security\mimic` |
+> | scanner | Kali `10.0.254.70` | SSH key `C:\Users\C2xor\.ssh\argus_lab` |
+> | gold baseline | Debian 11 VM `10.0.251.3` (9521) | Native stack reference |
+>
+> **Config:** `dev-config.yaml` — profile **Debian**, services http/https/redis/ssh/telnet/vnc,
+> `closed_ports: [9999]`, interface Wi-Fi. Standard scan:
+> `nmap -Pn -O --osscan-guess -p 80,9999 -PU1,9999 -d2 10.0.253.61` (from Kali).
+>
+> **★ CONNECTIVITY SELF-DoS — FIXED + VALIDATED (2026-06-24, this session).** The
+> recurring "mimic kills the host's network" footgun was the **U1 UDP responder filter**
+> (`internal/netfilter/icmp_windows.go`). It opened a WinDivert handle on
+> `"inbound and udp and !loopback"` (minus a few served ports) and the loop `continue`d
+> WITHOUT re-injecting — so EVERY inbound UDP packet (DNS replies, QUIC/HTTP-3, app
+> traffic) was captured and dropped → DNS dies → ss-book offline → Claude/Grok severed,
+> no way to push a fix. **Fix:** inverted the filter from an EXCLUDE list to an ALLOW-LIST
+> of the declared `closed_ports` — `udpUnreachableFilter()` now returns
+> `inbound and udp and !loopback and (udp.DstPort == 9999 ...)` and `(string, bool)`;
+> empty closed-ports ⇒ U1 UDP handle not opened at all. `ICMPResponder.Start`'s last arg
+> renamed `udpExcludePorts`→`udpClosedPorts`; `run.go` now passes `appCfg.ClosedPorts`
+> (was `nil`). **Validated (elevated, dev-config, time-boxed watchdog test):** with mimic
+> running on ss-book, fresh uncached DNS = OK, HTTPS GET = 200, `ctl ping` = pong; log
+> shows `[icmp] ... udp_closed_ports=[9999]`. Host stays fully online with mimic active —
+> so the Kali-scan regression cycle can now run against ss-book directly without
+> self-severing. (U1 attribution still depends on the type-3 egress issue below; this fix
+> is about connectivity, not U1 fidelity.)
+>
+> **Regression snapshot (2026-06-24, ALL TELLS CLOSED; Kali→ss-book live, firewall ON):**
+> | Probe | Reference (Linux) | ss-book mimic | Status |
+> |-------|------------------|---------------|--------|
+> | SEQ | TI=RD II=RI TS=A | match | ✅ |
+> | T1–T7 | baseline (T2/T3 R=N) | match | ✅ |
+> | WIN | 7210 | 7210 | ✅ |
+> | IE | R=Y DFI=N CD=S | match | ✅ |
+> | OPS | O1–O5=ST11, O3=NNT11, O6=ST11 | match | ✅ FIXED (TSecr echo) |
+> | ECN | M5B4NNSNW7 | M5B4NNSNW7 | ✅ FIXED (inbound-SYN cache) |
+> | **U1** | IPL=164 RIPL/RID/RIPCK/RUD=G | **exact match** | ✅ FIXED (WFP+sig+verbatim) |
+>
+> **Net result:** OS attribution flipped from "Apple TV / no match" → **all-Linux aggressive
+> guesses (~89%)** under a plain `nmap -O`. Only the exact kernel sub-version is unpinned
+> (Windows-host ISN/SEQ ceiling). Connectivity fully preserved with all responders active.
+> **All four session goals delivered: connectivity self-DoS, OPS, ECN, U1.**
+>
+> Scans: `scratchpad/scan_ops_fix.txt`, `u1diag*.txt`, `u1_native.txt` (this session).
+>
+> **OPS ST10→ST11 — FIXED + VALIDATED (2026-06-24).** Tell was **TSecr=0** (nmap `T10` =
+> TSval-nonzero/TSecr-zero), not "TSval zero" as previously noted. The Windows host has
+> TCP timestamps DISABLED, so its SYN-ACK carries no TS to echo → `linTSecr` stayed 0.
+> Fix (`internal/stack/backend_windows.go` Linux SYN-ACK template): if `linTSecr==0`,
+> synthesize `uptimeMs()` so the option pair reads ST11. (Full client-TSval echo would
+> need inbound-SYN flow tracking; nmap OPS only records zero/nonzero.) Validated: O1/O2/
+> O4/O5=`M5B4ST11NW7`, O3=`M5B4NNT11NW7` (correct — nmap P3 omits SACK), O6=`M5B4ST11`.
+>
+> **★ U1 ROOT-CAUSED — it's the Windows Firewall, NOT a broken injection path (2026-06-24).**
+> This OVERTURNS the prior "type-3 reinject is broken / pivot to a VM" hypothesis. Proven on
+> ss-book with Kali tcpdump:
+> 1. **Windows never emits an ICMP port-unreachable for a closed UDP port** — even with the
+>    inbound UDP firewall-allowed and mimic stopped, 9999/udp stays open|filtered, zero
+>    type-3 on the wire (`u1_native.txt`). So mimic MUST synthesize it (it does correctly).
+> 2. **WFP's outbound ICMP-error layer drops mimic's *unsolicited* synthesized type-3.**
+>    `WinDivertSend` returns success and the stack backend even logs `U1 diverted`, but the
+>    packet never hits the wire — UNLESS the **Windows Firewall is fully OFF**. With
+>    `netsh advfirewall set allprofiles state off`: type-3 egresses, 9999/udp reads
+>    **closed**, and nmap then aims its U1 OS-probe at 9999 → `ICMP udp port 9999
+>    unreachable, length 172` (the IPL=164 quote) on Kali (`u1diag_nofw.txt`).
+>    Outbound policy is already `AllowOutbound` AND `EnsureICMPOutboundFirewallRule` installs
+>    a valid `ICMPv4 Any/Any` outbound allow — neither overrides the stateful drop. The drop
+>    is at `FWPM_LAYER_OUTBOUND_ICMP_ERROR_V4` (validates ICMP errors against tracked flows;
+>    our error has none because WinDivert swallowed the inbound UDP).
+> 3. nmap only targets 9999 for U1 once it reads **closed**; while open|filtered, the U1
+>    OS-probe (UDP len 300) goes to a random high port (33337/44626/etc.) anyway.
+>
+> **★ U1 — FIXED + VALIDATED (2026-06-24), exact gold match.** User chose the custom-WFP
+> approach. Three coordinated pieces, all on `feat/windows-port-linux-fidelity`:
+> 1. **WFP hard-permit** (`internal/netfilter/wfp_windows.go`): a dynamic WFP session adds a
+>    `FWP_ACTION_PERMIT`+`CLEAR_ACTION_RIGHT` filter at `FWPM_LAYER_OUTBOUND_ICMP_ERROR_V4`
+>    `{41390100-564c-4b32-bc1d-718048354d7c}` in mimic's own max-weight (0xFFFF) sublayer,
+>    overriding the firewall's stateful drop so the injected type-3 egresses with the
+>    firewall ON. Dynamic session ⇒ BFE auto-removes it on engine close / process death
+>    (crash-safe, no host leak). `fwpuclnt.dll` via x/sys/windows; FWPM_FILTER0 etc. are
+>    hand-marshaled (FwpmFilterAdd0 is userland RPC → bad params return an error, not a BSOD).
+>    Wired into `winICMPResponder.Start/Stop`.
+> 2. **U1 signature responder** (`icmp_windows.go` `u1SignatureLoop`): WinDivert filter
+>    `inbound and udp and !loopback and udp.PayloadLength == 300` catches nmap's U1 OS-probe
+>    (300 bytes of 0x43 'C', confirmed on-wire) on ANY port — needed because a plain
+>    `nmap -O` (no -sU) aims U1 at a RANDOM closed port, not the declared closed_ports. Only
+>    the 0x43 signature is answered+swallowed; any other 300-byte UDP is reinjected
+>    (connectivity-safe — verified: DNS/HTTPS/ctl all OK with it active).
+> 3. **Verbatim full quote** (`craftPortUnreachable` + stack `applyPortUnreachable`): Linux
+>    quotes the ENTIRE offending datagram unmodified, so the response IP length is
+>    20+8+328 = 356 = **0x164** (nmap's `IPL=164` is HEX, NOT a 164-byte cap — the prior cap
+>    was the bug) and the quoted header is byte-identical → `RIPL/RID/RIPCK/RUCK/RUD` all =G.
+>    Rewriting the quote (length cap, TTL/DF) had produced `RIPL=A4` + `RIPCK=I`.
+>    `applyPortUnreachable` reduced to outer-only (TTL + clear DF); quote left untouched.
+>
+> **VALIDATED (Kali→ss-book, firewall ON):**
+> `U1(R=Y%DF=N%T=40%IPL=164%UN=0%RIPL=G%RID=G%RIPCK=G%RUCK=G%RUD=G)` — exact match to nmap-os-db
+> `Linux 4.15-5.19`. **OS attribution flipped from "Apple TV / no match" → all-Linux aggressive
+> guesses (Linux 3.3 / 4.19 / 3.2-4.14, ~89%).** Exact kernel sub-version still not pinned
+> (the documented Windows-host ISN/SEQ ceiling — we don't rewrite the Windows kernel's ISN);
+> OS *family* = Linux, which is what drives the deception/CVE relevance. `go test ./...` +
+> `go vet ./...` all green on Windows.
+>
+> **ECN O=M5B4NNSNW7 — FIXED + VALIDATED (2026-06-24) via inbound-SYN flow cache.**
+> `internal/stack/backend_windows.go`: the main WinDivert handle now ALSO captures inbound
+> bare SYNs (`winFilter` widened to `... or (inbound and ip and tcp and tcp.Syn and
+> !tcp.Ack ...)`), in the SAME loop goroutine that shapes the outbound SYN-ACK — so each
+> SYN is recorded (timestamp-present + TSval, keyed by client IP:port) BEFORE the SYN-ACK
+> it triggers is processed (race-free; a first attempt with a separate SNIFF goroutine
+> raced and lost). SYN-ACK shaping then keys off the captured SYN: TS present (OPS probes)
+> → Linux TS template ST11 with the REAL client TSval echoed as TSecr; TS absent (nmap's
+> ECN probe — `Flags [SEW]`, options wscale/nop/mss/sackOK/nop/nop, no TS) → the no-TS
+> template `M5B4NNSNW7`. The discriminator is **timestamp presence, not the ECE bit**
+> (Windows never sets ECE; nmap's ECN probe is distinguished by lacking TS).
+> **Two bugs found + fixed during impl (both via on-wire tcpdump from Kali):** (1) WinDivert
+> flag constants were wrong — `RECV_ONLY`=0x4, `SEND_ONLY`=0x8; the sniff handle had been
+> opened SEND_ONLY so it received nothing; (2) the SYN-ACK lookup keyed off the packet's
+> SOURCE port (=service port 80) instead of the DESTINATION port (=client) → every lookup
+> missed and fell back to the TS template (so the earlier "OPS ST11" was the synthetic
+> fallback, not the cache). **VALIDATED (Kali→ss-book):** `ECN O=M5B4NNSNW7` (was
+> M5B4ST11NW7), OPS all ST11 with real TSecr echo, no regression on SEQ/WIN/T1–T7/IE.
+>
+> **Remaining tell: only U1(R=N).** WFP filter for outbound ICMP type-3 is the next task
+> (user chose the custom-WFP-filter approach over firewall-toggle/accept).
+>
+> **Ops constraints (unchanged):**
+> - mimic **must** run elevated (UAC); one Admin PowerShell window — do not stack UAC prompts.
+> - Start: `.\build\mimic.exe run -c dev-config.yaml -i Wi-Fi`
+> - Reload binary: `.\build\mimic.exe ctl services.restart` (inherits elevation).
+> - Confirm: `.\build\mimic.exe ctl ping` → `pong`
+> - Console storm fixed via `internal/platform/exec_windows.go` (`CREATE_NO_WINDOW`).
+>
+> **Safe test loop (no VM needed now that connectivity self-DoS is fixed):** scan ss-book
+> directly from Kali. Pattern that survives a connectivity blip: ONE elevated PowerShell
+> (`Start-Process -Verb RunAs -Wait`) that (1) arms an independent watchdog process to
+> `Stop-Process mimic` after ~180s, (2) starts mimic detached, (3) SSHes to Kali
+> (`C:\Users\C2xor\.ssh\argus_lab` → `root@10.0.254.70`) to run nmap against `10.0.253.61`,
+> (4) kills mimic. The watchdog guarantees the host comes back even if the test hangs.
+> Reusable scripts: `scratchpad/scan_iter.ps1` (regression scan), `u1diag.ps1` (+ tcpdump),
+> `u1diag_nofw.ps1` (firewall-off), `u1_native.ps1` (Windows-native baseline). Pipe Kali
+> bash via `(Get-Content x.sh -Raw) -replace "\`r","" | ssh ... "bash -s"` (Kali shell = zsh;
+> strip CRLF). One UAC prompt per scan iteration is expected.
+
+> **CHECKPOINT — host restart pending (2026-06-24).** Operator reported spurious
+> file-picker and other stray processes (likely stale `MimicUI` / `dotnet run` tray
+> instances). **Before resuming:** end all `MimicUI.exe` and orphaned `dotnet` hosts
+> via Task Manager or tray → Exit; then relaunch from a fresh build. Tray Exit fix is
+> in code but **not re-validated** after the operator killed a prior UI instance
+> manually.
+
+> **ACTIVE TRACK — Windows management UI + control-plane ops (branch
+> `feat/windows-port-linux-fidelity`).** Pre-MVP goal: a WinUI 3 tray app on ss-book
+> wired to the local RBAC-gated control API so settings changes (profile, services)
+> can be saved and applied via graceful restart. Linux honeypot + stack work from
+> Phase 2 remains done; this track extends the Windows port (Phase 1) with operator
+> UX, not new deception vectors.
+>
+> **Control plane — CODE-COMPLETE + SMOKE-VALIDATED (elevated Admin):**
+> - **Transport:** Windows named pipe `\\.\pipe\mimic` (`internal/control/listen_windows.go`,
+>   `dial_windows.go`, `endpoint_windows.go`). Linux unix socket unchanged.
+> - **Auth:** `ImpersonateNamedPipeClient` peer creds preferred over client-PID token
+>   (`listen_windows.go`); `tokenIsAdministrator()` handles UAC-linked/filtered-admin
+>   tokens (deny-only `S-1-5-32-544` group). Empty RBAC config ⇒ admin bootstrap for
+>   elevated peers (mirrors Linux root bootstrap).
+> - **Ops wired** (`cmd/mimic/control_hooks.go` + `internal/control/`): `ping`, `status`,
+>   `logs`, `logs.file`, `config.get`, `config.set` (+ `config.validate`, dry-run),
+>   `profiles.list`, `services.list`, `services.restart` (canonical; `service.restart`
+>   aliased via `NormalizeOp`).
+> - **CLI:** `mimic ctl <op>` (`cmd/mimic/ctl.go`). Confirmed on ss-book: `ping` →
+>   `ok:true, role:admin`; `status` → profile/services/pid/uptime; `services.list` →
+>   17 templates; `profiles.list` → full catalog.
+> - **Caveat:** `status.services` = **running** services (edition-gated); config may list
+>   more than what's active (e.g. workstation profile ⇒ only `nbns` despite smb/msrpc in
+>   config). `services.list` = available templates, not runtime state.
+> - **Stale-process footgun:** ctl auth runs server-side — rebuild `mimic.exe` then
+>   restart the `mimic run` process or pipe clients hit old auth code.
+>
+> **WinUI app — FUNCTIONAL SHELL (`ui/MimicUI/`, 2026-06-24):** Dashboard, **Logs**
+> (renamed from Events), Settings; About removed from nav. `ControlClient.cs`
+> JSON-over-named-pipe; system tray (H.NotifyIcon.WinUI, minimize-to-tray).
+> Settings: profile dropdown, services checkboxes, restart banner → `services.restart`.
+> **Logs page sources:** live ring buffer, `events.log`, `mimic.log`, `probes.log`
+> (`EventLogFormatter.cs` — security events, mimic ops, probe match/miss telemetry).
+> **UI polish (2026-06-24):** title-bar back button removed; app icon from
+> `assets/icons/Mimic.ico`; `<WindowsPackageType>None</WindowsPackageType>` so
+> `MimicUI.exe` launches unpackaged without CLR crash. **Tray menu fix (2026-06-24):**
+> H.NotifyIcon default Win32 popup menu requires `MenuFlyoutItem.Command` (not `Click`);
+> exit path = `_forceClose` + dispose tray + `Close()` (not `Application.Current.Exit()`).
+> **Not yet packaged** (no MSIX/installer).
+>
+> **Log semantics (confirmed 2026-06-24):**
+> | Source | Purpose |
+> |--------|---------|
+> | **live** | In-memory security event ring (same schema as `events.log`) |
+> | **events.log** | Security NDJSON: honeypot, control-plane audit, cred captures, defense |
+> | **mimic.log** | App/ops: startup, services, stack, warnings, errors |
+> | **probes.log** | Probe match/miss per service/port/source (`component: probe`) |
+>
+> **Dev config (ss-book):** `dev-config.yaml` at repo root — `control.enabled: true`,
+> absolute `profiles_dir`/`services_dir`/`log_dir`, profile Windows Server 2025 (user
+> may edit), services smb/msrpc/netbios/nbns. **Must pass `-c` explicitly** — missing
+> config file silently returns empty defaults → `no profile or services specified`.
+> WinDivert.dll + WinDivert64.sys must sit beside `build\mimic.exe` for stack spoofing.
+>
+> **Windows runtime fixes this session (2026-06-23):**
+> - **WinDivert missing:** graceful `Load()` before proc calls; `stack.WinDivertInstalled()`;
+>   warn-and-continue when DLL absent (service emulation still runs).
+> - **ctl access denied:** multi-iteration fix — impersonation + admin-token detection
+>   (see above). Requires elevated Admin window for both `mimic run` and UI/ctl client.
+>
+> **Port 445 bind skip (2026-06-24):** When native `LanmanServer` holds :445, mimic
+> skips `smb` with warning (`skipBindConflict` in `run.go`). Dev-config documents this.
+>
+> **Restart bug — FIXED, PENDING USER RE-VALIDATION:**
+> UI / `ctl services.restart` stopped mimic cleanly but did **not** come back. Root cause:
+> `PerformPendingRestart` checked whether the SCM service was **registered** (`sc query
+> Mimic`) rather than whether the **current instance** ran under SCM. Dev pattern: `mimic
+> install` registers the service, but operator runs `build\mimic.exe run -c dev-config.yaml`
+> interactively → restart wrongly invoked `sc start Mimic` (wrong binary/config path).
+> **Fix:** `platform.RunningUnderService()` (`svc.IsWindowsService()` / Linux
+> `INVOCATION_ID`) passed through `ScheduleRestart` → `restart-pending --via-service` →
+> `PerformPendingRestart`. Interactive ⇒ detach-spawn `mimic run -c <cfg>`; SCM-hosted ⇒
+> `sc start` / `systemctl start`. Failures logged to `<log_dir>/restart-pending.log`.
+> **Verify:** rebuild → elevated `mimic run -c dev-config.yaml` → UI restart or
+> `ctl services.restart` → `ctl ping` succeeds; check `log/restart-pending.log` for
+> `restart spawned (via_service=false, ...)`.
+>
+> **Resume checklist (post-restart):**
+> 1. Kill stale `MimicUI.exe` / `dotnet` if any remain.
+> 2. `go build -o build/mimic.exe ./cmd/mimic` → restart `mimic run -c dev-config.yaml -i Wi-Fi`.
+> 3. `cd ui\MimicUI; dotnet build -c Debug` → launch
+>    `bin\Debug\net9.0-windows10.0.26100.0\win-x64\MimicUI.exe` (prefer direct exe over
+>    `dotnet run` to avoid extra host processes).
+> 4. Validate: tray Exit quits fully; Logs → probes.log columns (Service/Result/Probe);
+>    Settings save + `services.restart`; `ctl ping`.
+>
+> **Deferred (post-MVP):** MSIX/publish `MimicUI.exe`; **single-instance guard** (would
+> prevent duplicate tray UIs); install path bundles UI; UI auto-reconnect after mimic
+> restart; `services.stop`/`services.start` implementation; full SMB on Windows (:445);
+> full matrix re-run on Windows hardware after config changes.
 
 > **NEW MAJOR TRACK — Windows app + Linux honeypots + RBAC-ready control plane**
 > (plan approved 2026-06-22). Sequence: regression harness → **Windows port

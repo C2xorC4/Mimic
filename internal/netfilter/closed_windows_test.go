@@ -41,7 +41,7 @@ func TestCraftTCPRST(t *testing.T) {
 	}
 }
 
-func TestCraftProbeRSTLinuxT2(t *testing.T) {
+func TestCraftProbeRSTLinuxT4(t *testing.T) {
 	pkt := make([]byte, 40)
 	pkt[0] = 0x45
 	pkt[9] = 6
@@ -50,23 +50,21 @@ func TestCraftProbeRSTLinuxT2(t *testing.T) {
 	binary.BigEndian.PutUint16(pkt[20:22], 1234)
 	binary.BigEndian.PutUint16(pkt[22:24], 80)
 	binary.BigEndian.PutUint32(pkt[24:28], 2000)
-	// NULL flags (T2)
+	pkt[33] = 0x10 // ACK (T4)
 
-	n, ok := craftProbeRST(pkt, probeRSTOpts{ttl: 64, window: 0, ackZero: true})
+	opts, ok := linuxProbeRSTOpts(pkt[33], 64, 0, true)
+	if !ok {
+		t.Fatal("linuxProbeRSTOpts T4")
+	}
+	n, ok := craftProbeRST(pkt, opts)
 	if !ok || n != 40 {
 		t.Fatalf("craftProbeRST failed ok=%v n=%d", ok, n)
 	}
 	pkt = pkt[:n]
-	if pkt[8] != 64 {
-		t.Fatalf("ttl want 64 got %d", pkt[8])
-	}
-	if binary.BigEndian.Uint16(pkt[30:32]) != 0 {
-		t.Fatalf("window want 0 got %d", binary.BigEndian.Uint16(pkt[30:32]))
+	if pkt[33] != 0x04 {
+		t.Fatalf("flags want RST only got 0x%x", pkt[33])
 	}
 	if binary.BigEndian.Uint32(pkt[28:32]) != 0 {
 		t.Fatalf("ack want 0 got %d", binary.BigEndian.Uint32(pkt[28:32]))
-	}
-	if pkt[33]&0x14 != 0x14 {
-		t.Fatalf("flags want RST|ACK got 0x%x", pkt[33])
 	}
 }

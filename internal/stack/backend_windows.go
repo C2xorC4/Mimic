@@ -27,7 +27,13 @@ import (
 // it refines nmap T4/T6 only; primary OS attribution (TTL/window/options/DF/
 // IP-ID + TS rate) is fully covered here.
 
-const winFilter = "outbound and ip and (tcp or icmp)"
+// Outbound TCP + ICMP (incl. kernel-generated U1 port-unreachable), PLUS inbound
+// bare SYNs. The inbound SYNs are captured on the SAME handle (one goroutine) so a
+// SYN is recorded BEFORE the loop comes back around to the SYN-ACK it triggers —
+// race-free, unlike a separate sniff goroutine. Inbound SYNs are reinjected
+// unchanged; we only read their options (timestamp/ECN) to shape the SYN-ACK.
+const winFilter = "(outbound and ip and (tcp or icmp)) or " +
+	"(inbound and ip and tcp and tcp.Syn and !tcp.Ack and !loopback)"
 
 var procGetTickCount64 = windows.NewLazyDLL("kernel32.dll").NewProc("GetTickCount64")
 
@@ -36,6 +42,12 @@ var procGetTickCount64 = windows.NewLazyDLL("kernel32.dll").NewProc("GetTickCoun
 func uptimeMs() uint32 {
 	r, _, _ := procGetTickCount64.Call()
 	return uint32(r)
+}
+
+// uptimeMs64 is the full 64-bit tick count for cache-expiry bookkeeping.
+func uptimeMs64() uint64 {
+	r, _, _ := procGetTickCount64.Call()
+	return uint64(r)
 }
 
 // IP-ID behaviors (mirror internal/ebpf constants).
@@ -60,6 +72,8 @@ type winProfile struct {
 	opt1          uint8 // second option kind (drives the Linux SACK-first template)
 	ecnEcho       bool  // Linux/macOS echo ECE (CC=Y) + keep native ECN opts; Windows clears ECE (#12)
 	winQuirks     bool  // Windows profile → apply Windows-only quirks (ICMP CD=Z, A=O RST); off for Linux (#13)
+	icmpQuoteTTL  uint8 // TTL stamped into U1 quoted IP header
+	icmpQuoteDF   bool  // DF bit in U1 quoted IP header
 }
 
 func toWinProfile(p *config.OSProfile) *winProfile {
@@ -74,6 +88,11 @@ func toWinProfile(p *config.OSProfile) *winProfile {
 		sackPermitted: s.SACKPermitted,
 		optionsCount:  uint8(len(s.TCPOptionsOrder)),
 		windowInRST:   s.WindowInRST,
+		icmpQuoteTTL:  s.ICMPTTLInQuote,
+		icmpQuoteDF:   s.ICMPDFInQuote,
+	}
+	if wp.icmpQuoteTTL == 0 {
+		wp.icmpQuoteTTL = wp.ttl
 	}
 	switch strings.ToLower(s.IPIDBehavior) {
 	case "random", "rand":
@@ -100,6 +119,17 @@ type ipidState struct {
 	seed    uint32
 }
 
+// synFlow records what an inbound SYN carried, so the outbound SYN-ACK shaper can
+// reproduce a real Linux response: emit a timestamp ONLY if the client's SYN had
+// one (nmap's OPS probes do, its ECN probe does not → that's what makes the ECN
+// SYN-ACK options M5B4NNSNW7 instead of carrying a TS), and echo the client's
+// TSval as TSecr (OPS ST11) rather than a synthetic value. Keyed by client IP:port.
+type synFlow struct {
+	hadTS bool
+	tsval uint32
+	exp   uint64 // GetTickCount64 ms after which the entry is stale
+}
+
 type windowsBackend struct {
 	iface   string
 	handle  *wdHandle
@@ -109,16 +139,24 @@ type windowsBackend struct {
 	closing atomic.Bool
 	done    chan struct{}
 	wg      sync.WaitGroup
+
+	synMu    sync.Mutex
+	synCache map[uint64]synFlow
 }
 
 // New returns the WinDivert-backed stack backend. iface is accepted for API
 // parity but unused — WinDivert intercepts host-wide.
 func New(ifaceName string) (Backend, error) {
-	return &windowsBackend{iface: ifaceName, done: make(chan struct{}), ipid: ipidState{seed: 0x9e3779b9}}, nil
+	return &windowsBackend{
+		iface:    ifaceName,
+		done:     make(chan struct{}),
+		ipid:     ipidState{seed: 0x9e3779b9},
+		synCache: make(map[uint64]synFlow),
+	}, nil
 }
 
-// Available reports that a stack backend exists on Windows.
-func Available() bool { return true }
+// Available reports whether the WinDivert stack backend can run on this host.
+func Available() bool { return winDivertLoadable() }
 
 // Teardown is a no-op: WinDivert leaves no persistent host state — closing the
 // handle unloads the filter and the driver auto-unloads when idle.
@@ -135,6 +173,93 @@ func (b *windowsBackend) Load() error {
 	b.wg.Add(1)
 	go b.loop()
 	return nil
+}
+
+// recordInboundSyn caches an inbound bare SYN's timestamp presence + TSval, keyed
+// by the client IP:port, for later SYN-ACK shaping. Called from the main loop
+// (same goroutine that shapes the SYN-ACK) so the record exists before the
+// SYN-ACK is processed. The packet is reinjected unchanged by the caller.
+func (b *windowsBackend) recordInboundSyn(pkt []byte) {
+	if len(pkt) < 24 || pkt[0]>>4 != 4 {
+		return
+	}
+	ihl := int(pkt[0]&0x0f) * 4
+	if len(pkt) < ihl+20 {
+		return
+	}
+	tcp := pkt[ihl:]
+	tcpHL := int(tcp[12]>>4) * 4
+	if tcpHL < 20 || len(tcp) < tcpHL {
+		return
+	}
+	key := flowKey(pkt[12:16], tcp[0:2]) // client src IP:port
+	hadTS, tsval := scanSynTimestamp(tcp[20:tcpHL])
+	if os.Getenv("MIMIC_WD_DEBUG") != "" {
+		logging.Component("stackwin").Info("SYN in", map[string]interface{}{
+			"sport": binary.BigEndian.Uint16(tcp[0:2]), "dport": binary.BigEndian.Uint16(tcp[2:4]),
+			"hadTS": hadTS, "flags": tcp[13],
+		})
+	}
+	b.synMu.Lock()
+	if len(b.synCache) > 4096 {
+		b.synCache = make(map[uint64]synFlow) // cheap bound; nmap flows are short-lived
+	}
+	b.synCache[key] = synFlow{hadTS: hadTS, tsval: tsval, exp: uptimeMs64() + 4000}
+	b.synMu.Unlock()
+}
+
+// flowKey packs a 4-byte IP and 2-byte port (both network order) into a map key.
+func flowKey(ip, port []byte) uint64 {
+	return uint64(binary.BigEndian.Uint32(ip))<<16 | uint64(binary.BigEndian.Uint16(port))
+}
+
+// scanSynTimestamp walks TCP options for a timestamp (kind 8), returning whether
+// one is present and its TSval (the client clock we echo back as TSecr).
+func scanSynTimestamp(opts []byte) (bool, uint32) {
+	for i := 0; i+1 <= len(opts); {
+		switch opts[i] {
+		case optEOL:
+			return false, 0
+		case optNOP:
+			i++
+			continue
+		}
+		if i+2 > len(opts) {
+			return false, 0
+		}
+		olen := int(opts[i+1])
+		if olen < 2 || i+olen > len(opts) {
+			return false, 0
+		}
+		if opts[i] == optTimestamp && olen == olenTimestamp {
+			return true, binary.BigEndian.Uint32(opts[i+2 : i+6])
+		}
+		i += olen
+	}
+	return false, 0
+}
+
+// lookupSynFlow consumes the cached inbound-SYN record matching an outbound
+// SYN-ACK (keyed by its dst IP:port = the client). Returns ok=false if absent or
+// stale, in which case the shaper uses its synthetic-TS default.
+func (b *windowsBackend) lookupSynFlow(pkt []byte, ihl int) (synFlow, bool) {
+	if len(pkt) < ihl+4 {
+		return synFlow{}, false
+	}
+	// The client is the SYN-ACK's DESTINATION: dst IP = pkt[16:20], dst port =
+	// tcp[2:4] = pkt[ihl+2:ihl+4]. (tcp[0:2]/pkt[ihl:ihl+2] is the SOURCE/server
+	// port — using it here made every lookup search under the service port and miss.)
+	key := flowKey(pkt[16:20], pkt[ihl+2:ihl+4])
+	b.synMu.Lock()
+	f, ok := b.synCache[key]
+	b.synMu.Unlock()
+	// Not deleted on read: nmap reuses ONE source port across OS-detection probes,
+	// so the entry must survive to shape each probe's SYN-ACK. Each new SYN on the
+	// flow overwrites it (latest wins); stale entries fall out via the TTL.
+	if !ok || f.exp < uptimeMs64() {
+		return synFlow{}, false
+	}
+	return f, true
 }
 
 func (b *windowsBackend) SetProfile(p *config.OSProfile) error {
@@ -164,7 +289,7 @@ func (b *windowsBackend) loop() {
 	buf := make([]byte, 65535)
 	var addr wdAddress
 	debug := os.Getenv("MIMIC_WD_DEBUG") != ""
-	var recvN, outN, modN, sendErr, firstErrLogged uint64
+	var recvN, outN, modN, sendErr, firstErrLogged, u1Egress uint64
 	if debug {
 		dlog := logging.Component("stackwin")
 		go func() {
@@ -202,10 +327,37 @@ func (b *windowsBackend) loop() {
 				"n": n, "outbound": addr.Outbound(), "bitfield": addr.Bitfield, "proto": pkt[9], "ttl": pkt[8],
 			})
 		}
+		if !addr.Outbound() {
+			// Inbound bare SYN (per filter): record its TS/ECN profile for SYN-ACK
+			// shaping, then reinject unchanged. This runs in the SAME goroutine that
+			// later shapes the SYN-ACK, so the record is guaranteed to be in place
+			// before that SYN-ACK is processed (the prior sniff-goroutine approach
+			// raced and lost, leaving the ECN probe's SYN-ACK with the wrong template).
+			if b.enabled.Load() {
+				b.recordInboundSyn(pkt)
+			}
+			if err := b.handle.send(pkt, &addr); err != nil {
+				atomic.AddUint64(&sendErr, 1)
+			}
+			continue
+		}
+		if addr.Outbound() && len(pkt) >= 28 && pkt[9] == 1 {
+			ihl := int(pkt[0]&0x0f) * 4
+			if len(pkt) >= ihl+2 && pkt[ihl] == 3 && pkt[ihl+1] == 3 {
+				u1n := atomic.AddUint64(&u1Egress, 1)
+				if u1n <= 8 {
+					logging.Component("stackwin").Info("U1 diverted", map[string]interface{}{
+						"len": n, "enabled": b.enabled.Load(),
+					})
+				}
+			}
+		}
 		if addr.Outbound() && b.enabled.Load() {
 			atomic.AddUint64(&outN, 1)
 			if prof := b.profile.Load(); prof != nil {
-				if b.applyEgress(pkt, prof) {
+				var changed bool
+				pkt, changed = b.applyEgress(pkt, prof)
+				if changed {
 					atomic.AddUint64(&modN, 1)
 					b.handle.calcChecksums(pkt, &addr)
 				}
@@ -217,15 +369,14 @@ func (b *windowsBackend) loop() {
 	}
 }
 
-// applyEgress edits an outbound IPv4 packet (IP header at offset 0) in place to
-// match the profile, returning whether anything changed. Port of the egress half
-// of fingerprint.c with offsets shifted by the 14-byte Ethernet header it lacks.
-func (b *windowsBackend) applyEgress(pkt []byte, p *winProfile) bool {
+// applyEgress edits an outbound IPv4 packet (IP header at offset 0) to match the
+// profile, returning the (possibly grown) packet and whether anything changed.
+func (b *windowsBackend) applyEgress(pkt []byte, p *winProfile) ([]byte, bool) {
 	if len(pkt) < 20 {
-		return false
+		return pkt, false
 	}
 	if pkt[0]>>4 != 4 { // IPv4 only
-		return false
+		return pkt, false
 	}
 	modified := false
 	proto := pkt[9]
@@ -272,37 +423,87 @@ func (b *windowsBackend) applyEgress(pkt []byte, p *winProfile) bool {
 
 	ihl := int(pkt[0]&0x0F) * 4
 	if ihl < 20 {
-		return modified
+		return pkt, modified
 	}
 
 	switch proto {
 	case 6: // TCP
-		if b.applyTCP(pkt, ihl, p) {
+		var tcpChanged bool
+		pkt, tcpChanged = b.applyTCP(pkt, ihl, p)
+		if tcpChanged {
 			modified = true
 		}
 	case 1: // ICMP
-		if applyICMP(pkt, ihl, p.winQuirks) {
+		if len(pkt) >= ihl+2 && pkt[ihl] == 3 && pkt[ihl+1] == 3 {
+			if applyPortUnreachable(pkt, ihl, p) {
+				modified = true
+			}
+		} else if applyICMP(pkt, ihl, p.winQuirks) {
 			modified = true
 		}
 	}
-	return modified
+	return pkt, modified
+}
+
+// growTCPHeader extends the TCP header by grow bytes and updates IP total length.
+func growTCPHeader(pkt []byte, ihl, oldTCPHL, newTCPHL int) []byte {
+	grow := newTCPHL - oldTCPHL
+	if grow <= 0 || len(pkt) < ihl+oldTCPHL {
+		return pkt
+	}
+	out := make([]byte, len(pkt)+grow)
+	copy(out, pkt[:ihl+oldTCPHL])
+	copy(out[ihl+newTCPHL:], pkt[ihl+oldTCPHL:])
+	out[ihl+12] = (out[ihl+12] & 0x0f) | byte(newTCPHL/4)<<4
+	binary.BigEndian.PutUint16(out[2:4], uint16(len(out)))
+	return out
 }
 
 // applyTCP ports the TCP egress mutations (window, options templates, TS
 // coherence, RST window, ECN) at IP-relative offsets.
-func (b *windowsBackend) applyTCP(pkt []byte, ihl int, p *winProfile) bool {
+func (b *windowsBackend) applyTCP(pkt []byte, ihl int, p *winProfile) ([]byte, bool) {
 	tcp := pkt[ihl:]
 	if len(tcp) < 20 {
-		return false
+		return pkt, false
 	}
 	tcpHL := int(tcp[12]>>4) * 4
 	if tcpHL < 20 || len(tcp) < tcpHL {
-		return false
+		return pkt, false
 	}
 	flags := tcp[13]
 	isSYN := flags&0x02 != 0
+	isSYNACK := flags&0x12 == 0x12
+	isSynPhase := isSYN || isSYNACK // OPS/ECN/O6 nmap probes measure SYN-ACK shapes
 	optLen := tcpHL - 20
 	modified := false
+
+	// Inbound-SYN context for this flow: whether the client's SYN carried a
+	// timestamp (and its TSval). Drives whether this SYN-ACK gets the TS template
+	// (OPS, ST11 with a real TSecr echo) or the no-TS template (ECN probe →
+	// M5B4NNSNW7). Absent ⇒ fall back to the synthetic-TS default below.
+	var flow synFlow
+	var haveFlow bool
+	if isSYNACK {
+		flow, haveFlow = b.lookupSynFlow(pkt, ihl)
+		if os.Getenv("MIMIC_WD_DEBUG") != "" {
+			logging.Component("stackwin").Info("SYN-ACK shape", map[string]interface{}{
+				"cport": binary.BigEndian.Uint16(pkt[ihl+2 : ihl+4]), "haveFlow": haveFlow,
+				"hadTS": flow.hadTS, "optlen": optLen,
+			})
+		}
+	}
+
+	// === Expand 12-byte Windows SYN-ACK → 20-byte Linux template (OPS ST11) ===
+	// Only grow to the TS template when the client's SYN actually had a timestamp
+	// (or we have no record). A SYN without TS (nmap's ECN probe) stays 12-byte and
+	// is shaped by the no-TS ECN block below.
+	if optLen == 12 && isSYNACK && p.tcpTimestamps && p.opt1 == optSACKPerm && p.windowScale > 0 && (!haveFlow || flow.hadTS) {
+		pkt = growTCPHeader(pkt, ihl, tcpHL, 40)
+		tcp = pkt[ihl:]
+		tcpHL = 40
+		optLen = 20
+		modified = true
+	}
 
 	// === TCP window ===
 	if p.windowSize > 0 && binary.BigEndian.Uint16(tcp[14:16]) != p.windowSize {
@@ -311,7 +512,7 @@ func (b *windowsBackend) applyTCP(pkt []byte, ihl int, p *winProfile) bool {
 	}
 
 	// === 20-byte SYN/SYN-ACK options template ===
-	if optLen == 20 && p.optionsCount > 0 && isSYN && len(tcp) >= 40 {
+	if optLen == 20 && p.optionsCount > 0 && isSynPhase && len(tcp) >= 40 {
 		old := tcp[20:40]
 		mss := p.mss
 		if old[0] == optMSS && old[1] == 4 {
@@ -363,6 +564,17 @@ func (b *windowsBackend) applyTCP(pkt []byte, ihl int, p *winProfile) bool {
 			}
 			no[6], no[7] = optTimestamp, olenTimestamp
 			binary.BigEndian.PutUint32(no[8:12], uptimeMs())
+			// TSecr echoes the client's SYN TSval (real RFC-7323 behaviour) when the
+			// inbound-SYN tap captured it. The Windows host has TCP timestamps disabled
+			// so its own SYN-ACK carries nothing to echo (linTSecr==0); without the tap
+			// nmap would read ST10 (TSecr zero). Prefer the real client TSval; else fall
+			// back to a synthetic nonzero so the pair still reads ST11.
+			if haveFlow && flow.hadTS && flow.tsval != 0 {
+				linTSecr = flow.tsval
+			}
+			if linTSecr == 0 {
+				linTSecr = uptimeMs()
+			}
 			binary.BigEndian.PutUint32(no[12:16], linTSecr)
 			no[16] = optNOP
 			if p.windowScale > 0 {
@@ -403,8 +615,43 @@ func (b *windowsBackend) applyTCP(pkt []byte, ihl int, p *winProfile) bool {
 		modified = true
 	}
 
-	// === 12-byte ECN-probe options template (Windows order; skipped for Linux/macOS — #12) ===
-	if optLen == 12 && p.windowScale > 0 && p.optionsCount > 0 && isSYN && !p.ecnEcho && len(tcp) >= 32 {
+	// === Linux ECN SYN-ACK: 12-byte opts without timestamps (O=M5B4NNSNW7) ===
+	// Fires when the client's SYN had NO timestamp (nmap's ECN probe) — that, not the
+	// ECE bit, is what makes a real Linux ECN SYN-ACK omit the TS option. The growth
+	// block above is suppressed for this flow, so optLen is still 12 here.
+	if isSYNACK && p.ecnEcho && haveFlow && !flow.hadTS && p.windowScale > 0 && p.optionsCount > 0 && optLen >= 12 && len(tcp) >= 20+optLen {
+		old := tcp[20 : 20+optLen]
+		mss := p.mss
+		if old[0] == optMSS && old[1] == 4 {
+			mss = binary.BigEndian.Uint16(old[2:4])
+		}
+		hadSACK := false
+		for i := 0; i+1 < len(old); i++ {
+			if old[i] == optSACKPerm {
+				hadSACK = true
+				break
+			}
+		}
+		var no [12]byte
+		for i := range no {
+			no[i] = optNOP
+		}
+		putMSS(no[:], 0, mss)
+		no[4], no[5] = optNOP, optNOP
+		if p.sackPermitted && hadSACK {
+			no[6], no[7] = optSACKPerm, 2
+		}
+		no[8] = optNOP
+		no[9], no[10], no[11] = optWScale, 3, p.windowScale
+		copy(tcp[20:32], no[:])
+		for i := 32; i < 20+optLen; i++ {
+			tcp[i] = optNOP
+		}
+		modified = true
+	}
+
+	// === 12-byte ECN-probe options template (outbound SYN) ===
+	if optLen == 12 && p.windowScale > 0 && p.optionsCount > 0 && isSynPhase && !isSYNACK && len(tcp) >= 32 {
 		old := tcp[20:32]
 		mss := p.mss
 		if old[0] == optMSS && old[1] == 4 {
@@ -417,18 +664,31 @@ func (b *windowsBackend) applyTCP(pkt []byte, ihl int, p *winProfile) bool {
 			no[i] = optNOP
 		}
 		putMSS(no[:], 0, mss)
-		no[4] = optNOP
-		no[5], no[6], no[7] = optWScale, 3, p.windowScale
-		no[8], no[9] = optNOP, optNOP
-		if p.sackPermitted && hadSACK {
-			no[10], no[11] = optSACKPerm, 2
+		if p.ecnEcho {
+			// Linux ECN: MSS, NOP, NOP, SACK, NOP, WS → O=M5B4NNSNW7 (not NSNW7N)
+			no[4], no[5] = optNOP, optNOP
+			if p.sackPermitted && hadSACK {
+				no[6], no[7] = optSACKPerm, 2
+			}
+			no[8] = optNOP
+			if p.windowScale > 0 {
+				no[9], no[10], no[11] = optWScale, 3, p.windowScale
+			}
+		} else {
+			// Windows: MSS, NOP, WS, NOP, NOP, SACK → O=M5B4NW8NNS
+			no[4] = optNOP
+			no[5], no[6], no[7] = optWScale, 3, p.windowScale
+			no[8], no[9] = optNOP, optNOP
+			if p.sackPermitted && hadSACK {
+				no[10], no[11] = optSACKPerm, 2
+			}
 		}
 		copy(tcp[20:32], no[:])
 		modified = true
 	}
 
 	// === 16-byte options (O6: no WS): override W6 window + TSval ===
-	if optLen == 16 && p.tcpTimestamps && isSYN && len(tcp) >= 36 {
+	if optLen == 16 && p.tcpTimestamps && isSynPhase && len(tcp) >= 36 {
 		if p.windowSize == 0xFFFF {
 			if binary.BigEndian.Uint16(tcp[14:16]) != 0xFFDC {
 				binary.BigEndian.PutUint16(tcp[14:16], 0xFFDC)
@@ -458,12 +718,47 @@ func (b *windowsBackend) applyTCP(pkt []byte, ihl int, p *winProfile) bool {
 		}
 	}
 
+	// === OPS ST11: non-zero TSval on SYN-ACK timestamp options ===
+	if isSYNACK && p.tcpTimestamps && p.opt1 == optSACKPerm && optLen > 0 {
+		if patchSynAckTSval(tcp, optLen) {
+			modified = true
+		}
+	}
+
 	// === ECN: clear ECE in SYN-ACK (Windows CC=N). Linux/macOS echo ECE (CC=Y) — skip (#12). ===
 	if flags&0x12 == 0x12 && flags&0x40 != 0 && !p.ecnEcho {
 		tcp[13] = flags &^ 0x40
 		modified = true
 	}
+	// Go's net stack often omits ECE on SYN-ACK; set it for Linux/macOS ECN probes (#12).
+	if p.ecnEcho && flags&0x12 == 0x12 && flags&0x40 == 0 {
+		tcp[13] = flags | 0x40
+		modified = true
+	}
 
+	return pkt, modified
+}
+
+// applyPortUnreachable shapes outbound ICMP type-3/code-3 (U1) on egress: TTL and
+// outer DF only. The QUOTE is left verbatim — nmap's U1 expects the offending
+// datagram quoted unmodified (RIPL/RID/RIPCK/RUCK/RUD all = G); rewriting the
+// quoted header (length cap, TTL, DF) corrupted its checksum (RIPCK=I) and its
+// length (RIPL/IPL wrong). The netfilter responder already builds the full verbatim
+// quote; here we only correct the OUTER IP fields the general egress path set wrong.
+func applyPortUnreachable(pkt []byte, ihl int, p *winProfile) bool {
+	if len(pkt) < ihl+8 {
+		return false
+	}
+	modified := false
+	if p.ttl > 0 && pkt[8] != p.ttl {
+		pkt[8] = p.ttl
+		modified = true
+	}
+	fo := binary.BigEndian.Uint16(pkt[6:8])
+	if fo&0x4000 != 0 { // Linux U1 outer DFI=N
+		binary.BigEndian.PutUint16(pkt[6:8], fo&^0x4000)
+		modified = true
+	}
 	return modified
 }
 
@@ -498,6 +793,35 @@ const (
 	optTimestamp  = 8
 	olenTimestamp = 10
 )
+
+// patchSynAckTSval forces a non-zero TSval on SYN-ACK (ST10 → ST11 for nmap OPS).
+func patchSynAckTSval(tcp []byte, optLen int) bool {
+	if len(tcp) < 20+optLen {
+		return false
+	}
+	modified := false
+	for off := 20; off+olenTimestamp <= 20+optLen; {
+		kind := tcp[off]
+		if kind == optNOP {
+			off++
+			continue
+		}
+		if kind == optEOL {
+			break
+		}
+		olen := int(tcp[off+1])
+		if olen < 2 {
+			off++
+			continue
+		}
+		if kind == optTimestamp && olen == olenTimestamp && off+olenTimestamp <= 20+optLen {
+			binary.BigEndian.PutUint32(tcp[off+2:off+6], uptimeMs())
+			modified = true
+		}
+		off += olen
+	}
+	return modified
+}
 
 // putMSS writes an MSS option (kind, len=4, value) at off within b.
 func putMSS(b []byte, off int, mss uint16) {

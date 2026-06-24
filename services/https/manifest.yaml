@@ -43,6 +43,7 @@ probes:
   #   \x00\x8a = cipher_suites_len = 138 bytes = 69 ciphers (ALL list, no GREASE)
   #              Probes 3-4 (HALF lists ~68 bytes) and probe 5 (GREASE+ALL=140) won't match.
   - name: jarm_tls12_probes_1_2
+    requires: { os_family: "windows" }
     signature:
       pattern: '\x16\x03\x03..\x01...\x03\x03................................\x20................................\x00\x8a'
       offset: 0
@@ -59,6 +60,7 @@ probes:
   # JARM probe 6 — TLS 1.1 middle_out
   # Only probe to use TLS record version 0x0302 (TLS 1.1 on wire).
   - name: jarm_tls11_probe_6
+    requires: { os_family: "windows" }
     signature:
       pattern: '\x16\x03\x02'
       offset: 0

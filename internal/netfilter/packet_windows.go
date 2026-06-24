@@ -8,13 +8,14 @@ import "encoding/binary"
 type probeRSTOpts struct {
 	ttl     uint8
 	window  uint16
-	ackZero bool // true → ack=0 (Linux A=Z); false → ack=clientSeq+1 (SYN closed-port)
+	ackZero bool // true → ack=0 (Linux A=Z); false → ack=clientSeq+1
+	rstOnly bool // true → RST without ACK (Linux T4/T6 F=R); false → RST|ACK
 }
 
 // craftTCPRST turns an inbound IPv4 TCP probe into an outbound RST+ACK in place.
 // Used for closed-port SYN probes (ack echoes client seq+1).
 func craftTCPRST(pkt []byte, ttl uint8) (int, bool) {
-	return craftProbeRST(pkt, probeRSTOpts{ttl: ttl, window: 0, ackZero: false})
+	return craftProbeRST(pkt, probeRSTOpts{ttl: ttl, window: 0, ackZero: false, rstOnly: false})
 }
 
 // craftProbeRST swaps endpoints and emits a trimmed RST (20-byte TCP header).
@@ -49,7 +50,11 @@ func craftProbeRST(pkt []byte, opts probeRSTOpts) (int, bool) {
 		binary.BigEndian.PutUint32(pkt[tcpOff+8:tcpOff+12], clientSeq+1)
 	}
 	pkt[tcpOff+12] = 0x50 // data offset = 5 (20 bytes)
-	pkt[tcpOff+13] = 0x14 // RST|ACK
+	if opts.rstOnly {
+		pkt[tcpOff+13] = 0x04 // RST
+	} else {
+		pkt[tcpOff+13] = 0x14 // RST|ACK
+	}
 	binary.BigEndian.PutUint16(pkt[tcpOff+14:tcpOff+16], opts.window)
 
 	totalLen := ihl + 20
@@ -58,4 +63,29 @@ func craftProbeRST(pkt []byte, opts probeRSTOpts) (int, bool) {
 	pkt[10], pkt[11] = 0, 0
 	pkt[tcpOff+16], pkt[tcpOff+17] = 0, 0
 	return totalLen, true
+}
+
+// linuxProbeRSTOpts maps inbound nmap T-probe flags to Linux 5.x RST shapes.
+func linuxProbeRSTOpts(flags uint8, ttl uint8, window uint16, ackZero bool) (probeRSTOpts, bool) {
+	const (
+		fin = 0x01
+		syn = 0x02
+		rst = 0x04
+		psh = 0x08
+		ack = 0x10
+		urg = 0x20
+	)
+	switch {
+	case flags == ack:
+		// T4: ACK only → RST, ack=0 (F=R A=Z)
+		return probeRSTOpts{ttl: ttl, window: window, ackZero: true, rstOnly: true}, true
+	case flags == syn|ack:
+		// T6: SYN+ACK → RST, ack=0
+		return probeRSTOpts{ttl: ttl, window: window, ackZero: true, rstOnly: true}, true
+	case flags&fin == fin && flags&(syn|rst) == 0:
+		// T7: FIN (+ACK/PSH/URG; stack may strip flags before WinDivert) → RST+ACK
+		return probeRSTOpts{ttl: ttl, window: window, ackZero: false, rstOnly: false}, true
+	default:
+		return probeRSTOpts{}, false
+	}
 }

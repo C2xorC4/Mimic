@@ -45,8 +45,31 @@ func ResolveRunServices(requested []string, servicesDir string, profile *OSProfi
 	if err != nil {
 		return nil, err
 	}
+	expanded = promoteLinuxSSH(expanded, profile)
 	expanded = dropSupersededTemplates(expanded)
 	return filterEditionGated(expanded, profile), nil
+}
+
+// promoteLinuxSSH rewrites the banner-only "ssh" template to the interactive
+// ssh_honeypot when the profile is a Linux persona. Operators list "ssh" in
+// config/UI; the honeypot is what nmap ssh2-enum-algos and real clients need.
+func promoteLinuxSSH(names []string, profile *OSProfile) []string {
+	if profile == nil || !strings.EqualFold(profile.Family, "linux") {
+		return names
+	}
+	out := make([]string, 0, len(names))
+	seen := make(map[string]bool, len(names))
+	for _, n := range names {
+		if n == "ssh" {
+			n = "ssh_honeypot"
+		}
+		if seen[n] {
+			continue
+		}
+		seen[n] = true
+		out = append(out, n)
+	}
+	return out
 }
 
 // ResolveServeServices expands "all" to every template service (no honeypots).

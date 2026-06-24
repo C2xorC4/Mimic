@@ -1,13 +1,11 @@
-//go:build !linux
+//go:build !linux && !windows
 
 package control
 
 import "net"
 
-// The control plane uses a unix socket with SO_PEERCRED for peer authentication;
-// the Windows named-pipe transport (with its own peer-identity mechanism) is a
-// future addition. Until then Start returns ErrUnsupported and the orchestrator
-// runs without a control plane.
+// The control plane is implemented on Linux (unix socket) and Windows (named
+// pipe). Other platforms return ErrUnsupported until a transport is added.
 func listen(socket string) (net.Listener, error) { return nil, ErrUnsupported }
 
 func peerCred(conn net.Conn) (Peer, error) { return Peer{}, nil }

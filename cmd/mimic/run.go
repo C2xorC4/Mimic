@@ -238,8 +238,9 @@ func runMimic(cmd *cobra.Command, args []string) error {
 	})
 
 	// Control plane (RBAC-gated local management endpoint). statusFn reads the
-	// resolved profile/services at call time; hooks expose config + restart ops.
+	// resolved profile/services at call time; hooks expose config + lifecycle ops.
 	restartReq := make(chan struct{})
+	stopReq := make(chan struct{})
 	if appCfg.Control.Enabled {
 		if !control.Supported() {
 			logging.Warn("Control plane enabled but not supported on this platform — skipping", nil)
@@ -254,7 +255,7 @@ func runMimic(cmd *cobra.Command, args []string) error {
 					Services: appCfg.Services, Pid: os.Getpid(),
 				}
 			}
-			hooks := buildControlHooks(absConfigPath(), defaultProfilesDir(absConfigPath()), defaultServicesDir(absConfigPath()), restartReq)
+			hooks := buildControlHooks(absConfigPath(), defaultProfilesDir(absConfigPath()), defaultServicesDir(absConfigPath()), restartReq, stopReq)
 			ctrlSrv := control.New(control.NewRoleAuthorizer(appCfg.RBAC), statusFn, ctrlRing, hooks)
 			if err := ctrlSrv.Start(socket); err != nil {
 				logging.Warn("Control plane failed to start", map[string]interface{}{"error": err.Error()})
@@ -396,7 +397,11 @@ func runMimic(cmd *cobra.Command, args []string) error {
 	var winFw netfilter.PersonaFirewall
 	var winClosed netfilter.ClosedPortResponder
 	var winProbes netfilter.ProbeResponder
+	var winICMP netfilter.ICMPResponder
 	defer func() {
+		if winICMP != nil {
+			winICMP.Stop()
+		}
 		if winProbes != nil {
 			winProbes.Stop()
 		}
@@ -443,7 +448,8 @@ func runMimic(cmd *cobra.Command, args []string) error {
 				if profile != nil && profile.Stack.TTL > 0 {
 					closedTTL = profile.Stack.TTL
 				}
-				if err := cp.AddPorts(appCfg.ClosedPorts, closedTTL); err != nil {
+				linuxClosed := profile != nil && strings.EqualFold(profile.Family, "linux")
+				if err := cp.AddPorts(appCfg.ClosedPorts, closedTTL, linuxClosed); err != nil {
 					fields := map[string]interface{}{"error": err.Error(), "ports": appCfg.ClosedPorts}
 					if runtime.GOOS == "windows" && !stack.WinDivertInstalled() {
 						fields["hint"] = platform.WinDivertInstallHint
@@ -457,23 +463,45 @@ func runMimic(cmd *cobra.Command, args []string) error {
 				}
 			}
 		}
-		// T2/T3 probe responses for Linux personas on Windows (native Linux stack
-		// handles these; Windows stack drops/ignores them → nmap T2(R=N) T3(R=N)).
+		// T4/T6/T7 probe responses for Linux personas on Windows. T2/T3 must stay
+		// R=N on modern Linux — do not intercept. Scoped to closed + service ports
+		// so T4 (ACK) / T6 (SYN+ACK) filters do not swallow normal client traffic.
 		if profile != nil && strings.EqualFold(profile.Family, "linux") {
 			if pr := netfilter.NewProbeResponder(); pr != nil {
+				probePorts := mergeUint16(appCfg.ClosedPorts,
+					config.ServiceListenPorts(appCfg.Services, profile, appCfg.ServicesDir))
 				var probeTTL uint8 = 64
 				if profile.Stack.TTL > 0 {
 					probeTTL = profile.Stack.TTL
 				}
 				ackZero := strings.EqualFold(profile.Stack.AckInRST, "zero")
-				if err := pr.Start(probeTTL, profile.Stack.WindowInRST, ackZero); err != nil {
+				if err := pr.Start(probePorts, appCfg.ClosedPorts, probeTTL, profile.Stack.WindowInRST, ackZero); err != nil {
 					fields := map[string]interface{}{"error": err.Error()}
 					if runtime.GOOS == "windows" && !stack.WinDivertInstalled() {
 						fields["hint"] = platform.WinDivertInstallHint
 					}
-					logging.Warn("T2/T3 probe response unavailable", fields)
+					logging.Warn("T4/T6/T7 probe response unavailable", fields)
 				} else {
 					winProbes = pr
+				}
+			}
+			if ic := netfilter.NewICMPResponder(); ic != nil {
+				var icmpTTL uint8 = 64
+				quoteSize := uint8(64)
+				if profile.Stack.TTL > 0 {
+					icmpTTL = profile.Stack.TTL
+				}
+				if profile.Stack.ICMPQuoteSize > 0 {
+					quoteSize = profile.Stack.ICMPQuoteSize
+				}
+				quoteTTL := icmpTTL
+				if profile.Stack.ICMPTTLInQuote > 0 {
+					quoteTTL = profile.Stack.ICMPTTLInQuote
+				}
+				if err := ic.Start(icmpTTL, quoteSize, quoteTTL, profile.Stack.ICMPDFInQuote, appCfg.ClosedPorts); err != nil {
+					logging.Warn("ICMP probe response unavailable", map[string]interface{}{"error": err.Error()})
+				} else {
+					winICMP = ic
 				}
 			}
 		}
@@ -889,6 +917,23 @@ func runMimic(cmd *cobra.Command, args []string) error {
 			fmt.Printf("\nMimic is restarting in the background. This terminal will exit.\n")
 			fmt.Printf("  Check:  mimic ctl ping\n")
 			fmt.Printf("  Logs:   %s\n\n", filepath.Join(logging.GetActiveLogDir(), "mimic.log"))
+			return nil
+
+		case <-stopReq:
+			logging.Info("Control stop requested", nil)
+			fmt.Printf("\nMimic stop requested via control plane, shutting down...\n")
+			close(shutdown)
+			wg.Wait()
+			if closedMgr != nil {
+				closedMgr.StopAll()
+			}
+			if probeMgr != nil {
+				probeMgr.Stop()
+			}
+			if fwMgr != nil {
+				fwMgr.Stop()
+			}
+			logging.Info("Mimic stopped", nil)
 			return nil
 		}
 	}

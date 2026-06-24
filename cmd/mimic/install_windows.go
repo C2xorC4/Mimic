@@ -57,6 +57,12 @@ logging:
   log_dir: %q
   json_mode: true
   to_stdout: false
+control:
+  enabled: true
+  socket: \\.\pipe\mimic
+events:
+  enabled: true
+  json_file: true
 `, filepath.Join(binDir, "profiles"), filepath.Join(binDir, "services"), logDir))
 }
 

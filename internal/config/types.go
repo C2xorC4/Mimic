@@ -238,11 +238,12 @@ type FirewallConfig struct {
 }
 
 // ControlConfig configures the local control plane — a same-host management
-// endpoint (unix socket on Linux) the `mimic ctl` client talks to for status,
-// logs, and (later) service control. It is the surface RBAC gates.
+// endpoint the `mimic ctl` client (and future tray UI) talks to for status,
+// logs, and (later) service control. Linux defaults to a unix socket; Windows
+// defaults to a named pipe.
 type ControlConfig struct {
 	Enabled bool   `yaml:"enabled"` // off by default
-	Socket  string `yaml:"socket"`  // unix socket path; default /run/mimic.sock
+	Socket  string `yaml:"socket"`  // unix path or \\.\pipe\name; platform default if empty
 }
 
 // RBACConfig defines role-based access for the control plane: peer credentials
@@ -257,11 +258,15 @@ type RBACConfig struct {
 
 // Role maps connecting peer credentials to an allow-list of control operations.
 // Allow entries are operation names, "<prefix>.*" wildcards, or "*" (all).
+// Linux matches uids/gids (SO_PEERCRED). Windows matches sids (user SID) and
+// groups (group SID or well-known names such as BUILTIN\Administrators).
 type Role struct {
-	Name  string   `yaml:"name"`
-	UIDs  []uint32 `yaml:"uids"`
-	GIDs  []uint32 `yaml:"gids"`
-	Allow []string `yaml:"allow"`
+	Name   string   `yaml:"name"`
+	UIDs   []uint32 `yaml:"uids"`   // Linux user ids
+	GIDs   []uint32 `yaml:"gids"`   // Linux group ids
+	SIDs   []string `yaml:"sids"`   // Windows user SIDs (S-1-5-21-...)
+	Groups []string `yaml:"groups"` // Windows group SIDs or well-known names
+	Allow  []string `yaml:"allow"`
 }
 
 // LogConfig contains logging configuration

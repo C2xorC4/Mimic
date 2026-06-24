@@ -125,6 +125,51 @@ func webServerForOS(osName string) string {
 	}
 }
 
+// linuxHTTPResponseFile picks the http service template for a TLS-terminated request.
+func linuxHTTPResponseFile(method, path, osName string) string {
+	server := webServerForOS(osName)
+	if method == "HEAD" {
+		return "responses/nginx_200_headers.bin"
+	}
+	switch path {
+	case "/", "/index.html":
+		if server == "apache" {
+			return "responses/apache_200_full.bin"
+		}
+		return "responses/nginx_200_full.bin"
+	default:
+		if server == "apache" {
+			return "responses/apache_404.bin"
+		}
+		return "responses/nginx_404.bin"
+	}
+}
+
+// TLSBackendHTTPResponse serves HTTP over a completed TLS channel. Windows profiles
+// get IIS; Linux profiles reuse the same apache/nginx templates as port 80 (per-distro
+// Server header via applyServerHeader).
+func (r *Responder) TLSBackendHTTPResponse(req []byte, httpServiceDir string) []byte {
+	if !strings.EqualFold(r.options["os_family"], "linux") {
+		return iisHTTPResponse(req)
+	}
+	hr, err := NewResponderWithOptions(httpServiceDir, r.options)
+	if err != nil {
+		return iisHTTPResponse(req)
+	}
+	if r.credStore != nil {
+		hr.SetCredStore(r.credStore)
+	}
+	method := parseHTTPMethod(req)
+	path := parseHTTPPath(req)
+	file := linuxHTTPResponseFile(method, path, r.options["os_name"])
+	rules := []config.RewriteRule{{Type: "http_date"}}
+	resp, err := hr.GetResponse(file, req, rules)
+	if err != nil || len(resp) == 0 {
+		return iisHTTPResponse(req)
+	}
+	return resp
+}
+
 // serverStringFor maps a Linux profile name to a plausible, distro-packaged HTTP
 // Server string — Apache for the RHEL family (their default httpd), nginx for the
 // Debian family/Arch — kept coherent with the apache/nginx response body selected

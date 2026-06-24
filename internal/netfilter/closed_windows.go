@@ -25,7 +25,7 @@ func newClosedPortResponder() ClosedPortResponder {
 	return &winClosedPorts{}
 }
 
-func (c *winClosedPorts) AddPorts(ports []uint16, ttl uint8) error {
+func (c *winClosedPorts) AddPorts(ports []uint16, ttl uint8, _ bool) error {
 	if len(ports) == 0 {
 		return nil
 	}

@@ -107,6 +107,42 @@ func TestDesktopPersonaPortGating(t *testing.T) {
 	}
 }
 
+func TestPromoteLinuxSSH(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"ssh", "http"} {
+		svcDir := filepath.Join(dir, name)
+		if err := os.MkdirAll(svcDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(svcDir, "manifest.yaml"), []byte("name: "+name+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	linux := &OSProfile{Family: "linux", Name: "Debian"}
+	got, err := ResolveRunServices([]string{"ssh", "http"}, dir, linux)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(got, "ssh_honeypot") {
+		t.Fatalf("linux profile should promote ssh to ssh_honeypot, got %v", got)
+	}
+	if contains(got, "ssh") {
+		t.Fatalf("banner ssh template should be replaced, got %v", got)
+	}
+
+	win := &OSProfile{Family: "windows", Edition: "server"}
+	got, err = ResolveRunServices([]string{"ssh", "http"}, dir, win)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if contains(got, "ssh_honeypot") {
+		t.Fatalf("windows profile should keep ssh template, got %v", got)
+	}
+	if !contains(got, "ssh") {
+		t.Fatalf("expected ssh template on windows, got %v", got)
+	}
+}
+
 func TestResolveServeServicesAll(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{"http", "smb"} {

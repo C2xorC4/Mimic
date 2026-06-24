@@ -87,6 +87,20 @@ func newTLSConfig(commonName string) (*tls.Config, error) {
 	}, nil
 }
 
+// parseHTTPMethod returns the verb from an HTTP/1.x request line.
+func parseHTTPMethod(req []byte) string {
+	lineEnd := bytes.IndexByte(req, '\n')
+	if lineEnd < 0 {
+		return ""
+	}
+	line := strings.TrimRight(string(req[:lineEnd]), "\r")
+	parts := strings.Fields(line)
+	if len(parts) < 1 {
+		return ""
+	}
+	return parts[0]
+}
+
 // parseHTTPPath returns the request target from an HTTP/1.x request line.
 func parseHTTPPath(req []byte) string {
 	lineEnd := bytes.IndexByte(req, '\n')

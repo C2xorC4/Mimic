@@ -111,6 +111,18 @@ func (a *wdAddress) setOutbound(v bool) {
 	}
 }
 
+// freshOutboundAddr builds a WINDIVERT_ADDRESS for injecting a newly crafted
+// outbound packet. WinDivert requires zeroing the struct except Outbound and
+// the interface index copied from the inbound capture.
+func freshOutboundAddr(from *wdAddress) wdAddress {
+	var out wdAddress
+	out.setOutbound(true)
+	if from != nil {
+		copy(out.Union[:8], from.Union[:8]) // IfIdx + SubIfIdx
+	}
+	return out
+}
+
 func (w *wdHandle) close() error {
 	r1, _, e := procWDClose.Call(uintptr(w.h))
 	if r1 == 0 {
