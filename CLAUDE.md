@@ -47,7 +47,7 @@ internal/
   services/            # Service emulation (listener, responder, matcher)
   capture/             # Pcap processing, template generation
 profiles/              # OS fingerprint profiles (YAML)
-  windows/             # Windows XP through Server 2022
+  windows/             # Windows XP through Server 2025
   linux/               # Major distros
   macos/               # Sonoma
 services/
@@ -291,7 +291,15 @@ Core TCP/IP stack fingerprinting is functional. Remaining work focuses on edge c
 - Service hot-reload without restart
 - Per-connection state for stateful protocols
 
+**Done (was "future"):**
+- **Windows port** — implemented via WinDivert (host-wide packet mutation) + a WFP
+  hard-permit filter for U1; an Npcap-free `run`/`serve` binary. Validated across all 6
+  Windows host editions (Win10/11, Server 2016–2025) and reaches EXACT nmap matches for
+  Win11/Server-2022. See MEMORY.md + `captures/ss-book/matrix-report-2026-06-24.md`.
+
 **Future:**
-- Windows port (WFP/Npcap approach)
+- macOS profile build-out (image → capture → response templates; currently unbuilt)
+- Push per-profile fingerprints to EXACT for the remaining profiles (per-indicator
+  iteration vs nmap-os-db; see the matrix report's gap table)
 - Profile auto-detection from pcap
 - Honeypot mode with logging
