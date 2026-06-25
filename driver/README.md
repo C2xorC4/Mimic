@@ -90,8 +90,23 @@ driver\scripts\uninstall.ps1
 **Lab signing only.** Test-signing weakens Secure Boot/HVCI — the deliberate
 "intrusive opt-in" cost. Production = Microsoft attestation signing (future).
 
-## Status
+## Status — ✅ VALIDATED EXACT (2026-06-25)
 
-Phase 0 (mechanism) ✅ GO · Phase 1 (Go seam, on `main`) ✅ · Phase 2 (this driver) —
-contract + core logic + INF + scripts scaffolded; NDIS plumbing + vcxproj finish in the
-WDK build loop.
+Phase 0 (mechanism) ✅ GO · Phase 1 (Go seam, on `main`) ✅ · Phase 2 (this driver) ✅
+**builds, loads, arms, and delivers `TI=Z` on the wire.**
+
+End-to-end proof on a fresh **SeaBIOS** Server-2016 VM (no Secure Boot, so a test-signed
+driver loads): self-signed → trusted → `testsigning` + reboot → `netcfg` install →
+`sc query mimichifi` = RUNNING (no BSOD) → mimic (Ubuntu persona + `high_fidelity: true`)
+armed `\\.\MimicHiFi` → **nmap from Kali: `OS details: Linux 4.15 - 5.19` EXACT** (was 95%
+aggressive guess). The opt-in tier reaches WinDivert-Linux exact = parity with eBPF.
+
+Build (EWDK 10.0.28000): mount the EWDK ISO, then
+`cmd /c "call E:\BuildEnv\SetupBuildEnv.cmd & msbuild mimichifi.vcxproj /p:Platform=x64"`.
+The trailing `DrvCat` MSBuild task errors on a missing `Microsoft.Kits.Logger` assembly
+*after* the artifacts are produced — harmless; sign with `scripts\sign-test.ps1`
+(embed-sign .sys → inf2cat → sign .cat). Validation harness: `scratchpad/hifi_validate.ps1`.
+
+**Key fix:** rewrite the IP-ID by mapping the MDL in place (`MmGetSystemAddressForMdlSafe`),
+NOT `NdisGetDataBuffer` + a scratch copy (which silently no-ops on the non-contiguous send
+case → TI stayed =I). See `filter.c` `FilterSendNetBufferLists`.
