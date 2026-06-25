@@ -10,10 +10,10 @@ stack:
   ip_id_behavior: incremental
 
   # TCP Layer
-  window_size: 8192
+  window_size: 65535         # nmap-os-db Server 2019 WIN=FFFF
   window_scale: 8
   mss: 1460
-  tcp_timestamps: false
+  tcp_timestamps: false      # Server 2019 ref OPS=NNS, TS=U (no timestamp)
   sack_permitted: true
   tcp_options_order:
     - mss

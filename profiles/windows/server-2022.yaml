@@ -10,18 +10,17 @@ stack:
   ip_id_behavior: incremental
 
   # TCP Layer
-  window_size: 8192
+  window_size: 65535         # nmap-os-db Server 2022 WIN=FFFF
   window_scale: 8
   mss: 1460
-  tcp_timestamps: false
+  tcp_timestamps: true       # Server 2022 ref OPS=M5B4NW8ST11 (timestamp present, TS=A)
   sack_permitted: true
   tcp_options_order:
     - mss
     - nop
     - window_scale
-    - nop
-    - nop
     - sack_permitted
+    - timestamp
 
   # TCP Quirks
   ecn_support: true
