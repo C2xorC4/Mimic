@@ -72,6 +72,7 @@ type winProfile struct {
 	opt1          uint8 // second option kind (drives the Linux SACK-first template)
 	ecnEcho       bool  // Linux/macOS ECN OPTIONS behaviour (no-TS NNS template + native ECN opts)
 	ecnCC         bool  // echo ECE on the ECN-probe SYN-ACK → nmap CC=Y (Linux/macOS + Windows Server via explicit_congestion: echo); Windows workstation = N
+	ecnWindow     uint16 // window advertised on the ECN-probe SYN-ACK (nmap ECN W=); 0 = use windowSize. Linux ECN rwnd differs from the OS-probe WIN (FE88→FAF0).
 	winQuirks     bool  // Windows profile → apply Windows-only quirks (ICMP CD=Z, A=O RST); off for Linux (#13)
 	icmpQuoteTTL  uint8 // TTL stamped into U1 quoted IP header
 	icmpQuoteDF   bool  // DF bit in U1 quoted IP header
@@ -116,6 +117,17 @@ func toWinProfile(p *config.OSProfile) *winProfile {
 	// Server profile gets CC=Y WITHOUT the Linux ECN-options template.
 	wp.ecnCC = wp.ecnEcho || strings.EqualFold(s.ExplicitCongestion, "echo")
 	wp.winQuirks = strings.EqualFold(p.Family, "windows")
+	// A real Linux kernel advertises a smaller rwnd on the ECN probe's SYN-ACK than on
+	// the OS-detection probes (nmap WIN vs ECN W). Map the OS-probe window to its ECN
+	// companion so the ECN test's W= field matches nmap-os-db. 0 = leave = windowSize.
+	if wp.ecnEcho {
+		switch wp.windowSize {
+		case 0xFE88: // Linux 4.15-5.19 / 5.4-5.10: WIN=FE88, ECN W=FAF0
+			wp.ecnWindow = 0xFAF0
+		case 0x7120: // Linux 3.2-4.14: WIN=7120, ECN W=7210
+			wp.ecnWindow = 0x7210
+		}
+	}
 	return wp
 }
 
@@ -406,21 +418,33 @@ func (b *windowsBackend) applyEgress(pkt []byte, p *winProfile) ([]byte, bool) {
 		modified = true
 	}
 
-	// === IP-ID (shared counter so TCP+ICMP share a sequence; nmap SS=S) ===
+	// === IP-ID ===
+	// Windows (winQuirks): one shared counter across TCP+ICMP per ip_id_behavior →
+	// nmap SS=S, TI=I. Linux is PER-PROTOCOL: TCP/DF segments carry IP-ID 0 (nmap
+	// TI=Z, CI=Z) while ICMP echo replies increment (II=I). The single global
+	// ip_id_behavior can't express that split, and on a Windows host the native IP-ID
+	// is never zero — so for a Linux persona we drive it here directly.
 	var newID uint16
-	switch p.ipidBehavior {
-	case ipidZero:
-		newID = 0
-	case ipidRandom:
-		s := b.ipid.seed
-		s ^= s << 13
-		s ^= s >> 17
-		s ^= s << 5
-		b.ipid.seed = s
-		newID = uint16(s)
-	default:
+	if p.winQuirks {
+		switch p.ipidBehavior {
+		case ipidZero:
+			newID = 0
+		case ipidRandom:
+			s := b.ipid.seed
+			s ^= s << 13
+			s ^= s >> 17
+			s ^= s << 5
+			b.ipid.seed = s
+			newID = uint16(s)
+		default:
+			b.ipid.counter++
+			newID = b.ipid.counter
+		}
+	} else if proto == 1 { // ICMP → incrementing IP-ID (nmap II=I)
 		b.ipid.counter++
 		newID = b.ipid.counter
+	} else { // TCP/other → 0 (nmap TI=Z, CI=Z; modern Linux DF behavior)
+		newID = 0
 	}
 	if binary.BigEndian.Uint16(pkt[4:6]) != newID {
 		binary.BigEndian.PutUint16(pkt[4:6], newID)
@@ -672,6 +696,13 @@ func (b *windowsBackend) applyTCP(pkt []byte, ihl int, p *winProfile) ([]byte, b
 	// ECE bit, is what makes a real Linux ECN SYN-ACK omit the TS option. The growth
 	// block above is suppressed for this flow, so optLen is still 12 here.
 	if isSYNACK && p.ecnEcho && haveFlow && !flow.hadTS && p.windowScale > 0 && p.optionsCount > 0 && optLen >= 12 && len(tcp) >= 20+optLen {
+		// nmap ECN W=: Linux advertises a distinct rwnd on the ECN-probe SYN-ACK
+		// (FAF0, not the FE88 of the OS probes). The general window-set above stamped
+		// windowSize; override it here for the ECN probe only.
+		if p.ecnWindow != 0 && binary.BigEndian.Uint16(tcp[14:16]) != p.ecnWindow {
+			binary.BigEndian.PutUint16(tcp[14:16], p.ecnWindow)
+			modified = true
+		}
 		old := tcp[20 : 20+optLen]
 		mss := p.mss
 		if old[0] == optMSS && old[1] == 4 {

@@ -10,8 +10,8 @@ stack:
   ip_id_behavior: random
 
   # TCP Layer - Slackware tends toward conservative defaults
-  window_size: 29200
-  window_scale: 7
+  window_size: 65160        # nmap-os-db Linux 4.15-5.19 WIN=FE88 (real Fedora/Arch/Ubuntu)
+  window_scale: 8           # NW8 modern Linux 5.x/6.x (4.15-5.19 band tolerates 4-B)
   mss: 1460
   tcp_timestamps: true
   sack_permitted: true

@@ -10,7 +10,7 @@ stack:
   ip_id_behavior: incremental  # Older kernel
 
   # TCP Layer
-  window_size: 29200
+  window_size: 28960        # nmap-os-db Linux 3.2-4.14 WIN=7120
   window_scale: 7
   mss: 1460
   tcp_timestamps: true

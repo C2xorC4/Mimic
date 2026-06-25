@@ -60,6 +60,11 @@ func craftProbeRST(pkt []byte, opts probeRSTOpts) (int, bool) {
 	totalLen := ihl + 20
 	binary.BigEndian.PutUint16(pkt[2:4], uint16(totalLen))
 	pkt[8] = ttl
+	// IP-ID 0: this helper only ever crafts Linux-persona RSTs (closed-port + T4-T7
+	// responders, both gated to family==linux in run.go). A modern Linux kernel sends
+	// IP-ID 0 on DF segments, so zero it instead of echoing nmap's probe IP-ID — that
+	// echo was reading as nmap CI=RD where the Linux band wants CI=Z.
+	pkt[4], pkt[5] = 0, 0
 	pkt[10], pkt[11] = 0, 0
 	pkt[tcpOff+16], pkt[tcpOff+17] = 0, 0
 	return totalLen, true
