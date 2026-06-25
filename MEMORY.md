@@ -8,7 +8,71 @@
 > write-ups (`net_impacket_*`, `net_smb_*`). Recall LJM before re-deriving;
 > don't duplicate Knowledge entries here.
 
+## ★ METHODOLOGY RULE — develop & fidelity-test against a FRESH lab VM, never ss-book
+
+**Always run mimic and scan it on a clean proxmox VM clone (or a recently-spun-up
+one), NOT on ss-book (the dev daily-driver).** Proven 2026-06-24 by the host matrix:
+the SAME binary that scored a muddled "Cisco ACE load balancer / conditions
+non-ideal" on ss-book scored a clean 96–98% correct-OS on every wired VM host. ss-book
+is contaminated by **Wi-Fi timing jitter** (corrupts nmap's SEQ rate probes →
+scattered SP/ISR → decoy matches) plus **live daily-driver traffic** + the inbound-SYN
+tap seeing real connections. This is environmental, NOT a mimic bug. The fix is the
+substrate: a fresh wired VM clone eliminates it entirely.
+
+- **Spin one with:** `python infra/proxmox/lab.py deploy <tpl> <clone> --linked --start`
+  → `lab.py ip` → `lab.py prep` (Windows: fw-off + WinRM) → deploy mimic → scan from
+  Kali (10.0.254.70) → `lab.py destroy`. Templates: win 9010/9011/9116/9119/9122/9125;
+  linux 9302/9304/9306/9310/9311/9341. Harnesses: `scratchpad/matrix_winvm.ps1`,
+  `matrix_linuxvm.sh` (this session). WinRM admin sessions are already ELEVATED (no UAC
+  on the VM, unlike ss-book). Linux clones need `libpcap` installed (apt/dnf/pacman).
+- ss-book stays the DEV/build host (edit, `go build`, unit tests); fidelity scans go to
+  a VM. If ss-book MUST be used, wire it (no Wi-Fi) + quiesce background traffic first.
+
 ## Current Status (as of 2026-06-24; latest work 2026-06-24)
+
+> **★ CHECKPOINT — FULL HOST×PROFILE MATRIX + exact-match gap analysis (2026-06-24).**
+> Full report: `captures/ss-book/matrix-report-2026-06-24.md`. Swept all 34 profiles ×
+> 14 hosts (ss-book, argus, 6 Windows VM templates, 6 Linux VM templates), `nmap -O` from
+> Kali. Harnesses: `scratchpad/matrix_winvm.ps1` (clone→WinRM-deploy→cycle→scan→destroy;
+> WinRM admin = elevated, no UAC), `matrix_linuxvm.sh` (cloud clone→scp→eBPF→scan),
+> `aggregate_all.py` (cross-tab), `osdb_refs*.txt` (nmap-os-db references).
+>
+> **RESULTS (buildable=33; macOS excluded as unbuilt):**
+> - **Family-spoofing robust + host-edition-INDEPENDENT:** every clean working host →
+>   33/33 family-correct (88–99%). All **6 Windows VM editions** (Win10/11, Server
+>   2016–2025) give IDENTICAL results — the WinDivert mutation doesn't depend on host
+>   edition (the validation goal). eBPF (Debian-family hosts) 96–98%.
+> - **EXACT matches (no submit ask) = 2:** Windows Server 2025 on **argus** AND
+>   **ubuntu-2204** (both eBPF). WinDivert tops at 99% (Win11) — 1 indicator short.
+> - **ss-book contaminated** (Wi-Fi jitter + live traffic): only 19/33, 14 Windows-profile
+>   X (decoy "Cisco ACE"). Same binary on a wired VM = 96–99%. → the fresh-VM rule above.
+>
+> **EXACT-MATCH IS ITERATION, NOT IMPOSSIBLE.** Decomposition of "why no exact":
+> - **Class A — profile drift vs nmap-os-db (pure-data fix):** Server 2019/2022
+>   `window_size` should be 65535 (profiles say 8192); Server 2016/2019/2022
+>   `tcp_timestamps` should be true (ref OPS=ST11); Server 2016 `ip_id_behavior` random
+>   (ref TI=RD). Win10-1909/Win11/Server-2025 already correct.
+> - **Class B — code indicators:** OPS `ST10→ST11` ✅ FIXED+VALIDATED this session
+>   (Win10/11 TS-on branch TSecr echo via inbound-SYN cache; Win11 96→99%). `CI=RD→I`
+>   OPEN — closed-port RST carries nmap's IP-ID, needs the stack shared-incremental
+>   counter (cross-package netfilter↔stack).
+> - **Class C — structural ceiling:** SEQ `SP`/`ISR` ISN rate is the host kernel's (worst
+>   on WinDivert); eBPF reaches exact most readily. Document where it bites.
+>
+> **INFRA FINDINGS (from per-template testing):**
+> - **libpcap soname portability:** Linux binary links `libpcap.so.0.8` (Debian/Ubuntu) +
+>   glibc 2.35 → **fails to run on RHEL/Fedora/Arch** (`libpcap.so.1`) → Rocky/Fedora/Arch
+>   hosts produced NO data ("BINARY FAILED"). Fix: build `run`/`serve` WITHOUT libpcap
+>   (capture.go is the only libpcap user + already a separate linux file → a build tag
+>   drops it), or static-link, or per-distro build. Blocks RHEL/Arch eBPF validation.
+> - **Kali template:** cloud clone never applied the argus_lab SSH key → deploy aborted.
+> - **macOS Sonoma:** UNBUILT (no VM/template/captures) → no convincing match anywhere;
+>   needs image→capture→response track. Not a matrix failure; out of scope until built.
+>
+> **PRIORITIZED FIX QUEUE (cheapest-leverage first):** (1) ✅ OPS ST10→ST11 done;
+> (2) Server 2019/2022 window→65535 + Server 2016/2019/2022 tcp_timestamps→true (YAML,
+> no code); (3) CI=RD→I closed-RST shared IP-ID (code); (4) libpcap-free run build
+> (recovers 3 distro hosts); (5) per-profile SEQ centering to chase exact, Server-2025 style.
 
 > **CHECKPOINT — Debian single-profile fingerprint (branch `feat/windows-port-linux-fidelity`, 2026-06-24).**
 > **Active goal:** close Debian gaps on Windows-hosted mimic before running

@@ -599,6 +599,18 @@ func (b *windowsBackend) applyTCP(pkt []byte, ihl int, p *winProfile) ([]byte, b
 			}
 			no[10], no[11] = optTimestamp, olenTimestamp
 			binary.BigEndian.PutUint32(no[12:16], uptimeMs())
+			// TSecr must echo the client's SYN TSval for nmap OPS to read ST11. The
+			// Windows host has TCP timestamps disabled, so its own SYN-ACK carries
+			// nothing to echo (origTSecr==0) → nmap reads ST10. Prefer the real client
+			// TSval from the inbound-SYN cache; else synthesize a nonzero value. (Same
+			// fix as the Linux branch — this is what closes OPS ST10→ST11 for every
+			// Windows profile, e.g. Win11/Server matching the nmap-os-db M5B4NW8ST11.)
+			if haveFlow && flow.hadTS && flow.tsval != 0 {
+				origTSecr = flow.tsval
+			}
+			if origTSecr == 0 {
+				origTSecr = uptimeMs()
+			}
 			binary.BigEndian.PutUint32(no[16:20], origTSecr)
 		default:
 			// macOS/default: MSS, NOP, WS, SACK, NOPs
