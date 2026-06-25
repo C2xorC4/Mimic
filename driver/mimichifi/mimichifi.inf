@@ -1,0 +1,75 @@
+; mimichifi.inf — mimic-hifi NDIS Lightweight Filter (modifying) install.
+;
+; DRAFT — verify against the current WDK sample
+; (Windows-driver-samples/network/ndis/filter/netlwf.inf) before shipping: the Ndi
+; section keys (FilterClass / FilterType / FilterRunType / Characteristics) and the
+; NetCfgInstanceId GUID format are version-sensitive. FilterClass "ms_firewall" places
+; the filter low in the stack (near the miniport) so FilterSendNetBufferLists sees the
+; final packet — required for the IP-ID rewrite to land below the IP transmit re-stamp.
+
+[Version]
+Signature      = "$Windows NT$"
+Class          = NetService
+ClassGUID      = {4D36E974-E325-11CE-BFC1-08002BE10318}
+Provider       = %Mimic%
+CatalogFile    = mimichifi.cat
+PnpLockdown    = 1
+DriverVer      =
+
+[Manufacturer]
+%Mimic% = MimicHiFi, NT$ARCH$.10.0...17763
+
+[MimicHiFi.NT$ARCH$.10.0...17763]
+%MimicHiFi.Desc% = Install, MS_MimicHiFi
+
+[Install]
+Characteristics  = 0x40000          ; NCF_LW_FILTER
+NetCfgInstanceId = "{B5A2C1F0-9E3D-4A7C-8F21-3D6E5C4B2A19}"
+Copyfiles        = mimichifi.copyfiles.sys
+AddReg           = Install.ndi
+
+[Install.ndi]
+HKR, Ndi,            Service,      , "mimichifi"
+HKR, Ndi,            CoServices,   0x00010000, "mimichifi"
+HKR, Ndi,            HelpText,     , %MimicHiFi.HelpText%
+HKR, Ndi,            FilterClass,  , ms_firewall
+HKR, Ndi,            FilterType,   0x00010001, 0x00000002   ; 2 = NDIS_FILTER_TYPE modifying
+HKR, Ndi,            FilterRunType,0x00010001, 0x00000002   ; 2 = optional, off until configured
+HKR, Ndi\Interfaces, UpperRange,   , "noupper"
+HKR, Ndi\Interfaces, LowerRange,   , "nolower"
+HKR, Ndi\Interfaces, FilterMediaTypes, , "ethernet, wan, ppip"
+
+[Install.Services]
+AddService = mimichifi, , Install.Service
+
+[Install.Service]
+DisplayName    = %MimicHiFi.Service.Desc%
+ServiceType    = 1                  ; SERVICE_KERNEL_DRIVER
+StartType      = 1                  ; SERVICE_SYSTEM_START
+ErrorControl   = 1                  ; SERVICE_ERROR_NORMAL
+ServiceBinary  = %12%\mimichifi.sys ; %windir%\System32\drivers
+LoadOrderGroup = NDIS
+Description    = %MimicHiFi.Service.Desc%
+AddReg         = Install.Service.AddReg
+
+[Install.Service.AddReg]
+HKR, Parameters, BboxConfig, 0x00010001, 0
+
+[mimichifi.copyfiles.sys]
+mimichifi.sys, , , 2
+
+[DestinationDirs]
+mimichifi.copyfiles.sys = 12        ; drivers
+
+[SourceDisksNames]
+1 = %DiskDescription%, "", ,
+
+[SourceDisksFiles]
+mimichifi.sys = 1
+
+[Strings]
+Mimic                 = "Mimic"
+MimicHiFi.Desc        = "mimic-hifi IP-ID corrector (NDIS LWF)"
+MimicHiFi.HelpText    = "Forces outbound IPv4 IP-ID for a Linux persona (nmap TI/CI=Z) when armed by mimic."
+MimicHiFi.Service.Desc= "mimic-hifi NDIS Lightweight Filter"
+DiskDescription       = "mimic-hifi driver disk"
