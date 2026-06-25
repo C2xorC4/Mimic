@@ -30,7 +30,7 @@ stack:
   window_in_rst: 0
   fin_ack_behavior: rst
   bogus_flags: rst
-  explicit_congestion: respond
+  explicit_congestion: echo   # Server 2019 reflects ECE → nmap ECN CC=Y
 
   # ICMP
   icmp_quote_size: 8

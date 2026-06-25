@@ -70,7 +70,8 @@ type winProfile struct {
 	optionsCount  uint8
 	windowInRST   uint16
 	opt1          uint8 // second option kind (drives the Linux SACK-first template)
-	ecnEcho       bool  // Linux/macOS echo ECE (CC=Y) + keep native ECN opts; Windows clears ECE (#12)
+	ecnEcho       bool  // Linux/macOS ECN OPTIONS behaviour (no-TS NNS template + native ECN opts)
+	ecnCC         bool  // echo ECE on the ECN-probe SYN-ACK → nmap CC=Y (Linux/macOS + Windows Server via explicit_congestion: echo); Windows workstation = N
 	winQuirks     bool  // Windows profile → apply Windows-only quirks (ICMP CD=Z, A=O RST); off for Linux (#13)
 	icmpQuoteTTL  uint8 // TTL stamped into U1 quoted IP header
 	icmpQuoteDF   bool  // DF bit in U1 quoted IP header
@@ -109,6 +110,11 @@ func toWinProfile(p *config.OSProfile) *winProfile {
 	case "linux", "macos":
 		wp.ecnEcho = true
 	}
+	// CC=Y (echo ECE) for Linux/macOS always, and for any profile that opts in via
+	// `explicit_congestion: echo` (modern Windows Server reflects ECE → nmap CC=Y;
+	// Windows workstation = respond/CC=N). Kept separate from ecnEcho so a Windows
+	// Server profile gets CC=Y WITHOUT the Linux ECN-options template.
+	wp.ecnCC = wp.ecnEcho || strings.EqualFold(s.ExplicitCongestion, "echo")
 	wp.winQuirks = strings.EqualFold(p.Family, "windows")
 	return wp
 }
@@ -753,6 +759,12 @@ func (b *windowsBackend) applyTCP(pkt []byte, ihl int, p *winProfile) ([]byte, b
 	// (nmap-os-db O6=M5B4NNS). A TS-reflecting host echoes nmap's TS → a 16-byte
 	// M5B4ST11 O6; rewrite + shrink so O6 matches on ANY host.
 	if optLen == 16 && isSynPhase && p.winQuirks && !p.tcpTimestamps && len(tcp) >= 36 {
+		// O6 window (no window scale option in the probe): a 65535-window no-TS Windows
+		// Server (2019) advertises FF70 on this probe, not the scaled FFFF (nmap W6=FF70).
+		if p.windowSize == 0xFFFF && binary.BigEndian.Uint16(tcp[14:16]) != 0xFF70 {
+			binary.BigEndian.PutUint16(tcp[14:16], 0xFF70)
+			modified = true
+		}
 		mss := p.mss
 		if tcp[20] == optMSS && tcp[21] == 4 {
 			mss = binary.BigEndian.Uint16(tcp[22:24])
@@ -796,13 +808,13 @@ func (b *windowsBackend) applyTCP(pkt []byte, ihl int, p *winProfile) ([]byte, b
 		}
 	}
 
-	// === ECN: clear ECE in SYN-ACK (Windows CC=N). Linux/macOS echo ECE (CC=Y) — skip (#12). ===
-	if flags&0x12 == 0x12 && flags&0x40 != 0 && !p.ecnEcho {
+	// === ECN CC: clear ECE → CC=N (Windows workstation); set ECE → CC=Y (Linux/macOS
+	// + Windows Server via explicit_congestion: echo). Driven by ecnCC, NOT ecnEcho. ===
+	if flags&0x12 == 0x12 && flags&0x40 != 0 && !p.ecnCC {
 		tcp[13] = flags &^ 0x40
 		modified = true
 	}
-	// Go's net stack often omits ECE on SYN-ACK; set it for Linux/macOS ECN probes (#12).
-	if p.ecnEcho && flags&0x12 == 0x12 && flags&0x40 == 0 {
+	if p.ecnCC && flags&0x12 == 0x12 && flags&0x40 == 0 {
 		tcp[13] = flags | 0x40
 		modified = true
 	}
