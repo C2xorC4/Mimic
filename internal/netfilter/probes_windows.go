@@ -36,6 +36,31 @@ func linuxT7ProbeFilterForPorts(ports []uint16) (string, bool) {
 	return b.String(), true
 }
 
+// linuxT2T3DropFilterForPorts matches nmap's T2 (NULL flags) and T3
+// (SYN+FIN+...) open-port probes. A real Linux host drops both silently (nmap
+// T2/T3 R=N); a Windows host RSTs them (R=Y). Neither flag combo is ever
+// legitimate (NULL has no ACK; SYN+FIN is simultaneous open/close), so dropping
+// them on the served ports is connectivity-safe. PSH/URG are omitted from the T3
+// clause because Windows Tcpip may strip them before WinDivert (see T7 note).
+func linuxT2T3DropFilterForPorts(ports []uint16) (string, bool) {
+	if len(ports) == 0 {
+		return "", false
+	}
+	var b strings.Builder
+	b.WriteString("inbound and tcp and !loopback and (" +
+		"(!tcp.Syn and !tcp.Ack and !tcp.Fin and !tcp.Rst and !tcp.Psh and !tcp.Urg) or " +
+		"(tcp.Syn and tcp.Fin)" +
+		") and (")
+	for i, p := range ports {
+		if i > 0 {
+			b.WriteString(" or ")
+		}
+		fmt.Fprintf(&b, "tcp.DstPort == %d", p)
+	}
+	b.WriteString(")")
+	return b.String(), true
+}
+
 func linuxTProbeFilterForPorts(ports []uint16) (string, bool) {
 	if len(ports) == 0 {
 		return "", false
@@ -109,6 +134,20 @@ func (p *winProbeResponder) Start(ports []uint16, t7Ports []uint16, ttl uint8, w
 		go p.respondLoop(h7)
 	}
 
+	// T2/T3: drop (no reinject, no response) so the Windows stack never RSTs them →
+	// nmap T2/T3 R=N, matching a real Linux host.
+	if dropFilter, ok := linuxT2T3DropFilterForPorts(ports); ok {
+		hd, err := wdOpenPriority(dropFilter, 1500)
+		if err != nil {
+			return err
+		}
+		p.mu.Lock()
+		p.handles = append(p.handles, hd)
+		p.mu.Unlock()
+		p.wg.Add(1)
+		go p.dropLoop(hd)
+	}
+
 	if len(p.handles) == 0 {
 		return fmt.Errorf("no ports configured for T4/T6/T7 probe response")
 	}
@@ -168,6 +207,27 @@ func (p *winProbeResponder) respondLoop(h *wdHandle) {
 		addr.setOutbound(true)
 		h.calcChecksums(pkt, &addr)
 		_ = h.send(pkt, &addr)
+	}
+}
+
+// dropLoop recv's matched T2/T3 probes and discards them (never reinjects), so the
+// Windows stack never sees them and emits no RST → nmap T2/T3 R=N (Linux behavior).
+func (p *winProbeResponder) dropLoop(h *wdHandle) {
+	defer p.wg.Done()
+	buf := make([]byte, 65535)
+	var addr wdAddress
+	for {
+		_, err := h.recv(buf, &addr)
+		if err != nil {
+			p.mu.Lock()
+			closing := p.closing
+			p.mu.Unlock()
+			if closing {
+				return
+			}
+			continue
+		}
+		// intentionally no send → packet is dropped
 	}
 }
 

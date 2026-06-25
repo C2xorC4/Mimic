@@ -849,12 +849,16 @@ func (b *windowsBackend) applyTCP(pkt []byte, ihl int, p *winProfile) ([]byte, b
 	}
 
 	// === ECN CC: clear ECE → CC=N (Windows workstation); set ECE → CC=Y (Linux/macOS
-	// + Windows Server via explicit_congestion: echo). Driven by ecnCC, NOT ecnEcho. ===
+	// + Windows Server via explicit_congestion: echo). Driven by ecnCC, NOT ecnEcho.
+	// A real host echoes ECE ONLY on the ECN probe's SYN-ACK, not on the SEQ/T1 probes
+	// — so the SET path is gated to the ECN-probe flow (the no-timestamp SYN, same
+	// discriminator as the ECN-options template). Setting ECE on every SYN-ACK gave the
+	// SEQ/T1 probes ECE → nmap T1 F=EAS (should be AS); this keeps CC=Y but fixes T1. ===
 	if flags&0x12 == 0x12 && flags&0x40 != 0 && !p.ecnCC {
 		tcp[13] = flags &^ 0x40
 		modified = true
 	}
-	if p.ecnCC && flags&0x12 == 0x12 && flags&0x40 == 0 {
+	if p.ecnCC && flags&0x12 == 0x12 && flags&0x40 == 0 && haveFlow && !flow.hadTS {
 		tcp[13] = flags | 0x40
 		modified = true
 	}

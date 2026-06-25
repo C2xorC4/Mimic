@@ -6,10 +6,11 @@ import "encoding/binary"
 
 // probeRSTOpts controls synthetic RST fields for nmap T-series probe responses.
 type probeRSTOpts struct {
-	ttl     uint8
-	window  uint16
-	ackZero bool // true → ack=0 (Linux A=Z); false → ack=clientSeq+1
-	rstOnly bool // true → RST without ACK (Linux T4/T6 F=R); false → RST|ACK
+	ttl        uint8
+	window     uint16
+	ackZero    bool // true → ack=0 (Linux A=Z); false → ack=clientSeq+1
+	rstOnly    bool // true → RST without ACK (Linux T4/T6 F=R); false → RST|ACK
+	seqFromAck bool // true → response seq = probe's ack (Linux T4/T6 nmap S=A); false → seq=0 (S=Z)
 }
 
 // craftTCPRST turns an inbound IPv4 TCP probe into an outbound RST+ACK in place.
@@ -43,7 +44,12 @@ func craftProbeRST(pkt []byte, opts probeRSTOpts) (int, bool) {
 	copy(pkt[tcpOff+2:tcpOff+4], tmp[:2])
 
 	clientSeq := binary.BigEndian.Uint32(pkt[tcpOff+4 : tcpOff+8])
-	binary.BigEndian.PutUint32(pkt[tcpOff+4:tcpOff+8], 0)
+	clientAck := binary.BigEndian.Uint32(pkt[tcpOff+8 : tcpOff+12])
+	respSeq := uint32(0)
+	if opts.seqFromAck {
+		respSeq = clientAck // nmap S=A: RST seq echoes the probe's ack (Linux T4/T6)
+	}
+	binary.BigEndian.PutUint32(pkt[tcpOff+4:tcpOff+8], respSeq)
 	if opts.ackZero {
 		binary.BigEndian.PutUint32(pkt[tcpOff+8:tcpOff+12], 0)
 	} else {
@@ -60,6 +66,10 @@ func craftProbeRST(pkt []byte, opts probeRSTOpts) (int, bool) {
 	totalLen := ihl + 20
 	binary.BigEndian.PutUint16(pkt[2:4], uint16(totalLen))
 	pkt[8] = ttl
+	// DF=1: a modern Linux kernel sets DF on its RST responses (nmap T4-T7 DF=Y). The
+	// probe's DF varies (nmap's T5 clears it), and we inherit the probe header here, so
+	// force DF on — leaving it gave nmap T5 DF=N where Linux is DF=Y.
+	binary.BigEndian.PutUint16(pkt[6:8], binary.BigEndian.Uint16(pkt[6:8])|0x4000)
 	// IP-ID 0: this helper only ever crafts Linux-persona RSTs (closed-port + T4-T7
 	// responders, both gated to family==linux in run.go). A modern Linux kernel sends
 	// IP-ID 0 on DF segments, so zero it instead of echoing nmap's probe IP-ID — that
@@ -82,11 +92,11 @@ func linuxProbeRSTOpts(flags uint8, ttl uint8, window uint16, ackZero bool) (pro
 	)
 	switch {
 	case flags == ack:
-		// T4: ACK only → RST, ack=0 (F=R A=Z)
-		return probeRSTOpts{ttl: ttl, window: window, ackZero: true, rstOnly: true}, true
+		// T4/T6: ACK only → RST, ack=0 (F=R A=Z), seq echoes the probe's ack (S=A)
+		return probeRSTOpts{ttl: ttl, window: window, ackZero: true, rstOnly: true, seqFromAck: true}, true
 	case flags == syn|ack:
-		// T6: SYN+ACK → RST, ack=0
-		return probeRSTOpts{ttl: ttl, window: window, ackZero: true, rstOnly: true}, true
+		// SYN+ACK → RST, ack=0, seq echoes the probe's ack (S=A)
+		return probeRSTOpts{ttl: ttl, window: window, ackZero: true, rstOnly: true, seqFromAck: true}, true
 	case flags&fin == fin && flags&(syn|rst) == 0:
 		// T7: FIN (+ACK/PSH/URG; stack may strip flags before WinDivert) → RST+ACK
 		return probeRSTOpts{ttl: ttl, window: window, ackZero: false, rstOnly: false}, true
