@@ -1344,26 +1344,38 @@ Arguments:
                 PNET_BUFFER mhNb;
                 for (mhNb = NET_BUFFER_LIST_FIRST_NB(mhNbl); mhNb != NULL; mhNb = NET_BUFFER_NEXT_NB(mhNb))
                 {
-                    UCHAR  mhScratch[78];   // 14 eth + 4 vlan + 60 max IPv4 hdr
-                    ULONG  mhAvail = NET_BUFFER_DATA_LENGTH(mhNb);
-                    ULONG  mhWant  = (mhAvail < sizeof(mhScratch)) ? mhAvail : sizeof(mhScratch);
+                    // Map the current MDL and edit the packet bytes IN PLACE. (Using
+                    // NdisGetDataBuffer + a scratch copy does NOT modify the packet when
+                    // the data is non-contiguous, which is the common send case — that
+                    // was why TI stayed =I.) The eth+IP headers sit at the front of the
+                    // first MDL for stack-originated sends, so a single MDL map suffices.
+                    PMDL   mhMdl  = NET_BUFFER_CURRENT_MDL(mhNb);
+                    ULONG  mhOff  = NET_BUFFER_CURRENT_MDL_OFFSET(mhNb);
+                    ULONG  mhMdlLen, mhAvail;
                     PUCHAR mhEth;
                     USHORT mhEt;
                     ULONG  mhL2 = 14;
 
-                    if (mhWant < 34)
+                    if (mhMdl == NULL)
                     {
-                        continue;   // need at least eth(14) + min IPv4(20)
+                        continue;
                     }
-                    mhEth = (PUCHAR)NdisGetDataBuffer(mhNb, mhWant, mhScratch, 1, 0);
-                    if (mhEth == NULL || mhEth == mhScratch)
+                    mhEth = (PUCHAR)MmGetSystemAddressForMdlSafe(mhMdl, NormalPagePriority | MdlMappingNoExecute);
+                    if (mhEth == NULL)
                     {
-                        continue;   // only edit the in-place / contiguous buffer
+                        continue;
                     }
+                    mhMdlLen = MmGetMdlByteCount(mhMdl);
+                    if (mhOff + 34 > mhMdlLen)
+                    {
+                        continue;   // need eth(14)+min IPv4(20) contiguous in this MDL
+                    }
+                    mhEth += mhOff;
+                    mhAvail = mhMdlLen - mhOff;
                     mhEt = (USHORT)(((USHORT)mhEth[12] << 8) | mhEth[13]);
                     if (mhEt == 0x8100)        // 802.1Q VLAN tag
                     {
-                        if (mhWant < 22) { continue; }
+                        if (mhAvail < 22) { continue; }
                         mhEt = (USHORT)(((USHORT)mhEth[16] << 8) | mhEth[17]);
                         mhL2 = 18;
                     }
@@ -1371,7 +1383,7 @@ Arguments:
                     {
                         continue;
                     }
-                    (void)MimicHiFi_RewriteIpId(mhEth + mhL2, mhWant - mhL2,
+                    (void)MimicHiFi_RewriteIpId(mhEth + mhL2, mhAvail - mhL2,
                                                 MIMICHIFI_MODE_LINUX, &g_MimicIcmpId);
                 }
             }
