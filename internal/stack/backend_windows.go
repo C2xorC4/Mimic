@@ -14,6 +14,7 @@ import (
 
 	"github.com/c2xorc4/mimic/internal/config"
 	"github.com/c2xorc4/mimic/internal/logging"
+	"github.com/c2xorc4/mimic/internal/platform"
 )
 
 // The Windows stack backend reproduces the eBPF egress mutations (internal/ebpf/
@@ -74,6 +75,7 @@ type winProfile struct {
 	ecnCC         bool  // echo ECE on the ECN-probe SYN-ACK → nmap CC=Y (Linux/macOS + Windows Server via explicit_congestion: echo); Windows workstation = N
 	ecnWindow     uint16 // window advertised on the ECN-probe SYN-ACK (nmap ECN W=); 0 = use windowSize. Linux ECN rwnd differs from the OS-probe WIN (FE88→FAF0).
 	winQuirks     bool  // Windows profile → apply Windows-only quirks (ICMP CD=Z, A=O RST); off for Linux (#13)
+	highFidelity  bool  // opt-in: arm the mimic-hifi driver so a Linux persona emits IP-ID 0 (TI/CI=Z) below the re-stamp
 	icmpQuoteTTL  uint8 // TTL stamped into U1 quoted IP header
 	icmpQuoteDF   bool  // DF bit in U1 quoted IP header
 }
@@ -117,6 +119,7 @@ func toWinProfile(p *config.OSProfile) *winProfile {
 	// Server profile gets CC=Y WITHOUT the Linux ECN-options template.
 	wp.ecnCC = wp.ecnEcho || strings.EqualFold(s.ExplicitCongestion, "echo")
 	wp.winQuirks = strings.EqualFold(p.Family, "windows")
+	wp.highFidelity = s.HighFidelity
 	// A real Linux kernel advertises a smaller rwnd on the ECN probe's SYN-ACK than on
 	// the OS-detection probes (nmap WIN vs ECN W). Map the OS-probe window to its ECN
 	// companion so the ECN test's W= field matches nmap-os-db. 0 = leave = windowSize.
@@ -160,6 +163,8 @@ type windowsBackend struct {
 
 	synMu    sync.Mutex
 	synCache map[uint64]synFlow
+
+	hifi *hifiCorrector // opt-in high-fidelity IP-ID driver client (armed only for a Linux/macOS persona + high_fidelity)
 }
 
 // New returns the WinDivert-backed stack backend. iface is accepted for API
@@ -285,12 +290,13 @@ func (b *windowsBackend) SetProfile(p *config.OSProfile) error {
 	return nil
 }
 
-func (b *windowsBackend) Enable() error         { b.enabled.Store(true); return nil }
-func (b *windowsBackend) Disable() error        { b.enabled.Store(false); return nil }
+func (b *windowsBackend) Enable() error         { b.enabled.Store(true); b.maybeArmHiFi(); return nil }
+func (b *windowsBackend) Disable() error        { b.enabled.Store(false); b.disarmHiFi(); return nil }
 func (b *windowsBackend) IsEnabled() bool       { return b.enabled.Load() }
 func (b *windowsBackend) InterfaceName() string { return b.iface }
 
 func (b *windowsBackend) Close() error {
+	b.disarmHiFi()
 	if b.handle == nil {
 		return nil
 	}
@@ -298,6 +304,43 @@ func (b *windowsBackend) Close() error {
 	err := b.handle.close() // unblocks the recv in loop()
 	b.wg.Wait()
 	return err
+}
+
+// maybeArmHiFi arms the opt-in high-fidelity IP-ID driver when (and only when) a
+// Linux/macOS persona has high_fidelity set AND the driver is installed/loaded.
+// WinDivert keeps doing all mutation; the driver only re-zeros the final TCP IP-ID
+// below the Windows re-stamp so a Linux persona reads nmap TI/CI=Z. Absent driver →
+// warn once and fall back to plain WinDivert (Linux personas stay ~95%, not exact).
+// Windows personas never arm: they want CI=I/SS=S, which WinDivert already delivers.
+func (b *windowsBackend) maybeArmHiFi() {
+	p := b.profile.Load()
+	if p == nil || !p.highFidelity || p.winQuirks || b.hifi != nil {
+		return
+	}
+	log := logging.Component("stackwin")
+	c, err := openHifi()
+	if err != nil {
+		log.Warn("high_fidelity requested but the mimic-hifi driver is unavailable — falling back to WinDivert (TI/CI=Z not achievable)",
+			map[string]interface{}{"error": err.Error(), "hint": platform.HighFidelityInstallHint})
+		return
+	}
+	if err := c.Arm(true); err != nil {
+		_ = c.Close()
+		log.Warn("high_fidelity: arm failed — falling back to WinDivert", map[string]interface{}{"error": err.Error()})
+		return
+	}
+	b.hifi = c
+	log.Info("high_fidelity IP-ID corrector armed (TI/CI=Z)", nil)
+}
+
+// disarmHiFi returns the driver to pass-through and releases the control handle.
+func (b *windowsBackend) disarmHiFi() {
+	if b.hifi == nil {
+		return
+	}
+	_ = b.hifi.Disarm()
+	_ = b.hifi.Close()
+	b.hifi = nil
 }
 
 // loop is the recv → mutate → reinject pump. It ALWAYS re-sends every captured

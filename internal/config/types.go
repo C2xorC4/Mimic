@@ -71,6 +71,9 @@ type StackConfig struct {
 
 	// UDP
 	UDPClosedPortResponse bool `yaml:"udp_closed_port_response"` // Send ICMP port unreach
+
+	// Backend / high-fidelity tier (Windows only; off by default)
+	HighFidelity bool `yaml:"high_fidelity"` // Opt-in: arm the kernel IP-ID corrector driver so a Linux persona emits IP-ID 0 (nmap TI/CI=Z) below WinDivert's re-stamp. Requires the installed+signed mimic-hifi driver; falls back to WinDivert if absent.
 }
 
 // ServiceConfig defines a fake service listener
