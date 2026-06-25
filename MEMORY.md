@@ -60,11 +60,17 @@ substrate: a fresh wired VM clone eliminates it entirely.
 >   on WinDivert); eBPF reaches exact most readily. Document where it bites.
 >
 > **INFRA FINDINGS (from per-template testing):**
-> - **libpcap soname portability:** Linux binary links `libpcap.so.0.8` (Debian/Ubuntu) +
->   glibc 2.35 → **fails to run on RHEL/Fedora/Arch** (`libpcap.so.1`) → Rocky/Fedora/Arch
->   hosts produced NO data ("BINARY FAILED"). Fix: build `run`/`serve` WITHOUT libpcap
->   (capture.go is the only libpcap user + already a separate linux file → a build tag
->   drops it), or static-link, or per-distro build. Blocks RHEL/Arch eBPF validation.
+> - **libpcap soname portability — ✅ FIXED + VALIDATED.** Linux binary linked
+>   `libpcap.so.0.8` (Debian/Ubuntu) + glibc 2.35 → failed to run on RHEL/Fedora/Arch
+>   (`libpcap.so.1`). Fix: `nopcap` build tag — `capture.go` retagged `linux && !nopcap`,
+>   `capture_other.go` (stub) `!linux || nopcap`; only libpcap user. Build a fully static,
+>   portable binary with **`CGO_ENABLED=0 GOOS=linux go build -tags nopcap ./cmd/mimic`**
+>   (drops the `capture` command — operator-only — but keeps run/serve/eBPF). Also fixed a
+>   latent break: `stack.WinDivertInstalled()` was referenced in unified run.go but only
+>   defined for Windows → the normal Linux build was broken too (argus ran an older
+>   binary); added `internal/stack/windivert_other.go` (`!windows` → false). **VALIDATED:**
+>   static binary runs on Rocky-9 (was "BINARY FAILED"), eBPF works, Ubuntu→Linux 97% /
+>   Win11→Windows 98%. Ship nopcap for deployment, the libpcap build for the capture box.
 > - **Kali template:** cloud clone never applied the argus_lab SSH key → deploy aborted.
 > - **macOS Sonoma:** UNBUILT (no VM/template/captures) → no convincing match anywhere;
 >   needs image→capture→response track. Not a matrix failure; out of scope until built.
