@@ -25,7 +25,7 @@ func newClosedPortResponder() ClosedPortResponder {
 	return &winClosedPorts{}
 }
 
-func (c *winClosedPorts) AddPorts(ports []uint16, ttl uint8, _ bool) error {
+func (c *winClosedPorts) AddPorts(ports []uint16, ttl uint8, linuxPersona bool) error {
 	if len(ports) == 0 {
 		return nil
 	}
@@ -39,6 +39,16 @@ func (c *winClosedPorts) AddPorts(ports []uint16, ttl uint8, _ bool) error {
 	c.ports = append([]uint16(nil), ports...)
 	c.ttl = ttl
 	c.mu.Unlock()
+
+	// Windows persona: do NOT divert/craft — the firewall rule above lets the SYN
+	// reach the Windows stack, which RSTs the closed port natively, and that RST
+	// egresses through the stack-mutation handle that stamps the shared incremental
+	// IP-ID (nmap CI=I, SS=S). Crafting the RST here instead would flip the inbound
+	// probe in place and echo ITS IP-ID → nmap reads CI=RD (random) and SS=O. We only
+	// hand-craft a (Linux-shaped) RST for a Linux persona on a Windows host.
+	if !linuxPersona {
+		return nil
+	}
 
 	filter := closedPortFilter(ports)
 	h, err := wdOpen(filter)
