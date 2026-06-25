@@ -459,6 +459,25 @@ func growTCPHeader(pkt []byte, ihl, oldTCPHL, newTCPHL int) []byte {
 	return out
 }
 
+// shrinkTCPHeader removes (oldTCPHL-newTCPHL) bytes of TCP options — the bytes at
+// [ihl+newTCPHL : ihl+oldTCPHL], i.e. trailing options — and fixes the TCP data
+// offset + IP total length. Inverse of growTCPHeader. Used to normalize a no-TS
+// Windows SYN-ACK to its real 12-byte (O1–O5) / 8-byte (O6) option length when a
+// TS-reflecting host produced longer options, so the OPS option LENGTH matches the
+// nmap-os-db reference on ANY host (not just a TS-off host).
+func shrinkTCPHeader(pkt []byte, ihl, oldTCPHL, newTCPHL int) []byte {
+	shrink := oldTCPHL - newTCPHL
+	if shrink <= 0 || newTCPHL < 20 || len(pkt) < ihl+oldTCPHL {
+		return pkt
+	}
+	out := make([]byte, len(pkt)-shrink)
+	copy(out, pkt[:ihl+newTCPHL])             // IP + base TCP + kept options
+	copy(out[ihl+newTCPHL:], pkt[ihl+oldTCPHL:]) // payload after the old header
+	out[ihl+12] = (out[ihl+12] & 0x0f) | byte(newTCPHL/4)<<4
+	binary.BigEndian.PutUint16(out[2:4], uint16(len(out)))
+	return out
+}
+
 // applyTCP ports the TCP egress mutations (window, options templates, TS
 // coherence, RST window, ECN) at IP-relative offsets.
 func (b *windowsBackend) applyTCP(pkt []byte, ihl int, p *winProfile) ([]byte, bool) {
@@ -526,6 +545,7 @@ func (b *windowsBackend) applyTCP(pkt []byte, ihl int, p *winProfile) ([]byte, b
 		for i := range no {
 			no[i] = optNOP
 		}
+		wantOptLen := 20 // shrink to this after writing (no-TS Windows = 12; else 20)
 		switch {
 		case p.windowScale == 0 && !p.tcpTimestamps:
 			// Windows XP: MSS, NOP, NOP, SACK
@@ -535,13 +555,21 @@ func (b *windowsBackend) applyTCP(pkt []byte, ihl int, p *winProfile) ([]byte, b
 				no[6], no[7] = optSACKPerm, 2
 			}
 		case p.windowScale > 0 && !p.tcpTimestamps:
-			// Windows 7/10/11: MSS, NOP, WS, NOP, NOP, SACK
+			// Windows 7/10/11 (no TS): MSS, NOP, WS, NOP, NOP, SACK = 12 real bytes.
+			// A TS-reflecting host produces a 20-byte SYN-ACK (it echoed nmap's TS); we
+			// overwrite + shrink to 12 so the OPS option length matches a real no-TS
+			// Windows box on ANY host (nmap-os-db O1=M5B4NW8NNS, not the padded 20B).
 			putMSS(no[:], 0, mss)
 			no[4] = optNOP
 			no[5], no[6], no[7] = optWScale, 3, p.windowScale
-			no[8], no[9] = optNOP, optNOP
 			if useSACK {
+				no[8], no[9] = optNOP, optNOP
 				no[10], no[11] = optSACKPerm, 2
+				wantOptLen = 12 // M5B4NW8NNS
+			} else {
+				// P3 probe carries no SACK → real no-TS Windows answers MSS,NOP,WS only
+				// (nmap O3=M5B4NW8), no NOP/SACK tail. Shrink to 8 so O3 matches.
+				wantOptLen = 8
 			}
 		case p.tcpTimestamps && p.opt1 == optSACKPerm:
 			// Linux: MSS, SACK, TS, NOP, WS — REAL timestamp. Checked BEFORE the
@@ -624,6 +652,12 @@ func (b *windowsBackend) applyTCP(pkt []byte, ihl int, p *winProfile) ([]byte, b
 			}
 		}
 		copy(tcp[20:40], no[:])
+		if wantOptLen < 20 {
+			pkt = shrinkTCPHeader(pkt, ihl, 40, 20+wantOptLen)
+			tcp = pkt[ihl:]
+			tcpHL = 20 + wantOptLen
+			optLen = wantOptLen
+		}
 		modified = true
 	}
 
@@ -712,6 +746,31 @@ func (b *windowsBackend) applyTCP(pkt []byte, ihl int, p *winProfile) ([]byte, b
 			binary.BigEndian.PutUint32(tcp[28:32], uptimeMs())
 			modified = true
 		}
+	}
+
+	// === 16-byte O6 for a NO-TS Windows profile: normalize to M5B4NNS (8 bytes) ===
+	// A real no-TS Windows box answers the P6 (no-WS) probe with MSS,NOP,NOP,SACK
+	// (nmap-os-db O6=M5B4NNS). A TS-reflecting host echoes nmap's TS → a 16-byte
+	// M5B4ST11 O6; rewrite + shrink so O6 matches on ANY host.
+	if optLen == 16 && isSynPhase && p.winQuirks && !p.tcpTimestamps && len(tcp) >= 36 {
+		mss := p.mss
+		if tcp[20] == optMSS && tcp[21] == 4 {
+			mss = binary.BigEndian.Uint16(tcp[22:24])
+		}
+		var no8 [8]byte
+		putMSS(no8[:], 0, mss)
+		no8[4], no8[5] = optNOP, optNOP
+		if p.sackPermitted {
+			no8[6], no8[7] = optSACKPerm, 2
+		} else {
+			no8[6], no8[7] = optNOP, optNOP
+		}
+		copy(tcp[20:28], no8[:])
+		pkt = shrinkTCPHeader(pkt, ihl, 36, 28)
+		tcp = pkt[ihl:]
+		tcpHL = 28
+		optLen = 8
+		modified = true
 	}
 
 	// === TS coherence for established data / pure-ACK (NOP,NOP,TS = 12 bytes) ===
