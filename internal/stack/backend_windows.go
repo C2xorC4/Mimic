@@ -421,9 +421,18 @@ func (b *windowsBackend) applyEgress(pkt []byte, p *winProfile) ([]byte, bool) {
 	// === IP-ID ===
 	// Windows (winQuirks): one shared counter across TCP+ICMP per ip_id_behavior →
 	// nmap SS=S, TI=I. Linux is PER-PROTOCOL: TCP/DF segments carry IP-ID 0 (nmap
-	// TI=Z, CI=Z) while ICMP echo replies increment (II=I). The single global
-	// ip_id_behavior can't express that split, and on a Windows host the native IP-ID
-	// is never zero — so for a Linux persona we drive it here directly.
+	// TI=Z, CI=Z) while ICMP echo replies increment (II=I).
+	//
+	// ★ WinDivert ceiling (validated 2026-06-25): writing IP-ID 0 here is CORRECT but
+	// does NOT survive to the wire. The Windows IP transmit path treats a 0
+	// Identification as "unassigned" and re-stamps it from the host's global counter
+	// BELOW WinDivert's network-layer injection point — so TI/CI come out =I, not =Z.
+	// Confirmed negative against Impostor + IPChecksum/TCPChecksum send flags (and they
+	// decremented TTL as a side effect). Non-zero IDs DO survive (Windows personas get
+	// CI=I), so the ICMP increment lands. TI=Z/CI=Z therefore require eBPF (native) or
+	// the opt-in high-fidelity driver backend; they are unreachable on default WinDivert.
+	// We still write 0 (harmless, correct intent, and the right value once a verbatim
+	// emit path exists).
 	var newID uint16
 	if p.winQuirks {
 		switch p.ipidBehavior {
