@@ -91,12 +91,36 @@ substrate: a fresh wired VM clone eliminates it entirely.
 > **Proves the core thesis: "nmap stops asking for a submission" is per-config iteration,
 > not impossible** — and SEQ/ISN centering was NOT needed (the CI=SS=S fix resolved it).
 >
-> **REMAINING QUEUE (lower priority — primary targets already exact):**
-> - ECN **CC=Y** for Windows Server profiles (2016/2019/2022 refs show CC=Y; mimic emits
->   CC=N) — needs splitting the `ecnEcho` flag (it currently also drives Linux ECN
->   *options*); would push Server 2019 off its "Longhorn 95%" decoy toward exact.
-> - Re-run the full matrix on the fixed binary to confirm the exact matches generalize
->   across the other Windows profiles + hosts, and quantify the new exact-match count.
+ **★ SAMPLE RE-RUN + Win10/Server-2019 pass (2026-06-25) — exact-match set now 5/6
+> modern Windows editions.** A small sample run on a clean Server-2022 host confirmed the
+> shared OPS+CI fixes generalized: **Win11, Server 2016, Server 2022, Server 2025 all
+> EXACT**; Win10 + Server 2019 were the two laggards. Both then closed:
+> - ✅ **Win10 → EXACT (`Windows 10 1909`), now host-independent** (`282c74e`). Root cause
+>   was NOT a profile bug: a no-TS Windows profile inherited the HOST's SYN-ACK option
+>   length — on a TS-reflecting host (Server 2019/2022/2025) the host echoes nmap's TS so
+>   the SYN-ACK is 20B; mimic NOP-overwrote the TS but kept the length → padded OPS
+>   (`O1=M5B4NW8NNSNNNNNNNN`, `O6=M5B4ST11`). On a TS-off host it was already exact ⇒
+>   host-DEPENDENT fingerprint (the one real exception to host-independence). Fix:
+>   `shrinkTCPHeader()` normalizes the no-TS Windows SYN-ACK to its real option length
+>   regardless of host — O1/O2/O4/O5→12B (`M5B4NW8NNS`), **O3→8B (`M5B4NW8`, no SACK in the
+>   P3 probe)**, O6→8B (`M5B4NNS`). Isolated to `!tcp_timestamps` Windows so the TS-on exact
+>   matches are untouched (validated: Win11/Srv2016/Srv2022 stayed exact).
+> - ⚠️ **Server 2019 → 99%, top guess "Windows Server 2019"** (`84e810a`; decoy gone, was
+>   95% Longhorn). Closed the last two field-diffs: **ECN `CC=Y`** (split the conflated
+>   `ecnEcho` → new `ecnCC` driven by `explicit_congestion: echo`; Linux/macOS still CC=Y,
+>   Win11/Server-2022 stay CC=N so no regression) + **O6 `W6=FF70`** (65535-window no-TS
+>   Server advertises FF70 on the no-WS probe, not scaled FFFF). Both now match the ref
+>   exactly. **Residual = SEQ `SP`/`ISR` at the LOW EDGE of Server 2019's reference range**
+>   — the host-kernel ISN-rate ceiling (Class C); a clean exact needs ISN-rate rewriting
+>   (the documented WinDivert hard limit). May flicker to exact run-to-run.
+> - **EXACT-MATCH TALLY (WinDivert backend, clean VM hosts): Win10, Win11, Server 2016,
+>   Server 2022, Server 2025 = 5/6.** Server 2019 = 99% correct-top-guess (ISN-capped).
+>
+> **REMAINING QUEUE:**
+> - Re-run the FULL matrix on the fixed binary to certify exact-match coverage across ALL
+>   profiles incl. the untested older ones (Win7/8/XP/Vista, Server 2003–2012R2).
+> - Server 2019 clean exact would need outbound ISN-rate rewriting (hard; low value — it
+>   already self-identifies as Server 2019 at 99%).
 > - Linux-profile exact (eBPF) chase + macOS build-out (image→capture→response) remain.
 
 > **CHECKPOINT — Debian single-profile fingerprint (branch `feat/windows-port-linux-fidelity`, 2026-06-24).**
