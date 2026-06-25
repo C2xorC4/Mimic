@@ -762,6 +762,32 @@ int fingerprint_egress(struct __sk_buff *skb) {
                     (__u16)tcp_flags << 8, (__u16)no_ece << 8, 2);
             }
         }
+
+        // === ECN-probe SYN-ACK window (nmap ECN W=) ===
+        // A real Linux kernel advertises a SMALLER rwnd on the ECN probe's SYN-ACK
+        // than on the OS-detection probes — e.g. FAF0 vs the WIN= FE88. The general
+        // window-set above stamped window_size on every TCP packet, so the ECN probe
+        // came out FE88 (the lone field keeping a Linux persona at 99%, not exact).
+        // Identify the ECN-probe response by the ECE bit (only nmap's ECN probe elicits
+        // it) and override the window to its band companion. Linux/macOS only (ecn_echo).
+        if ((tcp_flags & 0x12) == 0x12 && (tcp_flags & 0x40) && profile->ecn_echo) {
+            __be16 ecn_w = 0;
+            if (profile->window_size == 0xFE88) {
+                ecn_w = bpf_htons((__u16)0xFAF0);       // Linux 4.15-5.19 / 5.4-5.10
+            } else if (profile->window_size == 0x7120) {
+                ecn_w = bpf_htons((__u16)0x7210);       // Linux 3.2-4.14
+            }
+            if (ecn_w != 0) {
+                __be16 cur_w = 0;
+                if (bpf_skb_load_bytes(skb, tcp_offset + 14, &cur_w, 2) >= 0) {
+                    if (cur_w != ecn_w) {
+                        if (bpf_skb_store_bytes(skb, tcp_offset + 14, &ecn_w, 2, 0) >= 0) {
+                            bpf_l4_csum_replace(skb, tcp_offset + 16, cur_w, ecn_w, 2);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // === ICMP Behavior ===
