@@ -75,10 +75,29 @@ substrate: a fresh wired VM clone eliminates it entirely.
 > - **macOS Sonoma:** UNBUILT (no VM/template/captures) → no convincing match anywhere;
 >   needs image→capture→response track. Not a matrix failure; out of scope until built.
 >
-> **PRIORITIZED FIX QUEUE (cheapest-leverage first):** (1) ✅ OPS ST10→ST11 done;
-> (2) Server 2019/2022 window→65535 + Server 2016/2019/2022 tcp_timestamps→true (YAML,
-> no code); (3) CI=RD→I closed-RST shared IP-ID (code); (4) libpcap-free run build
-> (recovers 3 distro hosts); (5) per-profile SEQ centering to chase exact, Server-2025 style.
+> **★ EXACT-MATCH GOAL ACHIEVED on the WinDivert backend (2026-06-24).** The fix queue
+> drove Windows 11 AND Windows Server 2022 (clean VM hosts) to a clean **`OS details:
+> Microsoft Windows 10 1703 or Windows 11 21H2` — EXACT match, NO nmap submit prompt**
+> (was 96–99% aggressive-guess). Three coordinated fixes (all committed):
+> 1. ✅ **OPS ST10→ST11** (`61f3688`) — Win10/11 TS-on branch echoes the inbound-SYN
+>    cache's client TSval (96→99%).
+> 2. ✅ **Server profile corrections** (`7f44cd2`) — Server 2019/2022 window→65535,
+>    Server 2016/2022 tcp_timestamps→true (align to nmap-os-db).
+> 3. ✅ **CI=RD→I native closed-port RST** (`ed2b64a`) — Windows personas no longer
+>    hand-craft the closed-port RST (which echoed nmap's IP-ID → CI=RD, SS=O); the
+>    Windows stack RSTs natively + the stack handle stamps the shared incremental IP-ID
+>    → CI=I, SS=S. THIS was the indicator that flipped 99%→exact.
+> Plus ✅ **libpcap-free build** (`91ea4c4`) recovered the RHEL/Fedora/Arch host quadrants.
+> **Proves the core thesis: "nmap stops asking for a submission" is per-config iteration,
+> not impossible** — and SEQ/ISN centering was NOT needed (the CI=SS=S fix resolved it).
+>
+> **REMAINING QUEUE (lower priority — primary targets already exact):**
+> - ECN **CC=Y** for Windows Server profiles (2016/2019/2022 refs show CC=Y; mimic emits
+>   CC=N) — needs splitting the `ecnEcho` flag (it currently also drives Linux ECN
+>   *options*); would push Server 2019 off its "Longhorn 95%" decoy toward exact.
+> - Re-run the full matrix on the fixed binary to confirm the exact matches generalize
+>   across the other Windows profiles + hosts, and quantify the new exact-match count.
+> - Linux-profile exact (eBPF) chase + macOS build-out (image→capture→response) remain.
 
 > **CHECKPOINT — Debian single-profile fingerprint (branch `feat/windows-port-linux-fidelity`, 2026-06-24).**
 > **Active goal:** close Debian gaps on Windows-hosted mimic before running
