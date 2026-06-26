@@ -1,0 +1,13 @@
+Starting Nmap 7.98 ( https://nmap.org ) at 2026-06-24 21:20 -0400
+Nmap scan report for rocky-9.blackic.systems (10.0.252.64)
+Host is up (0.00041s latency).
+
+PORT     STATE  SERVICE
+80/tcp   closed http
+9999/tcp closed abyss
+MAC Address: BC:24:11:F5:78:A3 (Proxmox Server Solutions GmbH)
+Too many fingerprints match this host to give specific OS details
+Network Distance: 1 hop
+
+OS detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 1.77 seconds

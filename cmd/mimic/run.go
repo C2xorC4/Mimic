@@ -377,7 +377,11 @@ func runMimic(cmd *cobra.Command, args []string) error {
 			}
 		}
 		// Workstation persona: drop inbound ping (Op-1 control filtered ICMP entirely).
-		if isWorkstation {
+		// Gated on autoDrop (NOT bare isWorkstation) so closed_port_behavior: reset keeps
+		// ICMP echo ON — matching the Windows/WinDivert path. Dropping echo gives nmap
+		// IE(R=N) and strips II/SS from SEQ, which blocks the exact Win10/11 match; reset
+		// mode prioritizes that exact match (the drop-mode persona stays realistic).
+		if autoDrop {
 			if fwMgr == nil {
 				fwMgr = services.NewFirewallManager()
 			}

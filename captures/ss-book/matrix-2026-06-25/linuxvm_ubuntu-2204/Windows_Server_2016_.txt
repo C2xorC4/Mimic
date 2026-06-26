@@ -1,0 +1,33 @@
+Starting Nmap 7.98 ( https://nmap.org ) at 2026-06-24 20:39 -0400
+Nmap scan report for ubuntu-2204.blackic.systems (10.0.254.65)
+Host is up (0.00038s latency).
+
+PORT     STATE  SERVICE
+80/tcp   open   http
+9999/tcp closed abyss
+MAC Address: BC:24:11:56:05:68 (Proxmox Server Solutions GmbH)
+Device type: general purpose
+Running (JUST GUESSING): Microsoft Windows 10|Longhorn|2008|7|Vista|8.1|11|Embedded Compact 7 (96%)
+OS CPE: cpe:/o:microsoft:windows_10 cpe:/o:microsoft:windows cpe:/o:microsoft:windows_server_2008:r2 cpe:/o:microsoft:windows_7 cpe:/o:microsoft:windows_vista cpe:/o:microsoft:windows_8.1 cpe:/o:microsoft:windows_11 cpe:/o:microsoft:windows_embedded_compact_7
+Aggressive OS guesses: Microsoft Windows 10 1909 (96%), Microsoft Windows Longhorn (96%), Microsoft Windows 10 1809 (96%), Microsoft Windows 10 1507 - 1607 (94%), Microsoft Windows Server 2008 R2 SP1 or Windows 7 SP1 (94%), Microsoft Windows Vista SP2 or Windows 7 or Windows Server 2008 R2 or Windows 8.1 (94%), Microsoft Windows 7 Professional (94%), Microsoft Windows 7 Ultimate (94%), Microsoft Windows 7 or Windows Server 2008 (94%), Microsoft Windows 7 SP0 - SP1 or Windows Server 2008 (94%)
+No exact OS matches for host (If you know what OS is running on it, see https://nmap.org/submit/ ).
+TCP/IP fingerprint:
+OS:SCAN(V=7.98%E=4%D=6/24%OT=80%CT=9999%CU=37780%PV=Y%DS=1%DC=D%G=Y%M=BC241
+OS:1%TM=6A3C78D7%P=x86_64-pc-linux-gnu)SEQ(SP=100%GCD=1%ISR=10A%TI=I%CI=I%I
+OS:I=I%SS=S%TS=U)SEQ(SP=105%GCD=1%ISR=10A%TI=I%CI=I%II=I%SS=S%TS=U)SEQ(SP=1
+OS:06%GCD=1%ISR=108%TI=I%CI=I%II=I%SS=S%TS=U)SEQ(SP=107%GCD=1%ISR=10C%TI=I%
+OS:CI=I%II=I%SS=S%TS=U)SEQ(SP=FE%GCD=1%ISR=10E%TI=I%CI=I%II=I%SS=S%TS=U)OPS
+OS:(O1=M5B4NW8NNSNNNNNNNN%O2=M5B4NW8NNSNNNNNNNN%O3=M5B4NW8NNNNNNNNNNNN%O4=M
+OS:5B4NW8NNSNNNNNNNN%O5=M5B4NW8NNSNNNNNNNN%O6=M5B4ST11)WIN(W1=2000%W2=2000%
+OS:W3=2000%W4=2000%W5=2000%W6=2000)ECN(R=Y%DF=Y%T=80%W=2000%O=M5B4NW8NNS%CC
+OS:=N%Q=)T1(R=Y%DF=Y%T=80%S=O%A=S+%F=AS%RD=0%Q=)T2(R=Y%DF=Y%T=80%W=0%S=Z%A=
+OS:S%F=AR%O=%RD=0%Q=)T3(R=Y%DF=Y%T=80%W=0%S=Z%A=O%F=AR%O=%RD=0%Q=)T4(R=Y%DF
+OS:=Y%T=80%W=0%S=A%A=O%F=R%O=%RD=0%Q=)T5(R=Y%DF=Y%T=80%W=0%S=Z%A=S+%F=AR%O=
+OS:%RD=0%Q=)T6(R=Y%DF=Y%T=80%W=0%S=A%A=O%F=R%O=%RD=0%Q=)T7(R=Y%DF=Y%T=80%W=
+OS:0%S=Z%A=S+%F=AR%O=%RD=0%Q=)U1(R=Y%DF=N%T=80%IPL=164%UN=0%RIPL=G%RID=G%RI
+OS:PCK=G%RUCK=G%RUD=G)IE(R=Y%DFI=N%T=80%CD=Z)
+
+Network Distance: 1 hop
+
+OS detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 9.92 seconds

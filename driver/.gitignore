@@ -1,0 +1,9 @@
+# driver build output (reproducible via the EWDK/WDK build)
+mimichifi/x64/
+mimichifi/arm64/
+mimichifi/Release/
+mimichifi/Debug/
+*.sys
+*.cat
+*.pdb
+*.cer

@@ -1,0 +1,14 @@
+﻿
+19:00:42 === HOST win10 (tpl 9010 clone 9521) ===
+19:17:10 === HOST win10 COMPLETE ===
+19:17:10 === HOST win11 (tpl 9011 clone 9522) ===
+19:30:57 === HOST win11 COMPLETE ===
+19:30:57 === HOST winsrv-2016 (tpl 9116 clone 9523) ===
+19:45:57 === HOST winsrv-2016 COMPLETE ===
+19:45:57 === HOST winsrv-2019 (tpl 9119 clone 9524) ===
+20:01:36 === HOST winsrv-2019 COMPLETE ===
+20:01:36 === HOST winsrv-2022 (tpl 9122 clone 9525) ===
+20:15:16 === HOST winsrv-2022 COMPLETE ===
+20:15:16 === HOST winsrv-2025 (tpl 9125 clone 9526) ===
+20:29:23 === HOST winsrv-2025 COMPLETE ===
+20:29:23 ALL WINDOWS VM HOSTS DONE

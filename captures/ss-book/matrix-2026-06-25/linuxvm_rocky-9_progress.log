@@ -1,0 +1,87 @@
+21:10:24 [rocky-9] deploy tpl 9306 -> clone 9533
+  ==> Cloning template 9306 -> 9533 (clone-9533) [linked]
+      clone: waiting.... OK
+  ==> Starting 9533
+      start: waiting..... OK
+  ==> Done. VM 9533 ready. (booting)
+      Snapshot when settled:  python lab.py snapshot 9533
+21:10:57 [rocky-9] clone IP 10.0.252.64
+21:10:59 [rocky-9] ssh up
+21:10:59 [rocky-9] installing libpcap + nftables + iproute2 (dnf)
+21:11:43 [rocky-9] copying mimic + profiles + services
+21:11:53 [rocky-9] iface=eth0; mimic version check:
+  BINARY FAILED (libpcap?)
+21:11:54 [rocky-9] [1/34] Ubuntu
+21:12:10 [rocky-9]    => Too many fingerprints match this host to give specific OS details
+21:12:10 [rocky-9] [2/34] Debian
+21:12:26 [rocky-9]    => Too many fingerprints match this host to give specific OS details
+21:12:27 [rocky-9] [3/34] Fedora
+21:12:43 [rocky-9]    => Too many fingerprints match this host to give specific OS details
+21:12:43 [rocky-9] [4/34] Rocky Linux
+21:12:59 [rocky-9]    => Too many fingerprints match this host to give specific OS details
+21:12:59 [rocky-9] [5/34] AlmaLinux
+21:13:15 [rocky-9]    => Too many fingerprints match this host to give specific OS details
+21:13:16 [rocky-9] [6/34] RHEL
+21:13:32 [rocky-9]    => Too many fingerprints match this host to give specific OS details
+21:13:32 [rocky-9] [7/34] CentOS Stream
+21:13:48 [rocky-9]    => Too many fingerprints match this host to give specific OS details
+21:13:49 [rocky-9] [8/34] CentOS 7
+21:14:04 [rocky-9]    => Too many fingerprints match this host to give specific OS details
+21:14:05 [rocky-9] [9/34] Arch Linux
+21:14:21 [rocky-9]    => Too many fingerprints match this host to give specific OS details
+21:14:21 [rocky-9] [10/34] Manjaro
+21:14:37 [rocky-9]    => Too many fingerprints match this host to give specific OS details
+21:14:38 [rocky-9] [11/34] openSUSE
+21:14:53 [rocky-9]    => Too many fingerprints match this host to give specific OS details
+21:14:54 [rocky-9] [12/34] Alpine Linux
+21:15:10 [rocky-9]    => Too many fingerprints match this host to give specific OS details
+21:15:10 [rocky-9] [13/34] Kali Linux
+21:15:26 [rocky-9]    => Too many fingerprints match this host to give specific OS details
+21:15:26 [rocky-9] [14/34] Linux Mint
+21:15:42 [rocky-9]    => Too many fingerprints match this host to give specific OS details
+21:15:43 [rocky-9] [15/34] Gentoo
+21:15:58 [rocky-9]    => Too many fingerprints match this host to give specific OS details
+21:15:59 [rocky-9] [16/34] Slackware
+21:16:15 [rocky-9]    => Too many fingerprints match this host to give specific OS details
+21:16:16 [rocky-9] [17/34] Windows 11
+21:16:31 [rocky-9]    => Too many fingerprints match this host to give specific OS details
+21:16:32 [rocky-9] [18/34] Windows 10
+21:16:48 [rocky-9]    => Too many fingerprints match this host to give specific OS details
+21:16:49 [rocky-9] [19/34] Windows 8.1
+21:17:05 [rocky-9]    => Too many fingerprints match this host to give specific OS details
+21:17:05 [rocky-9] [20/34] Windows 8
+21:17:21 [rocky-9]    => Too many fingerprints match this host to give specific OS details
+21:17:21 [rocky-9] [21/34] Windows 7
+21:17:37 [rocky-9]    => Too many fingerprints match this host to give specific OS details
+21:17:38 [rocky-9] [22/34] Windows Vista
+21:17:54 [rocky-9]    => Too many fingerprints match this host to give specific OS details
+21:17:54 [rocky-9] [23/34] Windows XP SP3
+21:18:10 [rocky-9]    => Too many fingerprints match this host to give specific OS details
+21:18:11 [rocky-9] [24/34] Windows XP SP2
+21:18:26 [rocky-9]    => Too many fingerprints match this host to give specific OS details
+21:18:27 [rocky-9] [25/34] Windows Server 2025
+21:18:43 [rocky-9]    => Too many fingerprints match this host to give specific OS details
+21:18:43 [rocky-9] [26/34] Windows Server 2022
+21:18:59 [rocky-9]    => Too many fingerprints match this host to give specific OS details
+21:18:59 [rocky-9] [27/34] Windows Server 2019
+21:19:15 [rocky-9]    => Too many fingerprints match this host to give specific OS details
+21:19:16 [rocky-9] [28/34] Windows Server 2016
+21:19:31 [rocky-9]    => Too many fingerprints match this host to give specific OS details
+21:19:32 [rocky-9] [29/34] Windows Server 2012 R2
+21:19:47 [rocky-9]    => Too many fingerprints match this host to give specific OS details
+21:19:48 [rocky-9] [30/34] Windows Server 2012
+21:20:04 [rocky-9]    => Too many fingerprints match this host to give specific OS details
+21:20:04 [rocky-9] [31/34] Windows Server 2008 R2
+21:20:20 [rocky-9]    => Too many fingerprints match this host to give specific OS details
+21:20:21 [rocky-9] [32/34] Windows Server 2008
+21:20:37 [rocky-9]    => Too many fingerprints match this host to give specific OS details
+21:20:37 [rocky-9] [33/34] Windows Server 2003
+21:20:54 [rocky-9]    => Too many fingerprints match this host to give specific OS details
+21:20:54 [rocky-9] [34/34] macOS Sonoma
+21:21:10 [rocky-9]    => Too many fingerprints match this host to give specific OS details
+21:21:11 [rocky-9] destroying clone 9533
+  ==> Stopping 9533
+      stop: waiting.... OK
+  ==> Destroying 9533 (purge)
+      destroy: waiting.... OK
+21:21:16 [rocky-9] DONE linuxvm rocky-9 (34 profiles)

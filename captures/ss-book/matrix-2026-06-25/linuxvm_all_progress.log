@@ -1,0 +1,13 @@
+20:17:47 === HOST ubuntu-2204 (tpl 9302 clone 9531) ===
+20:44:20 === HOST ubuntu-2204 COMPLETE ===
+20:44:21 === HOST debian-12 (tpl 9304 clone 9532) ===
+21:10:24 === HOST debian-12 COMPLETE ===
+21:10:24 === HOST rocky-9 (tpl 9306 clone 9533) ===
+21:21:17 === HOST rocky-9 COMPLETE ===
+21:21:17 === HOST fedora (tpl 9310 clone 9534) ===
+21:32:19 === HOST fedora COMPLETE ===
+21:32:20 === HOST arch-linux (tpl 9311 clone 9535) ===
+21:43:38 === HOST arch-linux COMPLETE ===
+21:43:39 === HOST kali (tpl 9341 clone 9536) ===
+21:48:50 === HOST kali COMPLETE ===
+21:48:51 ALL LINUX VM HOSTS DONE

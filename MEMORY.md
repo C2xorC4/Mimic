@@ -28,7 +28,130 @@ substrate: a fresh wired VM clone eliminates it entirely.
 - ss-book stays the DEV/build host (edit, `go build`, unit tests); fidelity scans go to
   a VM. If ss-book MUST be used, wire it (no Wi-Fi) + quiesce background traffic first.
 
-## Current Status (as of 2026-06-25; latest work 2026-06-25)
+## Current Status (as of 2026-06-26; HiFi driver stability bug FIXED + matrix-validated)
+
+> **★★ CHECKPOINT — HiFi DRIVER NETWORK-BREAK FIXED + FULL CAPTURED-PROFILE MATRIX
+> GREEN (2026-06-26).** Branch `feat/hifi-ndis-driver`, commit `4d9755e`. The 2026-06-25
+> driver stability bug is ROOT-CAUSED, FIXED, and validated across all 3 fidelity levels.
+> Ready to merge to main pending user go.
+>
+> **Root cause (empirical, byte-level):** the mimic-hifi LWF rewrote the IP-ID and
+> recomputed the IPv4 header checksum **while leaving the NIC's TX IP-checksum-offload
+> request set** → the NIC re-checksummed on top (one's-complement double-add → `0xffff`) →
+> every outbound IP packet shipped a bad header checksum → all outbound TCP dropped (host +
+> WinRM lost connectivity) on any host with offload on (the default). TI=Z WAS on the wire;
+> the host just couldn't talk. Confirmed by an offload-toggle A/B + tcpdump on a fresh
+> Server-2016 VM (`captures/ss-book/matrix-2026-06-25/PHASE0-rootcause-2026-06-26.md`).
+> Earlier OOB-write / stale-profile hypotheses were REFUTED by reading the source; the
+> `device present: False` log line was a false negative (`Test-Path` on a `\\.\` device).
+>
+> **Fix (`driver/mimichifi/{filter.c,mimichifi.h,filter.h}`):** `MimicHiFi_RewriteIpId` gains
+> `recomputeChecksum` — when IP-checksum offload is requested, change only the IP-ID and
+> leave the checksum to the NIC (no double-add); recompute only when in-band. Skip LSO NBLs
+> (`TcpLargeSendNetBufferListInfo`). Atomic ICMP IP-ID (`InterlockedIncrement16`); VLAN bound
+> 22→38. Off-target unit test `test/rewrite_test.c` 15/15. Rebuilt via EWDK (mounted E:),
+> re-signed with the VM-trusted `Mimic HiFi Test` cert (79B5; CurrentUser\My, no elevation).
+>
+> **Connectivity safeguard (`internal/stack/connmon_windows.go`, new):** while armed, ICMP-ping
+> the gateway/canary every 5s via the mutated path; 3 sustained failures (~15s) auto-disarm to
+> WinDivert and do NOT re-arm until restart. Operator policy `stack.high_fidelity_watchdog`
+> (*bool, default ON = connectivity-priority; false = hold the deception AND deny an attacker
+> an induced-degradation oracle) + optional `stack.high_fidelity_canary`. Validated on-VM: no
+> false-trip on a healthy gateway; trips+disarms on induced loss (IP-ID 0→non-zero on the wire);
+> holds when disabled.
+>
+> **★ VALIDATION MATRIX (captured profiles only — Win10/11, Srv2016/19/22/25; Linux
+> Ubuntu/Debian/Fedora/Rocky/CentOS-7/Arch/Kali). STABILITY: PASS on all 3 runs.**
+> Full report `captures/ss-book/matrix-2026-06-26-validation/SUMMARY.md`:
+> | Backend (host) | Windows | Linux | Stable |
+> |---|---|---|---|
+> | WinDivert-std (Win) | EXACT 6/6 | family ~95% (TI=I ceiling) | PASS |
+> | **hifi driver (Win)** | **EXACT 6/6** | **EXACT 7/7 (TI=Z)** | **PASS** |
+> | eBPF (Linux) | family (top guess correct) | EXACT 7/7 | PASS |
+> The hifi tier now reaches EXACT on BOTH families WITH stability; winstd vs hifi isolates the
+> driver's value (same Linux persona 95%/TI=I → exact/TI=Z). eBPF/WinDivert paths untouched by
+> the fix (Windows-only code). **Harness learning:** drive the VM out-of-band via the QEMU
+> guest agent (`scratchpad/ga.py`, reuses lab.py PVE auth) so a connectivity blip can't strand
+> the run — this is what made the matrix robust where the old WinRM harness self-severed.
+>
+> **★ eBPF WINDOWS-PERSONA EXACT CHASE (2026-06-26, `6fdb34b` + queued).** The matrix
+> showed eBPF Windows personas split 3 exact (Srv 2016/2022/2025) / 3 not (Win10/11/Srv2019).
+> NOT a regression and NOT the SEQ/ISN ceiling — all their SEQ SP/ISR land IN the nmap-os-db
+> range. Root cause = edition-specific fixes the WinDivert backend got but never reached the
+> Linux paths. Diffed every failing vector vs nmap-os-db (`captures/ss-book/matrix-2026-06-26-
+> validation/SUMMARY.md`):
+> - **Win11 → FIXED + validated EXACT (`6fdb34b`, Go-only):** `run.go` dropped ICMP echo for
+>   any workstation persona (bare `isWorkstation`) ignoring `closed_port_behavior: reset`,
+>   unlike the WinDivert path (gates on `autoDrop`). On a Linux host → `IE(R=N)` + lost `II`/`SS`.
+>   Gated on `autoDrop` → echo answered in reset mode → `OS details: Win10 1703/Win11 21H2` EXACT.
+> - **Win10 (QUEUED, needs fingerprint.c + bpf2go regen):** TS-off OPS not normalized on a
+>   Linux host — `O1..O5` padded with trailing NOPs, `O6=M5B4ST11` (stray TS) vs ref
+>   `M5B4NW8NNS`/`M5B4NNS`. Needs the eBPF equivalent of WinDivert's `shrinkTCPHeader` (strip
+>   TS for TS-off Windows + shrink the option length).
+> - **Server 2019 (QUEUED, needs fingerprint.c + regen):** `ECN CC=N` vs ref `CC=Y` — the
+>   `ecnCC`/`explicit_congestion: echo` split was never ported to fingerprint.c (only `ecn_echo`).
+> bpf2go regen = clang on a Linux box (the documented fresh-VM cycle: cloud-init wait, asm
+> symlink, Go 1.25). Pull the regenerated `*_bpf*.{go,o}` back before committing.
+>
+> **VALIDATION HARNESS (reusable, in `captures/ss-book/matrix-2026-06-26-validation/`):**
+> `ga.py` = out-of-band QEMU guest-agent exec (reuses `infra/proxmox/lab.py` PVE auth; survives
+> a connectivity blip — the key to a robust Windows matrix). `matrix_run.py` (Windows host,
+> hifi|winstd via guest agent), `ebpf_matrix.py` (Linux host via SSH root@). Profile set =
+> captured+integrated only (Win10/11, Srv2016/19/22/25; Ubuntu/Debian/Fedora/Rocky/CentOS-7/
+> Arch/Kali). Lab note: SSH user for ubuntu-2204 cloud clones = `root`; scp-over-a-running
+> binary can leave a STALE inode — `rm -f` the target first (cost me a confusing iteration).
+>
+> **REMAINING (post-merge):** (1) eBPF Win10 OPS + Server-2019 ecnCC in fingerprint.c + regen;
+> (2) RHEL images added to proxmox (not installed) → templatize + capture, then add to matrix;
+> (3) macOS VMs 9401/9402 unstable at load/install (proxmox-macOS-on-KVM: CPU flags/OSK/
+> OpenCore/OVMF) — separate track, profile still unbuilt; (4) deferred cleanup (drop the
+> now-redundant WinDivert IP-ID-0 write for Linux personas when the driver is present). Lab
+> clones 9523/9524 destroyed post-matrix.
+
+> **★ CHECKPOINT — FULL TRI-BACKEND MATRIX (2026-06-25 evening) + HiFi DRIVER
+> STABILITY BUG (recovered 2026-06-26).** This run was executed the evening of
+> 2026-06-25 and **never got written up** — an automatic Windows restart wiped the
+> live session before annotation. All durable records (git/MEMORY/LJM/`driver/README`)
+> stop at the 17:47 commit. The raw run survived in the *prior* session scratchpad and
+> was copied into the repo: **`captures/ss-book/matrix-2026-06-25/`** (666 files: per-run
+> `run_*.log`, per-backend result dirs `linuxvm_ebpf/`, `winvm_win-std/`, `hifi/`).
+> NOTE: the `CROSSTAB.txt` in that dir is the **STALE 2026-06-24 aggregate** (mtime
+> 06-24 21:52), NOT this run — it predates the eBPF ECN-carve-out exact fix; ignore it
+> for this checkpoint.
+>
+> **Three backends swept (~33–34 profiles each), from Kali against fresh VM clones:**
+> | Backend | Host | Outcome |
+> |---|---|---|
+> | **eBPF** | Linux VM | ✅ 34/34 CLEAN. Linux personas → `Linux 4.15 - 5.19`; Windows personas → correct Windows. (`run_ebpf.log` DONE 18:18) |
+> | **WinDivert (standard)** | Windows VM clone 9521 | ✅ 34/34 CLEAN, zero instability. Win10→`Windows 10 1909`, Server 2019→`Server 2019` 99%, etc. (`run_winstd.log` DONE 18:12) |
+> | **HiFi driver (mimichifi NDIS LWF)** | Server 2016 SeaBIOS clone 9522 | ⚠️ **EXACT but UNSTABLE** — see below. |
+>
+> **★ HiFi DRIVER STABILITY BUG (the headline finding).** The driver *does* deliver
+> what `driver/README.md` claims — `TI=Z` on the wire, `OS details: Linux 4.15 - 5.19`
+> EXACT — but **arming it knocks the VM off the network after 1–4 profiles, and it does
+> not recover.** Proven across TWO independent runs (not a one-off):
+> - **Run 1** (`run_hifi.log`, 17:56–18:08): driver installed, `sc query`=RUNNING, no
+>   BSOD. Profiles 1–4 (Ubuntu/Debian/Fedora/Rocky) ALL → `Linux 4.15 - 5.19` EXACT.
+>   Then *"Network connectivity to 10.0.250.183 has been lost… reconnection failed."*
+>   AlmaLinux (#5) squeaked through on a reconnect job, then session unrecoverable → VM
+>   destroyed.
+> - **Run 2** (`run_hifi2.log`, 18:11–19:52): fresh clone. Profile 1 (Ubuntu) →
+>   `Linux 4.15 - 5.19` EXACT. Then profiles #2–#27 ALL → **"WinRM unrecoverable, skip"**
+>   (~3.5 min timeout each), never recovered.
+> - **Differential:** standard WinDivert + eBPF ran their FULL matrices clean on their
+>   own hosts. The instability is **specific to the LWF send-path**, not the harness/WinRM.
+> - **Hypothesis (NOT yet logged/confirmed):** the LWF rewrites IP-ID + recomputes csum
+>   on *all* outbound IPv4 TCP — incl. the WinRM management session — in
+>   `FilterSendNetBufferLists` via the in-place MDL map (the "key fix" in README:110).
+>   Non-determinism (4 vs 1 profile before drop) smells like a race or load-dependent
+>   corruption intermittently mangling management packets, or arm/disarm wedging the NIC.
+>   **Next:** repro under `MIMIC_WD_DEBUG`/driver tracing; consider scoping the rewrite
+>   to exclude the management flow, or test a non-WinRM (serial/agent) control channel so
+>   a connectivity drop doesn't blind the harness.
+>
+> **NET:** driver is functionally EXACT-capable (parity with eBPF) but **NOT yet matrix-
+> stable** — the "VALIDATED EXACT" in `driver/README.md` (single-profile proof) holds, but
+> sustained multi-profile cycling is the open defect. This is the top driver queue item.
 
 > **★★ CHECKPOINT — LINUX-PERSONA EXACT (eBPF) + WinDivert T-series complete +
 > Server 2019 EXACT = Windows 6/6 (2026-06-25).** Branch `feat/windows-port-linux-fidelity`.

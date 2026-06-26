@@ -1,0 +1,30 @@
+Starting Nmap 7.98 ( https://nmap.org ) at 2026-06-24 19:00 -0400
+Nmap scan report for sectestubuntu.blackic.systems (10.0.254.45)
+Host is up (0.00042s latency).
+
+PORT     STATE  SERVICE
+80/tcp   open   http
+9999/tcp closed abyss
+MAC Address: BC:24:11:A5:2C:F8 (Proxmox Server Solutions GmbH)
+Aggressive OS guesses: Microsoft Windows 10 21H1 (96%), Microsoft Windows 10 (96%), Microsoft Windows 10 1709 - 21H2 (96%), Microsoft Windows 10 1903 (95%), Microsoft Windows Longhorn (95%), Microsoft Windows 10 1803 (95%), Microsoft Windows 10 1511 (94%), Microsoft Windows Server 2008 SP2 (94%), Microsoft Windows 7 SP1 (94%), Microsoft Windows 8.1 Update 1 (94%)
+No exact OS matches for host (If you know what OS is running on it, see https://nmap.org/submit/ ).
+TCP/IP fingerprint:
+OS:SCAN(V=7.98%E=4%D=6/24%OT=80%CT=9999%CU=44764%PV=Y%DS=1%DC=D%G=Y%M=BC241
+OS:1%TM=6A3C6191%P=x86_64-pc-linux-gnu)SEQ(SP=100%GCD=1%ISR=10B%TI=I%CI=I%I
+OS:I=I%SS=S%TS=U)SEQ(SP=102%GCD=1%ISR=106%TI=I%CI=I%II=I%SS=S%TS=U)SEQ(SP=1
+OS:05%GCD=1%ISR=10E%TI=I%CI=I%II=I%SS=S%TS=U)SEQ(SP=106%GCD=1%ISR=105%TI=I%
+OS:CI=I%II=I%SS=S%TS=U)SEQ(SP=107%GCD=1%ISR=10A%TI=I%CI=I%II=I%SS=S%TS=U)OP
+OS:S(O1=M5B4NNSNNNNNNNNNNNN%O2=M5B4NNSNNNNNNNNNNNN%O3=M5B4NNNNNNNNNNNNNNNN%
+OS:O4=M5B4NNSNNNNNNNNNNNN%O5=M5B4NNSNNNNNNNNNNNN%O6=M5B4ST11)WIN(W1=FFFF%W2
+OS:=FFFF%W3=FFFF%W4=FFFF%W5=FFFF%W6=FFFF)ECN(R=Y%DF=Y%T=80%W=FFFF%O=M5B4NNS
+OS:NW7%CC=N%Q=)T1(R=Y%DF=Y%T=80%S=O%A=S+%F=AS%RD=0%Q=)T2(R=Y%DF=Y%T=80%W=0%
+OS:S=Z%A=S%F=AR%O=%RD=0%Q=)T3(R=Y%DF=Y%T=80%W=0%S=Z%A=O%F=AR%O=%RD=0%Q=)T4(
+OS:R=Y%DF=Y%T=80%W=0%S=A%A=O%F=R%O=%RD=0%Q=)T5(R=Y%DF=Y%T=80%W=0%S=Z%A=S+%F
+OS:=AR%O=%RD=0%Q=)T6(R=Y%DF=Y%T=80%W=0%S=A%A=O%F=R%O=%RD=0%Q=)T7(R=Y%DF=Y%T
+OS:=80%W=0%S=Z%A=S+%F=AR%O=%RD=0%Q=)U1(R=Y%DF=N%T=80%IPL=164%UN=0%RIPL=G%RI
+OS:D=G%RIPCK=G%RUCK=G%RUD=G)IE(R=Y%DFI=N%T=80%CD=Z)
+
+Network Distance: 1 hop
+
+OS detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 9.93 seconds

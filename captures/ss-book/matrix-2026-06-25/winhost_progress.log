@@ -1,0 +1,70 @@
+﻿
+18:37:02 [1/34] Ubuntu -> Ubuntu
+18:37:24    => Aggressive OS guesses: Linux 3.3 (89%), Linux 4.19 (89%), Linux 3.2 - 4.14 (88%), Linux 4.4 (88%), Linux 3.2 - 3.10 (88%), Linux 3.2 - 3.16 (88%), Linux 3.4 (88%), Ruckus ZoneFlex R710 WAP (Linux 3.4) (87%), Synology DiskStation Manager 5.2-5644 (87%), Android 10 (87%)
+18:37:25 [2/34] Debian -> Debian
+18:37:46    => Aggressive OS guesses: Linux 3.3 (89%), Linux 4.19 (89%), Linux 3.2 - 4.14 (88%), Linux 4.4 (88%), Linux 3.2 - 3.10 (88%), Linux 3.2 - 3.16 (88%), Linux 3.4 (88%), Ruckus ZoneFlex R710 WAP (Linux 3.4) (87%), Synology DiskStation Manager 5.2-5644 (87%), Linux 2.6.32 (87%)
+18:37:47 [3/34] Fedora -> Fedora
+18:38:10    => Aggressive OS guesses: Linux 3.3 (89%), Linux 4.19 (89%), Linux 3.2 - 4.14 (88%), Linux 4.4 (88%), Linux 3.2 - 3.10 (88%), Linux 3.2 - 3.16 (88%), Linux 3.4 (88%), Ruckus ZoneFlex R710 WAP (Linux 3.4) (87%), Synology DiskStation Manager 5.2-5644 (87%), Android 10 (87%)
+18:38:11 [4/34] Rocky Linux -> Rocky_Linux
+18:38:31    => Aggressive OS guesses: Linux 3.3 (89%), Linux 4.19 (89%), Linux 3.2 - 4.14 (88%), Linux 4.4 (88%), Linux 3.2 - 3.10 (88%), Linux 3.2 - 3.16 (88%), Linux 3.4 (88%), Ruckus ZoneFlex R710 WAP (Linux 3.4) (87%), Synology DiskStation Manager 5.2-5644 (87%), Android 10 (87%)
+18:38:33 [5/34] AlmaLinux -> AlmaLinux
+18:38:54    => Aggressive OS guesses: Linux 3.3 (89%), Linux 4.19 (89%), Linux 3.2 - 4.14 (88%), Linux 4.4 (88%), Linux 3.2 - 3.10 (88%), Linux 3.2 - 3.16 (88%), Linux 3.4 (88%), Linux 2.6.32 (88%), Ruckus ZoneFlex R710 WAP (Linux 3.4) (87%), Synology DiskStation Manager 5.2-5644 (87%)
+18:38:55 [6/34] RHEL -> RHEL
+18:39:16    => Aggressive OS guesses: Linux 3.3 (89%), Linux 4.19 (89%), Linux 3.2 - 4.14 (88%), Linux 4.4 (88%), Linux 3.2 - 3.10 (88%), Linux 3.2 - 3.16 (88%), Linux 3.4 (88%), Ruckus ZoneFlex R710 WAP (Linux 3.4) (87%), Synology DiskStation Manager 5.2-5644 (87%), Linux 2.6.32 (86%)
+18:39:17 [7/34] CentOS Stream -> CentOS_Stream
+18:39:38    => Aggressive OS guesses: Linux 3.3 (89%), Linux 4.19 (89%), Linux 3.2 - 4.14 (88%), Linux 4.4 (88%), Linux 3.2 - 3.10 (88%), Linux 3.2 - 3.16 (88%), Linux 3.4 (88%), Ruckus ZoneFlex R710 WAP (Linux 3.4) (87%), Synology DiskStation Manager 5.2-5644 (87%), Linux 2.6.32 (86%)
+18:39:39 [8/34] CentOS 7 -> CentOS_7
+18:40:04    => Aggressive OS guesses: Linux 3.2 - 4.14 (94%), Synology DiskStation Manager 5.2-5644 (93%), Linux 3.4 - 3.10 (92%), Linux 4.15 - 5.19 (92%), Linux 2.6.32 - 3.10 (92%), Linux 2.6.32 (91%), OpenWrt 21.02 (Linux 5.4) (91%), Linux 4.10 (91%), Linux 3.2 - 3.16 (91%), Linux 4.15 (91%)
+18:40:05 [9/34] Arch Linux -> Arch_Linux
+18:40:27    => Aggressive OS guesses: Android 10 (90%), Linux 3.3 (89%), Linux 3.2 - 3.10 (88%), Linux 3.2 - 3.16 (88%), Synology DiskStation Manager 5.2-5644 (88%), Linux 4.19 (88%), Linux 3.2 - 4.14 (88%), Linux 3.4 (87%), Linux 2.6.32 (87%), Linux 4.4 (87%)
+18:40:28 [10/34] Manjaro -> Manjaro
+18:40:50    => Aggressive OS guesses: Android 10 (90%), Linux 3.3 (89%), Linux 4.19 (89%), Linux 3.2 - 3.10 (88%), Linux 3.2 - 3.16 (88%), Linux 3.4 (88%), Linux 3.2 - 4.14 (88%), Linux 4.4 (88%), Ruckus ZoneFlex R710 WAP (Linux 3.4) (87%), Synology DiskStation Manager 5.2-5644 (87%)
+18:40:51 [11/34] openSUSE -> openSUSE
+18:41:12    => Aggressive OS guesses: Linux 3.3 (89%), Linux 3.2 - 4.14 (88%), Linux 3.2 - 3.10 (88%), Linux 3.2 - 3.16 (88%), Linux 3.4 (88%), Linux 2.6.32 (88%), Linux 4.19 (88%), Ruckus ZoneFlex R710 WAP (Linux 3.4) (87%), Synology DiskStation Manager 5.2-5644 (87%), Linux 4.4 (87%)
+18:41:13 [12/34] Alpine Linux -> Alpine_Linux
+18:41:35    => Aggressive OS guesses: Ruckus ZoneFlex R710 WAP (Linux 3.4) (91%), Linux 3.2 - 3.16 (88%), Linux 3.2 - 4.14 (88%), Tizen (87%), Android 10 - 11 (Linux 4.14) (86%), Android 9 - 10 (Linux 4.9 - 4.14) (86%), Linux 2.6.32 (86%), OpenWrt 21.02 (Linux 5.4) (86%), Android 10 (86%), Linux 4.15 - 5.19 (86%)
+18:41:36 [13/34] Kali Linux -> Kali_Linux
+18:41:58    => Aggressive OS guesses: Linux 3.3 (89%), Linux 4.19 (89%), Linux 3.2 - 4.14 (88%), Linux 4.4 (88%), Linux 3.2 - 3.10 (88%), Linux 3.2 - 3.16 (88%), Linux 3.4 (88%), Ruckus ZoneFlex R710 WAP (Linux 3.4) (87%), Synology DiskStation Manager 5.2-5644 (87%), Android 10 (87%)
+18:41:59 [14/34] Linux Mint -> Linux_Mint
+18:42:20    => Aggressive OS guesses: Linux 3.3 (89%), Linux 4.19 (89%), Linux 3.2 - 4.14 (88%), Linux 4.4 (88%), Linux 3.2 - 3.10 (88%), Linux 3.2 - 3.16 (88%), Linux 3.4 (88%), Ruckus ZoneFlex R710 WAP (Linux 3.4) (87%), Synology DiskStation Manager 5.2-5644 (87%), Linux 2.6.32 (86%)
+18:42:21 [15/34] Gentoo -> Gentoo
+18:42:43    => Aggressive OS guesses: Linux 3.2 - 4.14 (90%), Synology DiskStation Manager 5.2-5644 (90%), Android 10 (89%), Linux 2.6.32 (89%), Linux 3.3 (89%), Linux 3.4 - 3.10 (89%), Linux 4.15 (89%), Linux 4.19 (89%), OpenWrt 21.02 (Linux 5.4) (89%), MikroTik RouterOS 7.2 - 7.5 (Linux 5.6.3) (89%)
+18:42:44 [16/34] Slackware -> Slackware
+18:43:06    => Aggressive OS guesses: Linux 3.3 (89%), Linux 4.19 (89%), Linux 3.2 - 4.14 (88%), Linux 4.4 (88%), Linux 3.2 - 3.10 (88%), Linux 3.2 - 3.16 (88%), Linux 3.4 (88%), Ruckus ZoneFlex R710 WAP (Linux 3.4) (87%), Synology DiskStation Manager 5.2-5644 (87%), Android 10 (87%)
+18:43:07 [17/34] Windows 11 -> Windows_11
+18:43:22    => Aggressive OS guesses: FreeBSD 6.2-RELEASE (88%), Microsoft Windows 11 21H2 (87%), Netasq U70 firewall (86%)
+18:43:23 [18/34] Windows 10 -> Windows_10
+18:43:36    => Aggressive OS guesses: Cisco ACE load balancer (90%), Newave UPS SNMP adapter (86%), Microsoft Windows Server 2008 R2 SP1 (85%), Microsoft Windows 7 (85%)
+18:43:37 [19/34] Windows 8.1 -> Windows_8_1
+18:43:51    => Aggressive OS guesses: Cisco ACE load balancer (90%), Newave UPS SNMP adapter (86%), Microsoft Windows Server 2008 R2 SP1 (85%), Microsoft Windows 7 (85%)
+18:43:52 [20/34] Windows 8 -> Windows_8
+18:44:06    => Aggressive OS guesses: Cisco ACE load balancer (90%), Newave UPS SNMP adapter (86%), Microsoft Windows Server 2008 R2 SP1 (85%), Microsoft Windows Server 2008 SP1 or Windows Server 2008 R2 (85%)
+18:44:07 [21/34] Windows 7 -> Windows_7
+18:44:21    => Aggressive OS guesses: Cisco ACE load balancer (90%), Newave UPS SNMP adapter (86%), Microsoft Windows 7 (85%)
+18:44:22 [22/34] Windows Vista -> Windows_Vista
+18:44:35    => Aggressive OS guesses: Cisco ACE load balancer (90%), Newave UPS SNMP adapter (86%), Microsoft Windows Server 2008 R2 SP1 (85%), Microsoft Windows 7 (85%)
+18:44:36 [23/34] Windows XP SP3 -> Windows_XP_SP3
+18:44:50    => Aggressive OS guesses: Microsoft Windows 10 1903 - 21H1 (85%), Microsoft Windows XP Home SP1 (French) (85%)
+18:44:51 [24/34] Windows XP SP2 -> Windows_XP_SP2
+18:45:05    => Aggressive OS guesses: Microsoft Windows 10 1903 - 21H1 (85%), Microsoft Windows XP Home SP1 (French) (85%)
+18:45:06 [25/34] Windows Server 2025 -> Windows_Server_2025
+18:45:20    => Aggressive OS guesses: FreeBSD 6.2-RELEASE (88%), Microsoft Windows 11 21H2 (87%), Netasq U70 firewall (86%)
+18:45:21 [26/34] Windows Server 2022 -> Windows_Server_2022
+18:45:35    => Aggressive OS guesses: Cisco ACE load balancer (90%), Newave UPS SNMP adapter (86%), Microsoft Windows Server 2008 R2 SP1 (85%), Microsoft Windows 7 (85%)
+18:45:36 [27/34] Windows Server 2019 -> Windows_Server_2019
+18:45:49    => Aggressive OS guesses: Cisco ACE load balancer (90%), Newave UPS SNMP adapter (86%), Microsoft Windows Server 2008 R2 SP1 (85%), Microsoft Windows 7 (85%)
+18:45:50 [28/34] Windows Server 2016 -> Windows_Server_2016
+18:46:04    => Aggressive OS guesses: Cisco ACE load balancer (90%), Newave UPS SNMP adapter (86%), Microsoft Windows Server 2008 R2 SP1 (85%), Microsoft Windows Server 2008 SP1 or Windows Server 2008 R2 (85%)
+18:46:05 [29/34] Windows Server 2012 R2 -> Windows_Server_2012_R2
+18:46:19    => Aggressive OS guesses: Cisco ACE load balancer (90%), Newave UPS SNMP adapter (86%), Microsoft Windows Server 2008 R2 SP1 (85%), Microsoft Windows Server 2008 SP1 or Windows Server 2008 R2 (85%), Microsoft Windows 7 (85%)
+18:46:20 [30/34] Windows Server 2012 -> Windows_Server_2012
+18:46:34    => Aggressive OS guesses: Cisco ACE load balancer (90%), Newave UPS SNMP adapter (86%), Microsoft Windows Server 2008 R2 SP1 (85%), Microsoft Windows 7 (85%)
+18:46:35 [31/34] Windows Server 2008 R2 -> Windows_Server_2008_R2
+18:46:48    => Aggressive OS guesses: Cisco ACE load balancer (90%), Newave UPS SNMP adapter (86%), Microsoft Windows Server 2008 R2 SP1 (85%), Microsoft Windows 7 (85%)
+18:46:49 [32/34] Windows Server 2008 -> Windows_Server_2008
+18:47:03    => Aggressive OS guesses: Cisco ACE load balancer (90%), Newave UPS SNMP adapter (86%), Microsoft Windows Server 2008 R2 SP1 (85%), Microsoft Windows 7 (85%)
+18:47:04 [33/34] Windows Server 2003 -> Windows_Server_2003
+18:47:18    => Aggressive OS guesses: Microsoft Windows 10 1903 - 21H1 (85%)
+18:47:19 [34/34] macOS Sonoma -> macOS_Sonoma
+18:47:33    => No OS matches for host
+18:47:34 DONE winhost matrix (34 profiles)

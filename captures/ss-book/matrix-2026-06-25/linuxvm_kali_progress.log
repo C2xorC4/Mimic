@@ -1,0 +1,9 @@
+21:43:40 [kali] deploy tpl 9341 -> clone 9536
+  ==> Cloning template 9341 -> 9536 (clone-9536) [linked]
+      clone: waiting.... OK
+  ==> Starting 9536
+      start: waiting.... OK
+  ==> Done. VM 9536 ready. (booting)
+      Snapshot when settled:  python lab.py snapshot 9536
+21:44:23 [kali] clone IP 10.0.254.30
+21:48:45 [kali] ssh never came up - abort

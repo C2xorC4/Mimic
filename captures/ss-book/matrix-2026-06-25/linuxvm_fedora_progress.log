@@ -1,0 +1,87 @@
+21:21:17 [fedora] deploy tpl 9310 -> clone 9534
+  ==> Cloning template 9310 -> 9534 (clone-9534) [linked]
+      clone: waiting.... OK
+  ==> Starting 9534
+      start: waiting..... OK
+  ==> Done. VM 9534 ready. (booting)
+      Snapshot when settled:  python lab.py snapshot 9534
+21:21:50 [fedora] clone IP 10.0.252.96
+21:21:52 [fedora] ssh up
+21:21:53 [fedora] installing libpcap + nftables + iproute2 (dnf)
+21:22:07 [fedora] copying mimic + profiles + services
+21:22:17 [fedora] iface=eth0; mimic version check:
+  BINARY FAILED (libpcap?)
+21:22:19 [fedora] [1/34] Ubuntu
+21:22:35 [fedora]    => Too many fingerprints match this host to give specific OS details
+21:22:36 [fedora] [2/34] Debian
+21:22:53 [fedora]    => Too many fingerprints match this host to give specific OS details
+21:22:53 [fedora] [3/34] Fedora
+21:23:09 [fedora]    => Too many fingerprints match this host to give specific OS details
+21:23:10 [fedora] [4/34] Rocky Linux
+21:23:26 [fedora]    => Too many fingerprints match this host to give specific OS details
+21:23:27 [fedora] [5/34] AlmaLinux
+21:23:43 [fedora]    => Too many fingerprints match this host to give specific OS details
+21:23:43 [fedora] [6/34] RHEL
+21:24:00 [fedora]    => Too many fingerprints match this host to give specific OS details
+21:24:00 [fedora] [7/34] CentOS Stream
+21:24:16 [fedora]    => Too many fingerprints match this host to give specific OS details
+21:24:17 [fedora] [8/34] CentOS 7
+21:24:33 [fedora]    => Too many fingerprints match this host to give specific OS details
+21:24:34 [fedora] [9/34] Arch Linux
+21:24:50 [fedora]    => Too many fingerprints match this host to give specific OS details
+21:24:51 [fedora] [10/34] Manjaro
+21:25:07 [fedora]    => Too many fingerprints match this host to give specific OS details
+21:25:07 [fedora] [11/34] openSUSE
+21:25:24 [fedora]    => Too many fingerprints match this host to give specific OS details
+21:25:24 [fedora] [12/34] Alpine Linux
+21:25:40 [fedora]    => Too many fingerprints match this host to give specific OS details
+21:25:41 [fedora] [13/34] Kali Linux
+21:25:57 [fedora]    => Too many fingerprints match this host to give specific OS details
+21:25:58 [fedora] [14/34] Linux Mint
+21:26:14 [fedora]    => Too many fingerprints match this host to give specific OS details
+21:26:15 [fedora] [15/34] Gentoo
+21:26:31 [fedora]    => Too many fingerprints match this host to give specific OS details
+21:26:32 [fedora] [16/34] Slackware
+21:26:48 [fedora]    => Too many fingerprints match this host to give specific OS details
+21:26:48 [fedora] [17/34] Windows 11
+21:27:05 [fedora]    => Too many fingerprints match this host to give specific OS details
+21:27:05 [fedora] [18/34] Windows 10
+21:27:22 [fedora]    => Too many fingerprints match this host to give specific OS details
+21:27:23 [fedora] [19/34] Windows 8.1
+21:27:39 [fedora]    => Too many fingerprints match this host to give specific OS details
+21:27:39 [fedora] [20/34] Windows 8
+21:27:56 [fedora]    => Too many fingerprints match this host to give specific OS details
+21:27:56 [fedora] [21/34] Windows 7
+21:28:13 [fedora]    => Too many fingerprints match this host to give specific OS details
+21:28:13 [fedora] [22/34] Windows Vista
+21:28:29 [fedora]    => Too many fingerprints match this host to give specific OS details
+21:28:30 [fedora] [23/34] Windows XP SP3
+21:28:47 [fedora]    => Too many fingerprints match this host to give specific OS details
+21:28:48 [fedora] [24/34] Windows XP SP2
+21:29:05 [fedora]    => Too many fingerprints match this host to give specific OS details
+21:29:06 [fedora] [25/34] Windows Server 2025
+21:29:24 [fedora]    => Too many fingerprints match this host to give specific OS details
+21:29:25 [fedora] [26/34] Windows Server 2022
+21:29:42 [fedora]    => Too many fingerprints match this host to give specific OS details
+21:29:43 [fedora] [27/34] Windows Server 2019
+21:30:01 [fedora]    => Too many fingerprints match this host to give specific OS details
+21:30:02 [fedora] [28/34] Windows Server 2016
+21:30:20 [fedora]    => Too many fingerprints match this host to give specific OS details
+21:30:21 [fedora] [29/34] Windows Server 2012 R2
+21:30:38 [fedora]    => Too many fingerprints match this host to give specific OS details
+21:30:39 [fedora] [30/34] Windows Server 2012
+21:30:57 [fedora]    => Too many fingerprints match this host to give specific OS details
+21:30:58 [fedora] [31/34] Windows Server 2008 R2
+21:31:16 [fedora]    => Too many fingerprints match this host to give specific OS details
+21:31:17 [fedora] [32/34] Windows Server 2008
+21:31:34 [fedora]    => Too many fingerprints match this host to give specific OS details
+21:31:35 [fedora] [33/34] Windows Server 2003
+21:31:53 [fedora]    => Too many fingerprints match this host to give specific OS details
+21:31:54 [fedora] [34/34] macOS Sonoma
+21:32:11 [fedora]    => Too many fingerprints match this host to give specific OS details
+21:32:13 [fedora] destroying clone 9534
+  ==> Stopping 9534
+      stop: waiting.... OK
+  ==> Destroying 9534 (purge)
+      destroy: waiting.... OK
+21:32:19 [fedora] DONE linuxvm fedora (34 profiles)

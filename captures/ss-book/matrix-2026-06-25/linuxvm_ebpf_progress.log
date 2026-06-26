@@ -1,0 +1,87 @@
+17:56:34 [ebpf] deploy tpl 9302 -> clone 9530
+  ==> Cloning template 9302 -> 9530 (clone-9530) [linked]
+      clone: waiting.... OK
+  ==> Starting 9530
+      start: waiting..... OK
+  ==> Done. VM 9530 ready. (booting)
+      Snapshot when settled:  python lab.py snapshot 9530
+17:57:09 [ebpf] clone IP 10.0.251.196
+17:57:12 [ebpf] ssh up
+17:57:13 [ebpf] installing libpcap + nftables + iproute2 (apt)
+17:57:16 [ebpf] copying mimic + profiles + services
+17:57:25 [ebpf] iface=eth0; mimic version check:
+  binary OK
+17:57:26 [ebpf] [1/34] Ubuntu
+17:57:59 [ebpf]    => OS details: Linux 4.15 - 5.19
+17:57:59 [ebpf] [2/34] Debian
+17:58:32 [ebpf]    => OS details: Linux 4.15 - 5.19
+17:58:32 [ebpf] [3/34] Fedora
+17:59:06 [ebpf]    => OS details: Linux 4.15 - 5.19
+17:59:06 [ebpf] [4/34] Rocky Linux
+17:59:39 [ebpf]    => OS details: Linux 4.15 - 5.19
+17:59:40 [ebpf] [5/34] AlmaLinux
+18:00:13 [ebpf]    => OS details: Linux 4.15 - 5.19
+18:00:13 [ebpf] [6/34] RHEL
+18:00:46 [ebpf]    => OS details: Linux 4.15 - 5.19
+18:00:47 [ebpf] [7/34] CentOS Stream
+18:01:21 [ebpf]    => OS details: Linux 4.15 - 5.19
+18:01:21 [ebpf] [8/34] CentOS 7
+18:01:54 [ebpf]    => OS details: Linux 3.2 - 4.14
+18:01:54 [ebpf] [9/34] Arch Linux
+18:02:28 [ebpf]    => OS details: Linux 4.15 - 5.19
+18:02:28 [ebpf] [10/34] Manjaro
+18:03:01 [ebpf]    => OS details: Linux 4.15 - 5.19
+18:03:02 [ebpf] [11/34] openSUSE
+18:03:35 [ebpf]    => OS details: Linux 4.15 - 5.19
+18:03:35 [ebpf] [12/34] Alpine Linux
+18:04:08 [ebpf]    => OS details: Linux 4.15 - 5.19
+18:04:09 [ebpf] [13/34] Kali Linux
+18:04:42 [ebpf]    => OS details: Linux 4.15 - 5.19
+18:04:42 [ebpf] [14/34] Linux Mint
+18:05:15 [ebpf]    => OS details: Linux 4.15 - 5.19
+18:05:16 [ebpf] [15/34] Gentoo
+18:05:49 [ebpf]    => OS details: Linux 4.15 - 5.19
+18:05:49 [ebpf] [16/34] Slackware
+18:06:22 [ebpf]    => OS details: Linux 4.15 - 5.19
+18:06:22 [ebpf] [17/34] Windows 11
+18:07:06 [ebpf]    => Aggressive OS guesses: Microsoft Windows 10 1703 or Windows 11 21H2 (98%), Microsoft Windows 11 21H2 (97%), Microsoft Windows 10 1703 (96%), Microsoft Windows Server 2022 (95%), Microsoft Windows 10 1507 - 1607 (95%), Microsoft Windows 10 1511 (94%), Microsoft Windows Longhorn (93%), Microsoft Windows 10 1511 - 1607 (92%), Microsoft Windows Server 2008 (92%), Microsoft Windows Server 2008 SP2 or Windows 10 or Xbox One (92%)
+18:07:06 [ebpf] [18/34] Windows 10
+18:07:49 [ebpf]    => Aggressive OS guesses: Microsoft Windows 10 1909 (95%), Microsoft Windows Longhorn (95%), Microsoft Windows 10 1809 (94%), Microsoft Windows Server 2008 R2 (93%), Microsoft Windows 10 1507 - 1607 (92%), Microsoft Windows Server 2008 SP2 or Windows 10 or Xbox One (92%), Microsoft Windows Vista SP2 or Windows 7 or Windows Server 2008 R2 or Windows 8.1 (92%), Microsoft Windows 7 or Windows Server 2008 (92%), Microsoft Windows 7 Professional (92%), Microsoft Windows 7 Ultimate (92%)
+18:07:50 [ebpf] [19/34] Windows 8.1
+18:08:33 [ebpf]    => Aggressive OS guesses: Microsoft Windows 10 1909 (95%), Microsoft Windows Longhorn (95%), Microsoft Windows 10 1809 (93%), Microsoft Windows 10 1507 - 1607 (92%), Microsoft Windows Server 2008 SP2 or Windows 10 or Xbox One (92%), Microsoft Windows Vista SP2 or Windows 7 or Windows Server 2008 R2 or Windows 8.1 (92%), Microsoft Windows 7 or Windows Server 2008 (92%), Microsoft Windows 7 Professional (92%), Microsoft Windows 7 Ultimate (92%), Microsoft Windows 7 (92%)
+18:08:33 [ebpf] [20/34] Windows 8
+18:09:16 [ebpf]    => Aggressive OS guesses: Microsoft Windows 10 1909 (95%), Microsoft Windows Longhorn (94%), Microsoft Windows 10 1809 (93%), Microsoft Windows Server 2008 R2 (93%), Microsoft Windows 10 1507 - 1607 (92%), Microsoft Windows Server 2008 SP2 or Windows 10 or Xbox One (92%), Microsoft Windows Vista SP2 or Windows 7 or Windows Server 2008 R2 or Windows 8.1 (92%), Microsoft Windows 7 Professional (92%), Microsoft Windows 7 Ultimate (92%), Microsoft Windows 7 (92%)
+18:09:17 [ebpf] [21/34] Windows 7
+18:10:00 [ebpf]    => Aggressive OS guesses: Microsoft Windows 10 1909 (95%), Microsoft Windows Longhorn (95%), Microsoft Windows 10 1809 (94%), Microsoft Windows Server 2008 R2 (93%), Microsoft Windows 10 1507 - 1607 (92%), Microsoft Windows Server 2008 SP2 or Windows 10 or Xbox One (92%), Microsoft Windows Vista SP2 or Windows 7 or Windows Server 2008 R2 or Windows 8.1 (92%), Microsoft Windows 7 or Windows Server 2008 (92%), Microsoft Windows 7 Professional (92%), Microsoft Windows 7 Ultimate (92%)
+18:10:01 [ebpf] [22/34] Windows Vista
+18:10:43 [ebpf]    => Aggressive OS guesses: Microsoft Windows 10 1909 (94%), Microsoft Windows Longhorn (94%), Microsoft Windows 10 1809 (94%), Microsoft Windows Server 2008 R2 (93%), Microsoft Windows Vista SP2 (92%), Microsoft Windows 10 1507 - 1607 (92%), Microsoft Windows Server 2008 SP2 or Windows 10 or Xbox One (92%), Microsoft Windows Vista SP2 or Windows 7 or Windows Server 2008 R2 or Windows 8.1 (92%), Microsoft Windows 7 or Windows Server 2008 (92%), Microsoft Windows 7 Professional (92%)
+18:10:44 [ebpf] [23/34] Windows XP SP3
+18:11:27 [ebpf]    => Aggressive OS guesses: Microsoft Windows 10 21H1 (94%), Microsoft Windows 10 (94%), Microsoft Windows 10 1709 - 21H2 (94%), Microsoft Windows 10 1803 (93%), Microsoft Windows 10 1903 (93%), Microsoft Windows Longhorn (93%), Microsoft Windows 10 1511 (92%), Microsoft Windows Server 2008 SP2 (92%), Microsoft Windows 7 SP1 (92%), Microsoft Windows 8.1 Update 1 (92%)
+18:11:28 [ebpf] [24/34] Windows XP SP2
+18:12:11 [ebpf]    => Aggressive OS guesses: Microsoft Windows 10 21H1 (94%), Microsoft Windows 10 (94%), Microsoft Windows 10 1709 - 21H2 (94%), Microsoft Windows 10 1903 (94%), Microsoft Windows Longhorn (93%), Microsoft Windows 10 1803 (93%), Microsoft Windows 10 1511 (92%), Microsoft Windows Server 2008 SP2 (92%), Microsoft Windows 7 SP1 (92%), Microsoft Windows 8.1 Update 1 (92%)
+18:12:11 [ebpf] [25/34] Windows Server 2025
+18:12:44 [ebpf]    => OS details: Microsoft Windows 10 1703 or Windows 11 21H2
+18:12:44 [ebpf] [26/34] Windows Server 2022
+18:13:17 [ebpf]    => OS details: Microsoft Windows 10 1703 or Windows 11 21H2
+18:13:17 [ebpf] [27/34] Windows Server 2019
+18:13:59 [ebpf]    => Aggressive OS guesses: Microsoft Windows 10 1709 - 21H2 (96%), Microsoft Windows 10 1903 (96%), Microsoft Windows Longhorn (96%), Microsoft Windows 10 21H1 (95%), Microsoft Windows 10 (95%), Microsoft Windows 10 1803 (95%), Microsoft Windows 10 1703 or Windows 11 21H2 (94%), Microsoft Windows 7 SP1 (94%), Microsoft Windows 10 1909 (94%), Microsoft Windows 10 20H2 (94%)
+18:14:00 [ebpf] [28/34] Windows Server 2016
+18:14:32 [ebpf]    => OS details: Microsoft Windows 10 1507 - 1607
+18:14:32 [ebpf] [29/34] Windows Server 2012 R2
+18:15:14 [ebpf]    => Aggressive OS guesses: Microsoft Windows 10 1909 (96%), Microsoft Windows Longhorn (96%), Microsoft Windows 10 1809 (96%), Microsoft Windows 10 1507 - 1607 (94%), Microsoft Windows Vista SP2 or Windows 7 or Windows Server 2008 R2 or Windows 8.1 (94%), Microsoft Windows 7 Professional (94%), Microsoft Windows 7 Ultimate (94%), Microsoft Windows 7 or Windows Server 2008 (94%), Microsoft Windows 7 SP0 - SP1 or Windows Server 2008 (94%), Microsoft Windows Vista SP1 - SP2, Windows Server 2008 SP2, or Windows 7 (94%)
+18:15:14 [ebpf] [30/34] Windows Server 2012
+18:15:55 [ebpf]    => Aggressive OS guesses: Microsoft Windows 10 1909 (96%), Microsoft Windows Longhorn (96%), Microsoft Windows 10 1809 (96%), Microsoft Windows 10 1507 - 1607 (94%), Microsoft Windows Server 2008 R2 SP1 or Windows 7 SP1 (94%), Microsoft Windows Vista SP2 or Windows 7 or Windows Server 2008 R2 or Windows 8.1 (94%), Microsoft Windows 7 Ultimate (94%), Microsoft Windows 7 or Windows Server 2008 (94%), Microsoft Windows 7 SP0 - SP1 or Windows Server 2008 (94%), Microsoft Windows Vista SP1 - SP2, Windows Server 2008 SP2, or Windows 7 (94%)
+18:15:56 [ebpf] [31/34] Windows Server 2008 R2
+18:16:37 [ebpf]    => Aggressive OS guesses: Microsoft Windows 10 1909 (96%), Microsoft Windows Longhorn (96%), Microsoft Windows 10 1809 (96%), Microsoft Windows 10 1507 - 1607 (94%), Microsoft Windows Vista SP2 or Windows 7 or Windows Server 2008 R2 or Windows 8.1 (94%), Microsoft Windows 7 Professional (94%), Microsoft Windows 7 Ultimate (94%), Microsoft Windows 7 or Windows Server 2008 (94%), Microsoft Windows 7 SP0 - SP1 or Windows Server 2008 (94%), Microsoft Windows Vista SP1 - SP2, Windows Server 2008 SP2, or Windows 7 (94%)
+18:16:38 [ebpf] [32/34] Windows Server 2008
+18:17:19 [ebpf]    => Aggressive OS guesses: Microsoft Windows 10 1909 (96%), Microsoft Windows Longhorn (96%), Microsoft Windows 10 1809 (95%), Microsoft Windows 10 1507 - 1607 (94%), Microsoft Windows Vista SP2 or Windows 7 or Windows Server 2008 R2 or Windows 8.1 (94%), Microsoft Windows 7 Professional (94%), Microsoft Windows 7 SP0 - SP1 or Windows Server 2008 (94%), Microsoft Windows 7 Ultimate (94%), Microsoft Windows Vista SP1 - SP2, Windows Server 2008 SP2, or Windows 7 (94%), Microsoft Windows 7 or Windows Server 2008 (94%)
+18:17:19 [ebpf] [33/34] Windows Server 2003
+18:18:03 [ebpf]    => Aggressive OS guesses: Microsoft Windows 10 1903 (96%), Microsoft Windows 10 21H1 (96%), Microsoft Windows 10 (96%), Microsoft Windows 10 1709 - 21H2 (96%), Microsoft Windows Longhorn (95%), Microsoft Windows 10 1803 (95%), Microsoft Windows 10 1511 (94%), Microsoft Windows Server 2008 SP2 (94%), Microsoft Windows 7 SP1 (94%), Microsoft Windows 8.1 Update 1 (94%)
+18:18:03 [ebpf] [34/34] macOS Sonoma
+18:18:46 [ebpf]    => Aggressive OS guesses: Android 9 - 10 (Linux 4.9 - 4.14) (96%), Android 12 (Linux 5.4) (96%), Android 10 - 12 (Linux 4.14 - 4.19) (96%), Linux 5.10 - 5.11 (95%), Linux 5.17 (95%), Sony X75CH-series Android TV (Android 5.0) (94%), Linux 2.6.32 (93%), Linux 4.15 (93%), OpenWrt 21.02 (Linux 5.4) (93%), MikroTik RouterOS 7.2 - 7.5 (Linux 5.6.3) (93%)
+18:18:47 [ebpf] destroying clone 9530
+  ==> Stopping 9530
+      stop: waiting.... OK
+  ==> Destroying 9530 (purge)
+      destroy: waiting.... OK
+18:18:52 [ebpf] DONE linuxvm ebpf (34 profiles)

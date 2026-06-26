@@ -1,0 +1,18 @@
+﻿Starting Nmap 7.98 ( https://nmap.org ) at 2026-06-24 18:44 -0400
+Nmap scan report for BOOK-4I9E56JPIC.blackic.systems (10.0.253.61)
+Host is up (0.0030s latency).
+
+PORT     STATE  SERVICE
+80/tcp   open   http
+9999/tcp closed abyss
+MAC Address: 24:EB:16:09:19:65 (Intel Corporate)
+Device type: load balancer|power-device|general purpose
+Running (JUST GUESSING): Cisco embedded (90%), Newave embedded (86%), Microsoft Windows 2008 (85%)
+OS CPE: cpe:/o:microsoft:windows_server_2008:r2:sp1
+Aggressive OS guesses: Cisco ACE load balancer (90%), Newave UPS SNMP adapter (86%), Microsoft Windows Server 2008 R2 SP1 (85%), Microsoft Windows Server 2008 SP1 or Windows Server 2008 R2 (85%)
+No exact OS matches for host (test conditions non-ideal).
+Network Distance: 1 hop
+
+OS detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 4.50 seconds
+

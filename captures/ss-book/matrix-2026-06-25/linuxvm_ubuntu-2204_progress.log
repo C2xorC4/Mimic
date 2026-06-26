@@ -1,0 +1,90 @@
+20:17:48 [ubuntu-2204] deploy tpl 9302 -> clone 9531
+  ==> Cloning template 9302 -> 9531 (clone-9531) [linked]
+      clone: waiting.... OK
+  ==> Starting 9531
+      start: waiting..... OK
+  ==> Done. VM 9531 ready. (booting)
+      Snapshot when settled:  python lab.py snapshot 9531
+20:18:22 [ubuntu-2204] clone IP 10.0.254.65
+20:18:27 [ubuntu-2204] ssh up
+20:18:28 [ubuntu-2204] installing libpcap + nftables + iproute2 (apt)
+20:18:32 [ubuntu-2204] copying mimic + profiles + services
+20:18:38 [ubuntu-2204] iface=eth0; mimic version check:
+  binary OK
+20:18:39 [ubuntu-2204] [1/34] Ubuntu
+20:19:23 [ubuntu-2204]    => Aggressive OS guesses: Linux 3.2 - 4.14 (97%), Linux 2.6.32 (96%), Linux 4.15 (96%), OpenWrt 21.02 (Linux 5.4) (96%), MikroTik RouterOS 7.2 - 7.5 (Linux 5.6.3) (96%), Linux 4.15 - 5.19 (96%), Linux 2.6.32 - 3.10 (96%), Linux 4.19 (96%), Linux 6.0 (96%), Linux 3.4 - 3.10 (95%)
+20:19:23 [ubuntu-2204] [2/34] Debian
+20:20:06 [ubuntu-2204]    => Aggressive OS guesses: Linux 3.2 - 4.14 (97%), Linux 2.6.32 (96%), Linux 4.15 (96%), OpenWrt 21.02 (Linux 5.4) (96%), MikroTik RouterOS 7.2 - 7.5 (Linux 5.6.3) (96%), Linux 4.15 - 5.19 (96%), Linux 2.6.32 - 3.10 (96%), Linux 4.19 (96%), Linux 6.0 (96%), Linux 3.4 - 3.10 (95%)
+20:20:07 [ubuntu-2204] [3/34] Fedora
+20:20:52 [ubuntu-2204]    => Aggressive OS guesses: Linux 3.2 - 4.14 (97%), Linux 2.6.32 (96%), Linux 4.15 - 5.19 (96%), Linux 2.6.32 - 3.10 (96%), OpenWrt 21.02 (Linux 5.4) (96%), Linux 3.4 - 3.10 (95%), Linux 4.15 (95%), Linux 6.0 (95%), MikroTik RouterOS 7.2 - 7.5 (Linux 5.6.3) (95%), Linux 4.19 (94%)
+20:20:53 [ubuntu-2204] [4/34] Rocky Linux
+20:21:42 [ubuntu-2204]    => Aggressive OS guesses: Linux 3.2 - 4.14 (97%), Linux 2.6.32 (96%), Linux 4.15 (96%), OpenWrt 21.02 (Linux 5.4) (96%), MikroTik RouterOS 7.2 - 7.5 (Linux 5.6.3) (96%), Linux 4.15 - 5.19 (96%), Linux 2.6.32 - 3.10 (96%), Linux 4.19 (96%), Linux 6.0 (96%), Linux 3.4 - 3.10 (95%)
+20:21:43 [ubuntu-2204] [5/34] AlmaLinux
+20:22:27 [ubuntu-2204]    => Aggressive OS guesses: Linux 3.2 - 4.14 (97%), Linux 2.6.32 (96%), Linux 4.15 (96%), OpenWrt 21.02 (Linux 5.4) (96%), MikroTik RouterOS 7.2 - 7.5 (Linux 5.6.3) (96%), Linux 4.15 - 5.19 (96%), Linux 2.6.32 - 3.10 (96%), Linux 4.19 (96%), Linux 6.0 (96%), Linux 3.4 - 3.10 (95%)
+20:22:28 [ubuntu-2204] [6/34] RHEL
+20:23:12 [ubuntu-2204]    => Aggressive OS guesses: Linux 3.2 - 4.14 (97%), Linux 2.6.32 (96%), Linux 4.15 (96%), OpenWrt 21.02 (Linux 5.4) (96%), MikroTik RouterOS 7.2 - 7.5 (Linux 5.6.3) (96%), Linux 4.15 - 5.19 (96%), Linux 2.6.32 - 3.10 (96%), Linux 4.19 (96%), Linux 6.0 (96%), Linux 3.4 - 3.10 (95%)
+20:23:13 [ubuntu-2204] [7/34] CentOS Stream
+20:23:57 [ubuntu-2204]    => Aggressive OS guesses: Linux 3.2 - 4.14 (97%), Linux 2.6.32 (96%), Linux 4.15 (96%), OpenWrt 21.02 (Linux 5.4) (96%), MikroTik RouterOS 7.2 - 7.5 (Linux 5.6.3) (96%), Linux 4.15 - 5.19 (96%), Linux 2.6.32 - 3.10 (96%), Linux 4.19 (96%), Linux 6.0 (96%), Linux 3.4 - 3.10 (95%)
+20:23:58 [ubuntu-2204] [8/34] CentOS 7
+20:24:42 [ubuntu-2204]    => Aggressive OS guesses: Linux 3.2 - 4.14 (97%), Linux 2.6.32 (96%), Linux 4.15 (96%), OpenWrt 21.02 (Linux 5.4) (96%), MikroTik RouterOS 7.2 - 7.5 (Linux 5.6.3) (96%), Linux 4.15 - 5.19 (96%), Linux 2.6.32 - 3.10 (96%), Linux 4.19 (96%), Linux 6.0 (96%), Linux 3.4 - 3.10 (95%)
+20:24:43 [ubuntu-2204] [9/34] Arch Linux
+20:25:28 [ubuntu-2204]    => Aggressive OS guesses: Linux 2.6.32 (96%), Linux 3.2 - 4.14 (96%), Linux 4.15 - 5.19 (96%), Linux 2.6.32 - 3.10 (96%), Android 9 - 10 (Linux 4.9 - 4.14) (96%), Linux 4.15 (96%), OpenWrt 21.02 (Linux 5.4) (96%), MikroTik RouterOS 7.2 - 7.5 (Linux 5.6.3) (96%), Android 5.0 - 6.0.1 (Linux 3.4) (95%), Linux 4.19 (95%)
+20:25:29 [ubuntu-2204] [10/34] Manjaro
+20:26:13 [ubuntu-2204]    => Aggressive OS guesses: Linux 2.6.32 (96%), Linux 4.15 (96%), OpenWrt 21.02 (Linux 5.4) (96%), MikroTik RouterOS 7.2 - 7.5 (Linux 5.6.3) (96%), Linux 3.2 - 4.14 (96%), Linux 4.15 - 5.19 (96%), Linux 2.6.32 - 3.10 (96%), Android 5.0 - 6.0.1 (Linux 3.4) (96%), Linux 4.19 (96%), Android 9 - 10 (Linux 4.9 - 4.14) (96%)
+20:26:14 [ubuntu-2204] [11/34] openSUSE
+20:26:58 [ubuntu-2204]    => Aggressive OS guesses: Linux 3.2 - 4.14 (97%), Linux 2.6.32 (96%), Linux 4.15 (96%), OpenWrt 21.02 (Linux 5.4) (96%), MikroTik RouterOS 7.2 - 7.5 (Linux 5.6.3) (96%), Linux 4.15 - 5.19 (96%), Linux 2.6.32 - 3.10 (96%), Linux 6.0 (96%), Linux 4.19 (95%), Linux 3.4 - 3.10 (95%)
+20:26:59 [ubuntu-2204] [12/34] Alpine Linux
+20:27:43 [ubuntu-2204]    => Aggressive OS guesses: Linux 2.6.32 - 3.10 (97%), Linux 2.6.32 (96%), Linux 4.15 (96%), OpenWrt 21.02 (Linux 5.4) (96%), Linux 3.2 - 4.14 (96%), Linux 4.15 - 5.19 (96%), Android 10 - 11 (Linux 4.14) (96%), Android 9 - 10 (Linux 4.9 - 4.14) (96%), Netgear ReadyNAS 2100 (RAIDiator 4.2.24) (96%), Sony X75CH-series Android TV (Android 5.0) (95%)
+20:27:43 [ubuntu-2204] [13/34] Kali Linux
+20:28:28 [ubuntu-2204]    => Aggressive OS guesses: Linux 3.2 - 4.14 (97%), Linux 2.6.32 (96%), Linux 4.15 - 5.19 (96%), Linux 2.6.32 - 3.10 (96%), Linux 4.15 (96%), OpenWrt 21.02 (Linux 5.4) (96%), MikroTik RouterOS 7.2 - 7.5 (Linux 5.6.3) (96%), Linux 3.4 - 3.10 (95%), Linux 6.0 (95%), Linux 4.19 (94%)
+20:28:29 [ubuntu-2204] [14/34] Linux Mint
+20:29:13 [ubuntu-2204]    => Aggressive OS guesses: Linux 3.2 - 4.14 (97%), Linux 2.6.32 (96%), Linux 4.15 (96%), OpenWrt 21.02 (Linux 5.4) (96%), MikroTik RouterOS 7.2 - 7.5 (Linux 5.6.3) (96%), Linux 4.15 - 5.19 (96%), Linux 2.6.32 - 3.10 (96%), Linux 4.19 (96%), Linux 6.0 (96%), Linux 3.4 - 3.10 (95%)
+20:29:13 [ubuntu-2204] [15/34] Gentoo
+20:29:58 [ubuntu-2204]    => Aggressive OS guesses: Linux 2.6.32 (96%), OpenWrt 21.02 (Linux 5.4) (96%), Linux 3.2 - 4.14 (96%), Linux 4.15 - 5.19 (96%), Linux 2.6.32 - 3.10 (96%), Android 5.0 - 6.0.1 (Linux 3.4) (96%), Android 9 - 10 (Linux 4.9 - 4.14) (96%), Linux 4.15 (96%), Android 10 - 12 (Linux 4.14 - 4.19) (96%), MikroTik RouterOS 7.2 - 7.5 (Linux 5.6.3) (96%)
+20:29:58 [ubuntu-2204] [16/34] Slackware
+20:30:42 [ubuntu-2204]    => Aggressive OS guesses: Linux 3.2 - 4.14 (97%), Linux 2.6.32 (96%), Linux 4.15 (96%), OpenWrt 21.02 (Linux 5.4) (96%), MikroTik RouterOS 7.2 - 7.5 (Linux 5.6.3) (96%), Linux 4.15 - 5.19 (96%), Linux 2.6.32 - 3.10 (96%), Linux 4.19 (96%), Linux 6.0 (96%), Linux 3.4 - 3.10 (95%)
+20:30:43 [ubuntu-2204] [17/34] Windows 11
+20:31:27 [ubuntu-2204]    => Aggressive OS guesses: Microsoft Windows 10 1703 or Windows 11 21H2 (98%), Microsoft Windows 11 21H2 (97%), Microsoft Windows 10 1703 (96%), Microsoft Windows Server 2022 (95%), Microsoft Windows 10 1507 - 1607 (95%), Microsoft Windows 10 1511 (94%), Microsoft Windows Longhorn (93%), Microsoft Windows 10 (92%), Microsoft Windows 10 1511 - 1607 (92%), Microsoft Windows Server 2008 (92%)
+20:31:28 [ubuntu-2204] [18/34] Windows 10
+20:32:12 [ubuntu-2204]    => Aggressive OS guesses: Microsoft Windows 10 1909 (95%), Microsoft Windows Longhorn (94%), Microsoft Windows 10 1809 (93%), Microsoft Windows 10 1507 - 1607 (92%), Microsoft Windows Server 2008 SP2 or Windows 10 or Xbox One (92%), Microsoft Windows Vista SP2 or Windows 7 or Windows Server 2008 R2 or Windows 8.1 (92%), Microsoft Windows 7 Professional (92%), Microsoft Windows 7 Ultimate (92%), Microsoft Windows 7 (92%), Microsoft Windows Vista SP2 (92%)
+20:32:13 [ubuntu-2204] [19/34] Windows 8.1
+20:32:58 [ubuntu-2204]    => Aggressive OS guesses: Microsoft Windows 10 1909 (95%), Microsoft Windows Longhorn (95%), Microsoft Windows 10 1809 (93%), Microsoft Windows 10 1507 - 1607 (92%), Microsoft Windows Server 2008 SP2 or Windows 10 or Xbox One (92%), Microsoft Windows Vista SP2 or Windows 7 or Windows Server 2008 R2 or Windows 8.1 (92%), Microsoft Windows 7 Professional (92%), Microsoft Windows 7 Ultimate (92%), Microsoft Windows 7 (92%), Microsoft Windows Vista SP2 (92%)
+20:32:58 [ubuntu-2204] [20/34] Windows 8
+20:34:08 [ubuntu-2204]    => Aggressive OS guesses: Microsoft Windows 10 1909 (95%), Microsoft Windows Longhorn (95%), Microsoft Windows 10 1809 (94%), Microsoft Windows 10 1507 - 1607 (92%), Microsoft Windows Server 2008 R2 SP1 or Windows 7 SP1 (92%), Microsoft Windows Server 2008 SP2 or Windows 10 or Xbox One (92%), Microsoft Windows Vista SP2 or Windows 7 or Windows Server 2008 R2 or Windows 8.1 (92%), Microsoft Windows 7 or Windows Server 2008 (92%), Microsoft Windows 7 Professional (92%), Microsoft Windows 7 Ultimate (92%)
+20:34:08 [ubuntu-2204] [21/34] Windows 7
+20:34:52 [ubuntu-2204]    => Aggressive OS guesses: Microsoft Windows 10 1809 (95%), Microsoft Windows 10 1909 (94%), Microsoft Windows Longhorn (94%), Microsoft Windows Server 2008 SP2 or Windows 10 or Xbox One (92%), Microsoft Windows Server 2008 R2 (92%), Microsoft Windows Vista SP0 - SP2, Windows Server 2008, or Windows 7 Ultimate (92%), Microsoft Windows 10 1507 - 1607 (92%), Microsoft Windows Server 2008 R2 SP1 or Windows 7 SP1 (92%), Microsoft Windows Vista SP2 or Windows 7 or Windows Server 2008 R2 or Windows 8.1 (92%), Microsoft Windows 7 or Windows Server 2008 (92%)
+20:34:53 [ubuntu-2204] [22/34] Windows Vista
+20:35:38 [ubuntu-2204]    => Aggressive OS guesses: Microsoft Windows 10 1909 (94%), Microsoft Windows Longhorn (94%), Microsoft Windows 10 1809 (94%), Microsoft Windows Server 2008 R2 (93%), Microsoft Windows Vista SP2 (92%), Microsoft Windows 10 1507 - 1607 (92%), Microsoft Windows Server 2008 SP2 or Windows 10 or Xbox One (92%), Microsoft Windows Vista SP2 or Windows 7 or Windows Server 2008 R2 or Windows 8.1 (92%), Microsoft Windows 7 or Windows Server 2008 (92%), Microsoft Windows 7 Professional (92%)
+20:35:38 [ubuntu-2204] [23/34] Windows XP SP3
+20:36:22 [ubuntu-2204]    => Aggressive OS guesses: Microsoft Windows 10 21H1 (94%), Microsoft Windows 10 (94%), Microsoft Windows 10 1709 - 21H2 (94%), Microsoft Windows 10 1903 (94%), Microsoft Windows Longhorn (93%), Microsoft Windows 10 1803 (93%), Microsoft Windows 10 1511 (92%), Microsoft Windows Server 2008 SP2 (92%), Microsoft Windows 7 SP1 (92%), Microsoft Windows 8.1 Update 1 (92%)
+20:36:23 [ubuntu-2204] [24/34] Windows XP SP2
+20:37:08 [ubuntu-2204]    => Aggressive OS guesses: Microsoft Windows 10 21H1 (94%), Microsoft Windows 10 (94%), Microsoft Windows 10 1709 - 21H2 (94%), Microsoft Windows 10 1903 (94%), Microsoft Windows Longhorn (93%), Microsoft Windows 10 1803 (93%), Microsoft Windows 10 1511 (92%), Microsoft Windows Server 2008 SP2 (92%), Microsoft Windows 7 SP1 (92%), Microsoft Windows 8.1 Update 1 (92%)
+20:37:09 [ubuntu-2204] [25/34] Windows Server 2025
+20:37:42 [ubuntu-2204]    => OS details: Microsoft Windows 10 1703 or Windows 11 21H2
+20:37:43 [ubuntu-2204] [26/34] Windows Server 2022
+20:38:26 [ubuntu-2204]    => Aggressive OS guesses: Microsoft Windows 10 1909 (96%), Microsoft Windows Longhorn (96%), Microsoft Windows 10 1809 (96%), Microsoft Windows 10 1507 - 1607 (94%), Microsoft Windows Vista SP2 or Windows 7 or Windows Server 2008 R2 or Windows 8.1 (94%), Microsoft Windows 7 Professional (94%), Microsoft Windows 7 Ultimate (94%), Microsoft Windows 7 or Windows Server 2008 (94%), Microsoft Windows 7 SP0 - SP1 or Windows Server 2008 (94%), Microsoft Windows Vista SP1 - SP2, Windows Server 2008 SP2, or Windows 7 (94%)
+20:38:27 [ubuntu-2204] [27/34] Windows Server 2019
+20:39:09 [ubuntu-2204]    => Aggressive OS guesses: Microsoft Windows 10 1909 (96%), Microsoft Windows Longhorn (96%), Microsoft Windows 10 1809 (96%), Microsoft Windows 10 1507 - 1607 (94%), Microsoft Windows Vista SP2 or Windows 7 or Windows Server 2008 R2 or Windows 8.1 (94%), Microsoft Windows 7 Professional (94%), Microsoft Windows 7 Ultimate (94%), Microsoft Windows 7 or Windows Server 2008 (94%), Microsoft Windows 7 SP0 - SP1 or Windows Server 2008 (94%), Microsoft Windows Vista SP1 - SP2, Windows Server 2008 SP2, or Windows 7 (94%)
+20:39:09 [ubuntu-2204] [28/34] Windows Server 2016
+20:39:52 [ubuntu-2204]    => Aggressive OS guesses: Microsoft Windows 10 1909 (96%), Microsoft Windows Longhorn (96%), Microsoft Windows 10 1809 (96%), Microsoft Windows 10 1507 - 1607 (94%), Microsoft Windows Server 2008 R2 SP1 or Windows 7 SP1 (94%), Microsoft Windows Vista SP2 or Windows 7 or Windows Server 2008 R2 or Windows 8.1 (94%), Microsoft Windows 7 Professional (94%), Microsoft Windows 7 Ultimate (94%), Microsoft Windows 7 or Windows Server 2008 (94%), Microsoft Windows 7 SP0 - SP1 or Windows Server 2008 (94%)
+20:39:52 [ubuntu-2204] [29/34] Windows Server 2012 R2
+20:40:35 [ubuntu-2204]    => Aggressive OS guesses: Microsoft Windows 10 1909 (96%), Microsoft Windows Longhorn (96%), Microsoft Windows 10 1809 (95%), Microsoft Windows 10 1507 - 1607 (94%), Microsoft Windows Vista SP2 or Windows 7 or Windows Server 2008 R2 or Windows 8.1 (94%), Microsoft Windows 7 Professional (94%), Microsoft Windows 7 Ultimate (94%), Microsoft Windows 7 SP0 - SP1 or Windows Server 2008 (94%), Microsoft Windows Vista SP1 - SP2, Windows Server 2008 SP2, or Windows 7 (94%), Microsoft Windows 10 20H2 or Windows 11 21H2 (94%)
+20:40:36 [ubuntu-2204] [30/34] Windows Server 2012
+20:41:18 [ubuntu-2204]    => Aggressive OS guesses: Microsoft Windows 10 1909 (96%), Microsoft Windows Longhorn (96%), Microsoft Windows 10 1809 (96%), Microsoft Windows 10 1507 - 1607 (94%), Microsoft Windows Vista SP2 or Windows 7 or Windows Server 2008 R2 or Windows 8.1 (94%), Microsoft Windows 7 Professional (94%), Microsoft Windows 7 Ultimate (94%), Microsoft Windows 7 or Windows Server 2008 (94%), Microsoft Windows 7 SP0 - SP1 or Windows Server 2008 (94%), Microsoft Windows Vista SP1 - SP2, Windows Server 2008 SP2, or Windows 7 (94%)
+20:41:19 [ubuntu-2204] [31/34] Windows Server 2008 R2
+20:42:01 [ubuntu-2204]    => Aggressive OS guesses: Microsoft Windows 10 1909 (96%), Microsoft Windows Longhorn (96%), Microsoft Windows 10 1809 (96%), Microsoft Windows 10 1507 - 1607 (94%), Microsoft Windows Vista SP2 or Windows 7 or Windows Server 2008 R2 or Windows 8.1 (94%), Microsoft Windows 7 Professional (94%), Microsoft Windows 7 Ultimate (94%), Microsoft Windows 7 or Windows Server 2008 (94%), Microsoft Windows 7 SP0 - SP1 or Windows Server 2008 (94%), Microsoft Windows Vista SP1 - SP2, Windows Server 2008 SP2, or Windows 7 (94%)
+20:42:02 [ubuntu-2204] [32/34] Windows Server 2008
+20:42:45 [ubuntu-2204]    => Aggressive OS guesses: Microsoft Windows 10 1909 (96%), Microsoft Windows Longhorn (95%), Microsoft Windows 10 1809 (95%), Microsoft Windows 10 1507 - 1607 (94%), Microsoft Windows Vista SP2 or Windows 7 or Windows Server 2008 R2 or Windows 8.1 (94%), Microsoft Windows 7 Professional (94%), Microsoft Windows 7 SP0 - SP1 or Windows Server 2008 (94%), Microsoft Windows 7 Ultimate (94%), Microsoft Windows Vista SP1 - SP2, Windows Server 2008 SP2, or Windows 7 (94%), Microsoft Windows 7 or Windows Server 2008 R2 (94%)
+20:42:45 [ubuntu-2204] [33/34] Windows Server 2003
+20:43:28 [ubuntu-2204]    => Aggressive OS guesses: Microsoft Windows 10 1903 (96%), Microsoft Windows 10 1709 - 21H2 (96%), Microsoft Windows 10 1803 (95%), Microsoft Windows 10 21H1 (95%), Microsoft Windows 10 (95%), Microsoft Windows 7 SP1 (94%), Microsoft Windows Longhorn (94%), Microsoft Windows 10 1703 or Windows 11 21H2 (94%), Microsoft Windows 10 1511 (93%), Microsoft Windows 10 1909 (93%)
+20:43:29 [ubuntu-2204] [34/34] macOS Sonoma
+20:44:13 [ubuntu-2204]    => Aggressive OS guesses: Android 9 - 10 (Linux 4.9 - 4.14) (96%), Android 12 (Linux 5.4) (96%), Android 10 - 12 (Linux 4.14 - 4.19) (96%), Linux 5.10 - 5.11 (95%), Linux 5.17 (95%), Sony X75CH-series Android TV (Android 5.0) (94%), Linux 3.8 (94%), Linux 2.6.32 (93%), Linux 4.15 (93%), OpenWrt 21.02 (Linux 5.4) (93%)
+20:44:14 [ubuntu-2204] destroying clone 9531
+  ==> Stopping 9531
+      stop: waiting.... OK
+  ==> Destroying 9531 (purge)
+      destroy: waiting.... OK
+20:44:20 [ubuntu-2204] DONE linuxvm ubuntu-2204 (34 profiles)
+21:05:33 [ubuntu-2204]    => 
+21:05:34 [ubuntu-2204] [2/2] Windows 11
+21:06:08 [ubuntu-2204]    => 

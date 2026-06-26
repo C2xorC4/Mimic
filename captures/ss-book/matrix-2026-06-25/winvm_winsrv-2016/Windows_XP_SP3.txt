@@ -1,0 +1,31 @@
+﻿Starting Nmap 7.98 ( https://nmap.org ) at 2026-06-24 19:42 -0400
+Nmap scan report for WIN-IABBFC750IC.blackic.systems (10.0.255.102)
+Host is up (0.00096s latency).
+
+PORT     STATE  SERVICE
+80/tcp   open   http
+9999/tcp closed abyss
+MAC Address: BC:24:11:2D:A9:20 (Proxmox Server Solutions GmbH)
+Aggressive OS guesses: Microsoft Windows Longhorn (95%), Microsoft Windows 10 1709 - 21H2 (94%), Microsoft Windows 10 21H1 (94%), Microsoft Windows 10 (94%), Microsoft Windows 10 1903 (94%), Microsoft Windows 10 1703 or Windows 11 21H2 (93%), Microsoft Windows 10 21H2 (93%), Microsoft Windows 10 1803 (93%), Microsoft Windows 8 (93%), Microsoft Windows 10 1511 (92%)
+No exact OS matches for host (If you know what OS is running on it, see https://nmap.org/submit/ ).
+TCP/IP fingerprint:
+OS:SCAN(V=7.98%E=4%D=6/24%OT=80%CT=9999%CU=30311%PV=Y%DS=1%DC=D%G=Y%M=BC241
+OS:1%TM=6A3C6B54%P=x86_64-pc-linux-gnu)SEQ(SP=100%GCD=1%ISR=10A%TI=I%CI=RD%
+OS:II=I%SS=S%TS=U)SEQ(SP=102%GCD=1%ISR=10D%TI=I%CI=RD%II=I%SS=S%TS=U)SEQ(SP
+OS:=103%GCD=1%ISR=107%TI=I%CI=RD%II=I%SS=S%TS=U)SEQ(SP=107%GCD=1%ISR=10B%TI
+OS:=I%CI=RD%II=I%SS=S%TS=U)SEQ(SP=107%GCD=1%ISR=10C%TI=I%CI=RD%II=I%SS=S%TS
+OS:=U)OPS(O1=M5B4NNSNNNNNNNNNNNN%O2=M5B4NNSNNNNNNNNNNNN%O3=M5B4NNNNNNNNNNNN
+OS:NNNN%O4=M5B4NNSNNNNNNNNNNNN%O5=M5B4NNSNNNNNNNNNNNN%O6=M5B4ST11)WIN(W1=FF
+OS:FF%W2=FFFF%W3=FFFF%W4=FFFF%W5=FFFF%W6=FFFF)ECN(R=Y%DF=Y%T=80%W=FFFF%O=M5
+OS:B4NW8NNS%CC=N%Q=)T1(R=Y%DF=Y%T=80%S=O%A=S+%F=AS%RD=0%Q=)T2(R=Y%DF=Y%T=80
+OS:%W=0%S=Z%A=S%F=AR%O=%RD=0%Q=)T3(R=Y%DF=Y%T=80%W=0%S=Z%A=O%F=AR%O=%RD=0%Q
+OS:=)T4(R=Y%DF=Y%T=80%W=0%S=A%A=O%F=R%O=%RD=0%Q=)T5(R=Y%DF=N%T=80%W=0%S=Z%A
+OS:=S+%F=AR%O=%RD=0%Q=)T6(R=Y%DF=Y%T=80%W=0%S=A%A=O%F=R%O=%RD=0%Q=)T7(R=Y%D
+OS:F=Y%T=80%W=0%S=Z%A=S+%F=AR%O=%RD=0%Q=)U1(R=Y%DF=N%T=80%IPL=164%UN=0%RIPL
+OS:=G%RID=G%RIPCK=G%RUCK=G%RUD=G)IE(R=Y%DFI=N%T=80%CD=Z)
+
+Network Distance: 1 hop
+
+OS detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 9.95 seconds
+

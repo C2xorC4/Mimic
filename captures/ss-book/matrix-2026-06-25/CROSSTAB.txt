@@ -1,0 +1,56 @@
+| Profile | ssbook(W11) | argus(eBPF) | H:Win10 | H:Win11 | H:S2016 | H:S2019 | H:S2022 | H:S2025 | H:Ubu22 | H:Deb12 | H:Rocky9 | H:Fedora | H:Arch | H:Kali |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Ubuntu | F | F | F | F | F | F | F | F | ? | F | ? | ? | ? | . |
+| Debian | F | F | F | F | F | F | F | F | F | F | ? | ? | ? | . |
+| Fedora | F | F | F | F | F | F | F | F | F | F | ? | ? | ? | . |
+| Rocky_Linux | F | F | F | F | F | F | F | F | F | F | ? | ? | ? | . |
+| AlmaLinux | F | F | F | F | F | F | F | F | F | F | ? | ? | ? | . |
+| RHEL | F | F | F | F | F | F | F | F | F | F | ? | ? | ? | . |
+| CentOS_Stream | F | F | F | F | F | F | F | F | F | F | ? | ? | ? | . |
+| CentOS_7 | F | F | F | F | F | F | F | F | F | F | ? | ? | ? | . |
+| Arch_Linux | F | F | F | F | F | F | F | F | F | F | ? | ? | ? | . |
+| Manjaro | F | F | F | F | F | F | F | F | F | F | ? | ? | ? | . |
+| openSUSE | F | F | F | F | F | F | F | F | F | F | ? | ? | ? | . |
+| Alpine_Linux | F | F | F | F | F | F | F | F | F | F | ? | ? | ? | . |
+| Kali_Linux | F | F | F | F | F | F | F | F | F | F | ? | ? | ? | . |
+| Linux_Mint | F | F | F | F | F | F | F | F | F | F | ? | ? | ? | . |
+| Gentoo | F | F | F | F | F | F | F | F | F | F | ? | ? | ? | . |
+| Slackware | F | F | F | F | F | F | F | F | F | F | ? | ? | ? | . |
+| Windows_11 | X | F | F | F | F | F | F | F | ? | F | ? | ? | ? | . |
+| Windows_10 | X | F | F | F | F | F | F | F | F | F | ? | ? | ? | . |
+| Windows_8_1 | X | F | F | F | F | F | F | F | F | F | ? | ? | ? | . |
+| Windows_8 | X | F | F | F | F | F | F | F | F | F | ? | ? | ? | . |
+| Windows_7 | X | F | F | F | F | F | F | F | F | F | ? | ? | ? | . |
+| Windows_Vista | X | F | F | F | F | F | F | F | F | F | ? | ? | ? | . |
+| Windows_XP_SP3 | F | F | F | F | F | F | F | F | F | F | ? | ? | ? | . |
+| Windows_XP_SP2 | F | F | F | F | F | F | F | F | F | F | ? | ? | ? | . |
+| Windows_Server_2025 | X | E | F | F | F | F | F | F | E | F | ? | ? | ? | . |
+| Windows_Server_2022 | X | F | F | F | F | F | F | F | F | F | ? | ? | ? | . |
+| Windows_Server_2019 | X | F | F | F | F | F | F | F | F | F | ? | ? | ? | . |
+| Windows_Server_2016 | X | F | F | F | F | F | F | F | F | F | ? | ? | ? | . |
+| Windows_Server_2012_R2 | X | F | F | F | F | F | F | F | F | F | ? | ? | ? | . |
+| Windows_Server_2012 | X | F | F | F | F | F | F | F | F | F | ? | ? | ? | . |
+| Windows_Server_2008_R2 | X | F | F | F | F | F | F | F | F | F | ? | ? | ? | . |
+| Windows_Server_2008 | X | F | F | F | F | F | F | F | F | F | ? | ? | ? | . |
+| Windows_Server_2003 | F | F | F | F | F | F | F | F | F | F | ? | ? | ? | . |
+| macOS_Sonoma | ? | X | X | X | X | X | X | X | X | X | ? | ? | ? | . |
+
+## Per-host tally (E=exact F=family X=wrong ?=none .=missing)
+  ssbook(W11)    E=0 F=19 X=14 ?=1 .=0
+  argus(eBPF)    E=1 F=32 X=1 ?=0 .=0
+  H:Win10        E=0 F=33 X=1 ?=0 .=0
+  H:Win11        E=0 F=33 X=1 ?=0 .=0
+  H:S2016        E=0 F=33 X=1 ?=0 .=0
+  H:S2019        E=0 F=33 X=1 ?=0 .=0
+  H:S2022        E=0 F=33 X=1 ?=0 .=0
+  H:S2025        E=0 F=33 X=1 ?=0 .=0
+  H:Ubu22        E=1 F=30 X=1 ?=2 .=0
+  H:Deb12        E=0 F=33 X=1 ?=0 .=0
+  H:Rocky9       E=0 F=0 X=0 ?=34 .=0
+  H:Fedora       E=0 F=0 X=0 ?=34 .=0
+  H:Arch         E=0 F=0 X=0 ?=34 .=0
+  H:Kali         E=0 F=0 X=0 ?=0 .=34
+
+## EXACT matches (no submit ask):
+  Windows_Server_2025 @ argus(eBPF): Microsoft Windows 10 1703 or Windows 11 21H2
+  Windows_Server_2025 @ H:Ubu22: Microsoft Windows 10 1703 or Windows 11 21H2

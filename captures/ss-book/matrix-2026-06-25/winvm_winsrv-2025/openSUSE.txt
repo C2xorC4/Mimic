@@ -1,0 +1,30 @@
+﻿Starting Nmap 7.98 ( https://nmap.org ) at 2026-06-24 20:21 -0400
+Nmap scan report for WIN-8OAKO6R7EQE.blackic.systems (10.0.251.5)
+Host is up (0.0011s latency).
+
+PORT     STATE  SERVICE
+80/tcp   open   http
+9999/tcp closed abyss
+MAC Address: BC:24:11:09:A5:18 (Proxmox Server Solutions GmbH)
+Aggressive OS guesses: Linux 5.10 - 5.15 (88%), Linux 5.4 (88%), Linux 4.4 (87%), Linux 2.4.21 (86%), Linux 3.16 (85%), Linksys EA3500 WAP (85%), Linux 2.6.18 - 2.6.32 (85%), Linux 3.3 (85%), MikroTik RouterOS 7.2 (Linux 5.6.3) (85%)
+No exact OS matches for host (If you know what OS is running on it, see https://nmap.org/submit/ ).
+TCP/IP fingerprint:
+OS:SCAN(V=7.98%E=4%D=6/24%OT=80%CT=9999%CU=33625%PV=Y%DS=1%DC=D%G=Y%M=BC241
+OS:1%TM=6A3C7487%P=x86_64-pc-linux-gnu)SEQ(SP=104%GCD=1%ISR=10B%TI=RD%CI=RD
+OS:%II=RI%TS=A)SEQ(SP=104%GCD=2%ISR=10D%TI=RD%CI=RD%II=RI%TS=A)SEQ(SP=106%G
+OS:CD=1%ISR=10C%TI=RD%CI=RD%II=RI%TS=A)SEQ(SP=106%GCD=2%ISR=10D%TI=RD%CI=RD
+OS:%II=RI%TS=A)OPS(O1=M5B4ST11NW7%O2=M5B4ST11NW7%O3=M5B4NNT11NW7%O4=M5B4ST1
+OS:1NW7%O5=M5B4ST11NW7%O6=M5B4ST11)WIN(W1=7210%W2=7210%W3=7210%W4=7210%W5=7
+OS:210%W6=7210)ECN(R=Y%DF=Y%T=40%W=7210%O=M5B4NNSNW7%CC=Y%Q=)T1(R=Y%DF=Y%T=
+OS:40%S=O%A=S+%F=EAS%RD=0%Q=)T2(R=Y%DF=Y%T=40%W=0%S=Z%A=S%F=AR%O=%RD=0%Q=)T
+OS:3(R=Y%DF=Y%T=40%W=0%S=Z%A=O%F=AR%O=%RD=0%Q=)T4(R=Y%DF=Y%T=40%W=0%S=Z%A=Z
+OS:%F=R%O=%RD=0%Q=)T5(R=Y%DF=N%T=40%W=0%S=Z%A=S+%F=AR%O=%RD=0%Q=)T6(R=Y%DF=
+OS:Y%T=40%W=0%S=Z%A=Z%F=R%O=%RD=0%Q=)T7(R=Y%DF=Y%T=40%W=0%S=Z%A=S+%F=AR%O=%
+OS:RD=0%Q=)U1(R=Y%DF=N%T=40%IPL=164%UN=0%RIPL=G%RID=G%RIPCK=G%RUCK=G%RUD=G)
+OS:IE(R=Y%DFI=N%T=40%CD=S)
+
+Network Distance: 1 hop
+
+OS detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 9.89 seconds
+

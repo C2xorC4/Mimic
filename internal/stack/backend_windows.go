@@ -76,6 +76,8 @@ type winProfile struct {
 	ecnWindow     uint16 // window advertised on the ECN-probe SYN-ACK (nmap ECN W=); 0 = use windowSize. Linux ECN rwnd differs from the OS-probe WIN (FE88→FAF0).
 	winQuirks     bool  // Windows profile → apply Windows-only quirks (ICMP CD=Z, A=O RST); off for Linux (#13)
 	highFidelity  bool  // opt-in: arm the mimic-hifi driver so a Linux persona emits IP-ID 0 (TI/CI=Z) below the re-stamp
+	hifiWatchdog  bool  // when high_fidelity is armed, auto-disarm on sustained outbound-connectivity loss (default on; false = hold the deception)
+	hifiCanary    string // optional watchdog probe target IP (default: the interface gateway)
 	icmpQuoteTTL  uint8 // TTL stamped into U1 quoted IP header
 	icmpQuoteDF   bool  // DF bit in U1 quoted IP header
 }
@@ -120,6 +122,9 @@ func toWinProfile(p *config.OSProfile) *winProfile {
 	wp.ecnCC = wp.ecnEcho || strings.EqualFold(s.ExplicitCongestion, "echo")
 	wp.winQuirks = strings.EqualFold(p.Family, "windows")
 	wp.highFidelity = s.HighFidelity
+	// watchdog defaults ON (nil) — connectivity-preserving — unless explicitly disabled.
+	wp.hifiWatchdog = s.HighFidelityWatchdog == nil || *s.HighFidelityWatchdog
+	wp.hifiCanary = s.HighFidelityCanary
 	// A real Linux kernel advertises a smaller rwnd on the ECN probe's SYN-ACK than on
 	// the OS-detection probes (nmap WIN vs ECN W). Map the OS-probe window to its ECN
 	// companion so the ECN test's W= field matches nmap-os-db. 0 = leave = windowSize.
@@ -164,7 +169,10 @@ type windowsBackend struct {
 	synMu    sync.Mutex
 	synCache map[uint64]synFlow
 
-	hifi *hifiCorrector // opt-in high-fidelity IP-ID driver client (armed only for a Linux/macOS persona + high_fidelity)
+	hifiMu      sync.Mutex     // guards hifi + hifiWd across the arm/disarm lifecycle and the watchdog goroutine
+	hifi        *hifiCorrector // opt-in high-fidelity IP-ID driver client (armed only for a Linux/macOS persona + high_fidelity)
+	hifiWd      *hifiWatchdog  // connectivity safeguard goroutine (nil unless armed + watchdog enabled)
+	hifiTripped atomic.Bool    // the watchdog auto-disarmed this run → do NOT re-arm (no flapping / induced-oscillation oracle)
 }
 
 // New returns the WinDivert-backed stack backend. iface is accepted for API
@@ -314,10 +322,20 @@ func (b *windowsBackend) Close() error {
 // Windows personas never arm: they want CI=I/SS=S, which WinDivert already delivers.
 func (b *windowsBackend) maybeArmHiFi() {
 	p := b.profile.Load()
-	if p == nil || !p.highFidelity || p.winQuirks || b.hifi != nil {
+	if p == nil || !p.highFidelity || p.winQuirks {
 		return
 	}
 	log := logging.Component("stackwin")
+	b.hifiMu.Lock()
+	defer b.hifiMu.Unlock()
+	if b.hifi != nil {
+		return
+	}
+	// The watchdog auto-disarmed this run because outbound connectivity was failing —
+	// re-arming would just break the network again. Stay on WinDivert until restart.
+	if b.hifiTripped.Load() {
+		return
+	}
 	c, err := openHifi()
 	if err != nil {
 		log.Warn("high_fidelity requested but the mimic-hifi driver is unavailable — falling back to WinDivert (TI/CI=Z not achievable)",
@@ -331,16 +349,52 @@ func (b *windowsBackend) maybeArmHiFi() {
 	}
 	b.hifi = c
 	log.Info("high_fidelity IP-ID corrector armed (TI/CI=Z)", nil)
+	// Connectivity safeguard (opt-out via high_fidelity_watchdog: false).
+	if p.hifiWatchdog {
+		b.hifiWd = startHifiWatchdog(b, p.hifiCanary)
+	} else {
+		log.Info("high_fidelity connectivity watchdog DISABLED by config (deception-priority; driver holds regardless of reachability)", nil)
+	}
 }
 
-// disarmHiFi returns the driver to pass-through and releases the control handle.
+// disarmHiFi returns the driver to pass-through and releases the control handle. Called
+// from the lifecycle (Disable/Close); stops the watchdog first. Safe to call repeatedly.
 func (b *windowsBackend) disarmHiFi() {
-	if b.hifi == nil {
-		return
+	b.hifiMu.Lock()
+	wd := b.hifiWd
+	b.hifiWd = nil
+	if b.hifi != nil {
+		_ = b.hifi.Disarm()
+		_ = b.hifi.Close()
+		b.hifi = nil
 	}
-	_ = b.hifi.Disarm()
-	_ = b.hifi.Close()
-	b.hifi = nil
+	b.hifiMu.Unlock()
+	// Stop the watchdog OUTSIDE the lock so its goroutine (which may be mid-probe) can
+	// exit cleanly without contending for hifiMu.
+	if wd != nil {
+		wd.stop()
+	}
+}
+
+// watchdogTrip is invoked BY the watchdog goroutine when outbound connectivity has been
+// down for the configured window. It disarms the driver to restore the network and marks
+// the run tripped so maybeArmHiFi won't re-arm. It must NOT call wd.stop() (that would
+// self-join the calling goroutine); the goroutine returns on its own after this.
+func (b *windowsBackend) watchdogTrip() {
+	b.hifiTripped.Store(true)
+	b.hifiMu.Lock()
+	b.hifiWd = nil
+	disarmed := false
+	if b.hifi != nil {
+		_ = b.hifi.Disarm()
+		_ = b.hifi.Close()
+		b.hifi = nil
+		disarmed = true
+	}
+	b.hifiMu.Unlock()
+	if disarmed {
+		logging.Component("stackwin").Error("high_fidelity AUTO-DISARMED: outbound connectivity degraded while armed — dropped to WinDivert to restore the network (will NOT re-arm until restart). Set high_fidelity_watchdog: false to hold the deception instead.", nil)
+	}
 }
 
 // loop is the recv → mutate → reinject pump. It ALWAYS re-sends every captured

@@ -74,6 +74,26 @@ type StackConfig struct {
 
 	// Backend / high-fidelity tier (Windows only; off by default)
 	HighFidelity bool `yaml:"high_fidelity"` // Opt-in: arm the kernel IP-ID corrector driver so a Linux persona emits IP-ID 0 (nmap TI/CI=Z) below WinDivert's re-stamp. Requires the installed+signed mimic-hifi driver; falls back to WinDivert if absent.
+
+	// HighFidelityWatchdog is the connectivity safeguard for the high-fidelity driver:
+	// while the driver is armed, mimic actively probes outbound reachability and, if it
+	// degrades for a sustained window, AUTO-DISARMS the driver (drops to WinDivert) to
+	// restore the network. Per-host POLICY — there is no universal right answer:
+	//   true  (default, nil) → prioritize CONNECTIVITY. A driver failure can't strand the
+	//                          host; deception degrades gracefully to WinDivert (~95%).
+	//   false               → prioritize DECEPTION. The driver stays armed regardless.
+	//                          Choose this when maintaining the persona matters more than
+	//                          guaranteed reachability, AND to deny an adversary an
+	//                          induced-degradation oracle: an attacker who can disrupt the
+	//                          host's reachability could otherwise force a disarm and read
+	//                          the true OS. With the watchdog off there is nothing to trip.
+	// Pointer so an unset key defaults to enabled while still allowing an explicit false.
+	HighFidelityWatchdog *bool `yaml:"high_fidelity_watchdog"`
+
+	// HighFidelityCanary optionally overrides the watchdog's probe target (an IP that is
+	// ICMP-pinged). Default = the bound interface's default gateway. Set this for networks
+	// where the gateway does not answer ping but another always-on host does.
+	HighFidelityCanary string `yaml:"high_fidelity_canary"`
 }
 
 // ServiceConfig defines a fake service listener
