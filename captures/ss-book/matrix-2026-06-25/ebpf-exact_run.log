@@ -1,0 +1,17 @@
+11:23:20 [ebpf-exact] deploy tpl 9302 -> clone 9530
+11:23:55 [ebpf-exact] clone IP 10.0.254.220
+11:23:59 [ebpf-exact] ssh up
+11:24:01 [ebpf-exact] installing libpcap + nftables + iproute2 (apt)
+  E: Could not get lock /var/lib/apt/lists/lock. It is held by process 830 (apt-get)
+  E: Unable to lock directory /var/lib/apt/lists/
+11:24:04 [ebpf-exact] copying mimic + profiles + services
+11:24:22 [ebpf-exact] iface=eth0; mimic version check:
+  binary OK
+11:24:24 [ebpf-exact] [1/3] Ubuntu
+11:25:08 [ebpf-exact]    => Aggressive OS guesses: Linux 4.15 - 5.19 (99%), Linux 2.6.32 (96%), Linux 3.2 - 4.14 (96%), Linux 2.6.32 - 3.10 (96%), OpenWrt 21.02 (Linux 5.4) (96%), MikroTik RouterOS 7.2 - 7.5 (Linux 5.6.3) (96%), Android 10 - 12 (Linux 4.14 - 4.19) (96%), Linux 5.10 - 5.19 (96%), Linux 4.19 (95%), Linux 6.0 (95%)
+11:25:09 [ebpf-exact] [2/3] Fedora
+11:25:53 [ebpf-exact]    => Aggressive OS guesses: Linux 4.15 - 5.19 (99%), Linux 2.6.32 (96%), Linux 3.2 - 4.14 (96%), Linux 2.6.32 - 3.10 (96%), OpenWrt 21.02 (Linux 5.4) (96%), MikroTik RouterOS 7.2 - 7.5 (Linux 5.6.3) (96%), Android 10 - 12 (Linux 4.14 - 4.19) (96%), Linux 5.10 - 5.19 (96%), Linux 6.0 (95%), Linux 4.19 (95%)
+11:25:53 [ebpf-exact] [3/3] Arch Linux
+11:26:37 [ebpf-exact]    => Aggressive OS guesses: Linux 4.15 - 5.19 (99%), Linux 2.6.32 (96%), Linux 3.2 - 4.14 (96%), Linux 2.6.32 - 3.10 (96%), OpenWrt 21.02 (Linux 5.4) (96%), MikroTik RouterOS 7.2 - 7.5 (Linux 5.6.3) (96%), Android 10 - 12 (Linux 4.14 - 4.19) (96%), Linux 5.10 - 5.19 (96%), Linux 4.19 (95%), Linux 6.0 (95%)
+11:26:38 [ebpf-exact] destroying clone 9530
+11:26:45 [ebpf-exact] DONE linuxvm ebpf-exact (3 profiles)

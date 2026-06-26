@@ -52,15 +52,33 @@ MimicHiFi_IpChecksum16(const unsigned char *hdr, unsigned int len)
 /*
  * MimicHiFi_RewriteIpId — the corrector core. `ip` points at the IPv4 header (already
  * past any Ethernet header), `iplen` is the bytes available from `ip`. `mode` is the
- * armed mode; `icmpCounter` is the driver's shared ICMP IP-ID counter (caller owns its
- * lifetime / synchronization). Returns 1 if the packet was modified, else 0.
+ * armed mode. `icmpId` is a caller-supplied monotonic IP-ID for ICMP (nmap II=I); the
+ * caller assigns it atomically (only for ICMP) so concurrent sends don't tear a shared
+ * counter — it is ignored for TCP (which always gets 0). `recomputeChecksum` selects
+ * whether THIS code computes the IPv4 header checksum:
+ *
+ *   recomputeChecksum != 0  → in-band checksum: we zero + recompute it (correct for
+ *                             non-offloaded sends and WinDivert-reinjected packets).
+ *   recomputeChecksum == 0  → the NIC will compute the IP header checksum (TX
+ *                             IP-checksum offload is requested on this NBL). We change
+ *                             ONLY the IP-ID and leave the field as the stack's 0
+ *                             placeholder; the miniport fills it over the final header.
+ *                             Recomputing here while the offload request stays set makes
+ *                             the NIC re-checksum ON TOP of our value (one's-complement
+ *                             double-add → 0xffff) and the receiver drops every packet.
+ *                             (Root-caused on a virtio NIC, 2026-06-26: armed driver +
+ *                             IP-checksum offload broke ALL outbound TCP; TI=Z was on the
+ *                             wire but `bad cksum ffff`.)
+ *
+ * Returns 1 if the packet was modified, else 0.
  *
  * Pure byte arithmetic — no NDIS/WDK types — so it is unit-testable off-target and
  * identical in intent to the Go applyEgress IP-ID block (TCP->0, ICMP->increment).
  */
 __forceinline int
 MimicHiFi_RewriteIpId(unsigned char *ip, unsigned int iplen,
-                      unsigned char mode, unsigned short *icmpCounter)
+                      unsigned char mode, unsigned short icmpId,
+                      int recomputeChecksum)
 {
     unsigned int ihl;
     unsigned char proto;
@@ -80,7 +98,7 @@ MimicHiFi_RewriteIpId(unsigned char *ip, unsigned int iplen,
     if (proto == MIMICHIFI_PROTO_TCP) {
         newid = 0;                     /* nmap TI=Z / CI=Z */
     } else if (proto == MIMICHIFI_PROTO_ICMP) {
-        newid = ++(*icmpCounter);      /* nmap II=I (incrementing) */
+        newid = icmpId;                /* nmap II=I (caller supplies a monotonic id) */
     } else {
         return 0;                      /* leave UDP/other untouched */
     }
@@ -92,13 +110,16 @@ MimicHiFi_RewriteIpId(unsigned char *ip, unsigned int iplen,
     ip[4] = (unsigned char)(newid >> 8);
     ip[5] = (unsigned char)(newid & 0xFF);
 
-    /* recompute the IPv4 header checksum */
-    ip[10] = 0;
-    ip[11] = 0;
-    {
-        unsigned short ck = MimicHiFi_IpChecksum16(ip, ihl);
-        ip[10] = (unsigned char)(ck >> 8);
-        ip[11] = (unsigned char)(ck & 0xFF);
+    if (recomputeChecksum) {
+        /* in-band checksum: zero + recompute the IPv4 header checksum */
+        ip[10] = 0;
+        ip[11] = 0;
+        {
+            unsigned short ck = MimicHiFi_IpChecksum16(ip, ihl);
+            ip[10] = (unsigned char)(ck >> 8);
+            ip[11] = (unsigned char)(ck & 0xFF);
+        }
     }
+    /* else: NIC computes the IP checksum (offload) — leave the field untouched. */
     return 1;
 }

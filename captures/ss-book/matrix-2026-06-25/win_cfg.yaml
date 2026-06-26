@@ -1,0 +1,12 @@
+﻿profile: "macOS Sonoma"
+interface: Wi-Fi
+services: [http]
+closed_ports: [9999]
+firewall:
+    closed_port_behavior: reset
+profiles_dir: D:\repos\security\mimic\profiles
+services_dir: D:\repos\security\mimic\services
+logging:
+    log_dir: C:\Users\C2xor\AppData\Local\Temp\claude\D--repos-security-mimic\aebbfe0f-af0c-461b-85b5-477141a77863\scratchpad\matrix
+    level: warn
+    to_stdout: false

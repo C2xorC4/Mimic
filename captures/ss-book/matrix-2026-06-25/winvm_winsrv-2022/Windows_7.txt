@@ -1,0 +1,31 @@
+﻿Starting Nmap 7.98 ( https://nmap.org ) at 2026-06-24 20:10 -0400
+Nmap scan report for WIN-TAM9OOTFOGN.blackic.systems (10.0.255.194)
+Host is up (0.00098s latency).
+
+PORT     STATE  SERVICE
+80/tcp   open   http
+9999/tcp closed abyss
+MAC Address: BC:24:11:DA:71:D7 (Proxmox Server Solutions GmbH)
+Aggressive OS guesses: Microsoft Windows Longhorn (96%), Microsoft Windows 10 1809 (94%), Microsoft Windows 10 1909 (94%), Microsoft Windows 10 1507 - 1607 (94%), Microsoft Windows Vista Business (93%), Microsoft Windows Vista SP1 (93%), Microsoft Windows Vista SP2 (93%), Microsoft Windows Vista SP2 or Windows 7 or Windows Server 2008 R2 or Windows 8.1 (92%), Microsoft Windows 7 Professional (92%), Microsoft Windows 7 Ultimate (92%)
+No exact OS matches for host (If you know what OS is running on it, see https://nmap.org/submit/ ).
+TCP/IP fingerprint:
+OS:SCAN(V=7.98%E=4%D=6/24%OT=80%CT=9999%CU=38109%PV=Y%DS=1%DC=D%G=Y%M=BC241
+OS:1%TM=6A3C720A%P=x86_64-pc-linux-gnu)SEQ(SP=104%GCD=1%ISR=10D%TI=I%CI=RD%
+OS:II=I%SS=S%TS=U)SEQ(SP=105%GCD=1%ISR=106%TI=I%CI=RD%II=I%SS=S%TS=U)SEQ(SP
+OS:=106%GCD=1%ISR=106%TI=I%CI=RD%II=I%SS=S%TS=U)SEQ(SP=107%GCD=1%ISR=10A%TI
+OS:=I%CI=RD%II=I%SS=S%TS=U)SEQ(SP=FF%GCD=1%ISR=10D%TI=I%CI=RD%II=I%SS=S%TS=
+OS:U)OPS(O1=M5B4NW8NNSNNNNNNNN%O2=M5B4NW8NNSNNNNNNNN%O3=M5B4NW8NNNNNNNNNNNN
+OS:%O4=M5B4NW8NNSNNNNNNNN%O5=M5B4NW8NNSNNNNNNNN%O6=M5B4ST11)WIN(W1=2000%W2=
+OS:2000%W3=2000%W4=2000%W5=2000%W6=2000)ECN(R=Y%DF=Y%T=80%W=2000%O=M5B4NW8N
+OS:NS%CC=N%Q=)T1(R=Y%DF=Y%T=80%S=O%A=S+%F=AS%RD=0%Q=)T2(R=Y%DF=Y%T=80%W=0%S
+OS:=Z%A=S%F=AR%O=%RD=0%Q=)T3(R=Y%DF=Y%T=80%W=0%S=Z%A=O%F=AR%O=%RD=0%Q=)T4(R
+OS:=Y%DF=Y%T=80%W=0%S=A%A=O%F=R%O=%RD=0%Q=)T5(R=Y%DF=N%T=80%W=0%S=Z%A=S+%F=
+OS:AR%O=%RD=0%Q=)T6(R=Y%DF=Y%T=80%W=0%S=A%A=O%F=R%O=%RD=0%Q=)T7(R=Y%DF=Y%T=
+OS:80%W=0%S=Z%A=S+%F=AR%O=%RD=0%Q=)U1(R=Y%DF=N%T=80%IPL=164%UN=0%RIPL=G%RID
+OS:=G%RIPCK=G%RUCK=G%RUD=G)IE(R=Y%DFI=N%T=80%CD=Z)
+
+Network Distance: 1 hop
+
+OS detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 9.95 seconds
+

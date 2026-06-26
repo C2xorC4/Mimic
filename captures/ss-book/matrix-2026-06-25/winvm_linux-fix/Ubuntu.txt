@@ -1,0 +1,30 @@
+﻿Starting Nmap 7.98 ( https://nmap.org ) at 2026-06-25 09:41 -0400
+Nmap scan report for WIN-TAM9OOTFOGN.blackic.systems (10.0.253.130)
+Host is up (0.0010s latency).
+
+PORT     STATE  SERVICE
+80/tcp   open   http
+9999/tcp closed abyss
+MAC Address: BC:24:11:0B:61:E2 (Proxmox Server Solutions GmbH)
+Aggressive OS guesses: Linux 5.10 - 5.15 (91%), MikroTik RouterOS 7.2 (Linux 5.6.3) (90%), Android 4.4.0 (88%), Linux 4.15 - 5.19 (88%), Linux 2.6.18 - 2.6.32 (88%), Linux 5.4 (87%), Cisco CP-DX650 VoIP phone (Android 4.1.1) (86%), Linux 5.15 (86%), Linux 4.1 (86%), Linux 4.4 (86%)
+No exact OS matches for host (If you know what OS is running on it, see https://nmap.org/submit/ ).
+TCP/IP fingerprint:
+OS:SCAN(V=7.98%E=4%D=6/25%OT=80%CT=9999%CU=43797%PV=Y%DS=1%DC=D%G=Y%M=BC241
+OS:1%TM=6A3D3006%P=x86_64-pc-linux-gnu)SEQ(SP=101%GCD=1%ISR=108%TI=I%CI=I%I
+OS:I=I%TS=A)SEQ(SP=102%GCD=1%ISR=10F%TI=I%CI=I%II=I%TS=A)SEQ(SP=105%GCD=1%I
+OS:SR=105%TI=I%CI=I%II=I%TS=A)SEQ(SP=105%GCD=1%ISR=10B%TI=I%CI=I%II=I%TS=A)
+OS:SEQ(SP=107%GCD=1%ISR=10A%TI=I%CI=I%II=I%TS=A)OPS(O1=M5B4ST11NW8%O2=M5B4S
+OS:T11NW8%O3=M5B4NNT11NW8%O4=M5B4ST11NW8%O5=M5B4ST11NW8%O6=M5B4ST11)WIN(W1=
+OS:FE88%W2=FE88%W3=FE88%W4=FE88%W5=FE88%W6=FE88)ECN(R=Y%DF=Y%T=40%W=FAF0%O=
+OS:M5B4NNSNW8%CC=Y%Q=)T1(R=Y%DF=Y%T=40%S=O%A=S+%F=EAS%RD=0%Q=)T2(R=Y%DF=Y%T
+OS:=40%W=0%S=Z%A=S%F=AR%O=%RD=0%Q=)T3(R=Y%DF=Y%T=40%W=0%S=Z%A=O%F=AR%O=%RD=
+OS:0%Q=)T4(R=Y%DF=Y%T=40%W=0%S=Z%A=Z%F=R%O=%RD=0%Q=)T5(R=Y%DF=N%T=40%W=0%S=
+OS:Z%A=S+%F=AR%O=%RD=0%Q=)T6(R=Y%DF=Y%T=40%W=0%S=Z%A=Z%F=R%O=%RD=0%Q=)T7(R=
+OS:Y%DF=Y%T=40%W=0%S=Z%A=S+%F=AR%O=%RD=0%Q=)U1(R=Y%DF=N%T=40%IPL=164%UN=0%R
+OS:IPL=G%RID=G%RIPCK=G%RUCK=G%RUD=G)IE(R=Y%DFI=N%T=40%CD=S)
+
+Network Distance: 1 hop
+
+OS detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 9.94 seconds
+

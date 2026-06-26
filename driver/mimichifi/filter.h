@@ -66,7 +66,7 @@ extern LIST_ENTRY          FilterModuleList;
 // mimic-hifi armed state: set by the control IOCTL (device.c), read on the send hot
 // path (filter.c). Per-protocol only, no per-flow state.
 extern volatile LONG  g_MimicMode;     // MIMICHIFI_MODE_OFF | _LINUX
-extern USHORT         g_MimicIcmpId;    // ICMP IP-ID counter (nmap II=I)
+extern volatile SHORT g_MimicIcmpId;   // ICMP IP-ID counter (nmap II=I); InterlockedIncrement16
 
 
 //

@@ -1,0 +1,27 @@
+13:55:20 [ebpf-ecn3] deploy tpl 9302 -> clone 9533
+13:56:05 [ebpf-ecn3] clone IP 10.0.254.33
+13:56:09 [ebpf-ecn3] ssh up
+13:56:10 [ebpf-ecn3] waiting for cloud-init (releases the apt/dpkg lock on fresh boot)
+13:56:48 [ebpf-ecn3] installing toolchain (clang llvm libbpf-dev linux-libc-dev + Go)
+  No user sessions are running outdated binaries.
+  
+  No VM guests are running outdated hypervisor (qemu) binaries on this host.
+  /usr/bin/clang
+  go version go1.25.6 linux/amd64
+13:58:19 [ebpf-ecn3] staging + copying source
+13:58:22 [ebpf-ecn3] regen eBPF bytecode (bpf2go)
+  go: downloading github.com/cilium/ebpf v0.20.0
+  go: downloading github.com/vishvananda/netlink v1.3.1
+  go: downloading gopkg.in/yaml.v3 v3.0.1
+  go: downloading github.com/vishvananda/netns v0.0.5
+  go: downloading golang.org/x/sys v0.46.0
+  In file included from /root/src/internal/ebpf/fingerprint.c:3:
+  In file included from /usr/include/linux/bpf.h:11:
+  /usr/include/linux/types.h:5:10: fatal error: 'asm/types.h' file not found
+  #include <asm/types.h>
+           ^~~~~~~~~~~~~
+  1 error generated.
+  Error: compile: exit status 1
+  exit status 1
+  loader.go:5: running "go": exit status 1
+13:58:47 [ebpf-ecn3] REGEN FAILED — aborting before build/scan

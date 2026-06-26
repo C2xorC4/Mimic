@@ -1,0 +1,23 @@
+22:14:28 [rocky-9-nopcap] deploy tpl 9306 -> clone 9537
+  ==> Cloning template 9306 -> 9537 (clone-9537) [linked]
+      clone: waiting.... OK
+  ==> Starting 9537
+      start: waiting..... OK
+  ==> Done. VM 9537 ready. (booting)
+      Snapshot when settled:  python lab.py snapshot 9537
+22:15:01 [rocky-9-nopcap] clone IP 10.0.252.52
+22:15:03 [rocky-9-nopcap] ssh up
+22:15:04 [rocky-9-nopcap] installing libpcap + nftables + iproute2 (dnf)
+22:15:19 [rocky-9-nopcap] copying mimic + profiles + services
+22:15:30 [rocky-9-nopcap] iface=eth0; mimic version check:
+  binary OK
+22:15:32 [rocky-9-nopcap] [1/2] Ubuntu
+22:16:16 [rocky-9-nopcap]    => Aggressive OS guesses: Linux 3.2 - 4.14 (97%), Linux 2.6.32 (96%), Linux 4.15 (96%), OpenWrt 21.02 (Linux 5.4) (96%), MikroTik RouterOS 7.2 - 7.5 (Linux 5.6.3) (96%), Linux 4.15 - 5.19 (96%), Linux 2.6.32 - 3.10 (96%), Linux 4.19 (96%), Linux 3.4 - 3.10 (95%), Linux 6.0 (95%)
+22:16:17 [rocky-9-nopcap] [2/2] Windows 11
+22:17:02 [rocky-9-nopcap]    => Aggressive OS guesses: Microsoft Windows 10 1703 or Windows 11 21H2 (98%), Microsoft Windows 11 21H2 (97%), Microsoft Windows 10 1703 (96%), Microsoft Windows Server 2022 (95%), Microsoft Windows 10 1507 - 1607 (95%), Microsoft Windows 10 1511 (94%), Microsoft Windows Longhorn (93%), Microsoft Windows 10 (92%), Microsoft Windows 10 1511 - 1607 (92%), Microsoft Windows Server 2008 (92%)
+22:17:03 [rocky-9-nopcap] destroying clone 9537
+  ==> Stopping 9537
+      stop: waiting.... OK
+  ==> Destroying 9537 (purge)
+      destroy: waiting.... OK
+22:17:08 [rocky-9-nopcap] DONE linuxvm rocky-9-nopcap (2 profiles)

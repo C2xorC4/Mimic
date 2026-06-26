@@ -35,7 +35,9 @@ LIST_ENTRY          FilterModuleList;
 
 // mimic-hifi armed state (see filter.h). Off until the control IOCTL arms it.
 volatile LONG       g_MimicMode = MIMICHIFI_MODE_OFF;
-USHORT              g_MimicIcmpId = 0;
+// ICMP IP-ID counter (nmap II=I). SHORT + InterlockedIncrement16 in the send path so
+// concurrent outbound sends can't tear the increment.
+volatile SHORT      g_MimicIcmpId = 0;
 
 NDIS_FILTER_PARTIAL_CHARACTERISTICS DefaultChars = {
 { 0, 0, 0},
@@ -1342,6 +1344,25 @@ Arguments:
             for (mhNbl = NetBufferLists; mhNbl != NULL; mhNbl = NET_BUFFER_LIST_NEXT_NBL(mhNbl))
             {
                 PNET_BUFFER mhNb;
+                NDIS_TCP_IP_CHECKSUM_NET_BUFFER_LIST_INFO mhCsum;
+                int mhRecompute;
+
+                // Skip LSO super-packets entirely. With Large Send Offload the miniport
+                // segments the packet and re-stamps each segment's IP-ID + checksums
+                // BELOW us, so editing the template IP-ID is meaningless AND corrupts the
+                // send. LSO carries bulk data, never an nmap OS probe.
+                if (NET_BUFFER_LIST_INFO(mhNbl, TcpLargeSendNetBufferListInfo) != 0)
+                {
+                    continue;
+                }
+
+                // If TX IP-checksum offload is requested on this NBL, the NIC computes the
+                // IP header checksum — we must NOT (recomputing while the offload bit stays
+                // set double-adds to 0xffff and the receiver drops every packet; root-caused
+                // 2026-06-26). Only recompute when the checksum is in-band.
+                mhCsum.Value = NET_BUFFER_LIST_INFO(mhNbl, TcpIpChecksumNetBufferListInfo);
+                mhRecompute = (mhCsum.Transmit.IpHeaderChecksum != 0) ? 0 : 1;
+
                 for (mhNb = NET_BUFFER_LIST_FIRST_NB(mhNbl); mhNb != NULL; mhNb = NET_BUFFER_NEXT_NB(mhNb))
                 {
                     // Map the current MDL and edit the packet bytes IN PLACE. (Using
@@ -1375,7 +1396,8 @@ Arguments:
                     mhEt = (USHORT)(((USHORT)mhEth[12] << 8) | mhEth[13]);
                     if (mhEt == 0x8100)        // 802.1Q VLAN tag
                     {
-                        if (mhAvail < 22) { continue; }
+                        // need eth(14)+VLAN(4)+min IPv4(20) = 38 contiguous for a tagged frame
+                        if (mhAvail < 38) { continue; }
                         mhEt = (USHORT)(((USHORT)mhEth[16] << 8) | mhEth[17]);
                         mhL2 = 18;
                     }
@@ -1383,8 +1405,20 @@ Arguments:
                     {
                         continue;
                     }
-                    (void)MimicHiFi_RewriteIpId(mhEth + mhL2, mhAvail - mhL2,
-                                                MIMICHIFI_MODE_LINUX, &g_MimicIcmpId);
+                    {
+                        PUCHAR mhIp   = mhEth + mhL2;
+                        ULONG  mhIpLen = mhAvail - mhL2;
+                        USHORT mhIcmpId = 0;
+                        // Consume a monotonic ICMP IP-ID only for ICMP (keeps nmap II=I
+                        // tight — bumping it on every TCP packet would scatter the spacing).
+                        // Atomic so concurrent sends don't tear the counter.
+                        if (mhIpLen >= 10 && (mhIp[0] >> 4) == 4 && mhIp[9] == MIMICHIFI_PROTO_ICMP)
+                        {
+                            mhIcmpId = (USHORT)InterlockedIncrement16(&g_MimicIcmpId);
+                        }
+                        (void)MimicHiFi_RewriteIpId(mhIp, mhIpLen,
+                                                    MIMICHIFI_MODE_LINUX, mhIcmpId, mhRecompute);
+                    }
                 }
             }
         }

@@ -28,7 +28,52 @@ substrate: a fresh wired VM clone eliminates it entirely.
 - ss-book stays the DEV/build host (edit, `go build`, unit tests); fidelity scans go to
   a VM. If ss-book MUST be used, wire it (no Wi-Fi) + quiesce background traffic first.
 
-## Current Status (as of 2026-06-25; latest work 2026-06-25)
+## Current Status (as of 2026-06-26; latest work 2026-06-25 evening matrix)
+
+> **★ CHECKPOINT — FULL TRI-BACKEND MATRIX (2026-06-25 evening) + HiFi DRIVER
+> STABILITY BUG (recovered 2026-06-26).** This run was executed the evening of
+> 2026-06-25 and **never got written up** — an automatic Windows restart wiped the
+> live session before annotation. All durable records (git/MEMORY/LJM/`driver/README`)
+> stop at the 17:47 commit. The raw run survived in the *prior* session scratchpad and
+> was copied into the repo: **`captures/ss-book/matrix-2026-06-25/`** (666 files: per-run
+> `run_*.log`, per-backend result dirs `linuxvm_ebpf/`, `winvm_win-std/`, `hifi/`).
+> NOTE: the `CROSSTAB.txt` in that dir is the **STALE 2026-06-24 aggregate** (mtime
+> 06-24 21:52), NOT this run — it predates the eBPF ECN-carve-out exact fix; ignore it
+> for this checkpoint.
+>
+> **Three backends swept (~33–34 profiles each), from Kali against fresh VM clones:**
+> | Backend | Host | Outcome |
+> |---|---|---|
+> | **eBPF** | Linux VM | ✅ 34/34 CLEAN. Linux personas → `Linux 4.15 - 5.19`; Windows personas → correct Windows. (`run_ebpf.log` DONE 18:18) |
+> | **WinDivert (standard)** | Windows VM clone 9521 | ✅ 34/34 CLEAN, zero instability. Win10→`Windows 10 1909`, Server 2019→`Server 2019` 99%, etc. (`run_winstd.log` DONE 18:12) |
+> | **HiFi driver (mimichifi NDIS LWF)** | Server 2016 SeaBIOS clone 9522 | ⚠️ **EXACT but UNSTABLE** — see below. |
+>
+> **★ HiFi DRIVER STABILITY BUG (the headline finding).** The driver *does* deliver
+> what `driver/README.md` claims — `TI=Z` on the wire, `OS details: Linux 4.15 - 5.19`
+> EXACT — but **arming it knocks the VM off the network after 1–4 profiles, and it does
+> not recover.** Proven across TWO independent runs (not a one-off):
+> - **Run 1** (`run_hifi.log`, 17:56–18:08): driver installed, `sc query`=RUNNING, no
+>   BSOD. Profiles 1–4 (Ubuntu/Debian/Fedora/Rocky) ALL → `Linux 4.15 - 5.19` EXACT.
+>   Then *"Network connectivity to 10.0.250.183 has been lost… reconnection failed."*
+>   AlmaLinux (#5) squeaked through on a reconnect job, then session unrecoverable → VM
+>   destroyed.
+> - **Run 2** (`run_hifi2.log`, 18:11–19:52): fresh clone. Profile 1 (Ubuntu) →
+>   `Linux 4.15 - 5.19` EXACT. Then profiles #2–#27 ALL → **"WinRM unrecoverable, skip"**
+>   (~3.5 min timeout each), never recovered.
+> - **Differential:** standard WinDivert + eBPF ran their FULL matrices clean on their
+>   own hosts. The instability is **specific to the LWF send-path**, not the harness/WinRM.
+> - **Hypothesis (NOT yet logged/confirmed):** the LWF rewrites IP-ID + recomputes csum
+>   on *all* outbound IPv4 TCP — incl. the WinRM management session — in
+>   `FilterSendNetBufferLists` via the in-place MDL map (the "key fix" in README:110).
+>   Non-determinism (4 vs 1 profile before drop) smells like a race or load-dependent
+>   corruption intermittently mangling management packets, or arm/disarm wedging the NIC.
+>   **Next:** repro under `MIMIC_WD_DEBUG`/driver tracing; consider scoping the rewrite
+>   to exclude the management flow, or test a non-WinRM (serial/agent) control channel so
+>   a connectivity drop doesn't blind the harness.
+>
+> **NET:** driver is functionally EXACT-capable (parity with eBPF) but **NOT yet matrix-
+> stable** — the "VALIDATED EXACT" in `driver/README.md` (single-profile proof) holds, but
+> sustained multi-profile cycling is the open defect. This is the top driver queue item.
 
 > **★★ CHECKPOINT — LINUX-PERSONA EXACT (eBPF) + WinDivert T-series complete +
 > Server 2019 EXACT = Windows 6/6 (2026-06-25).** Branch `feat/windows-port-linux-fidelity`.

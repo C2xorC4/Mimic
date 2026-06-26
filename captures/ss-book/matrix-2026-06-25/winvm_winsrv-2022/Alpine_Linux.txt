@@ -1,0 +1,33 @@
+﻿Starting Nmap 7.98 ( https://nmap.org ) at 2026-06-24 20:07 -0400
+Nmap scan report for WIN-TAM9OOTFOGN.blackic.systems (10.0.255.194)
+Host is up (0.00097s latency).
+
+PORT     STATE  SERVICE
+80/tcp   open   http
+9999/tcp closed abyss
+MAC Address: BC:24:11:DA:71:D7 (Proxmox Server Solutions GmbH)
+Device type: WAP|general purpose|router
+Running (JUST GUESSING): Ruckus embedded (87%), Linux 3.X|2.4.X|2.6.X|5.X (87%), MikroTik RouterOS 7.X (85%)
+OS CPE: cpe:/h:ruckus:zoneflex_r710 cpe:/o:linux:linux_kernel:3.4 cpe:/o:linux:linux_kernel:2.4.21 cpe:/o:linux:linux_kernel:4.1 cpe:/o:linux:linux_kernel:2.6 cpe:/o:linux:linux_kernel:5 cpe:/o:mikrotik:routeros:7.2 cpe:/o:linux:linux_kernel:5.6.3
+Aggressive OS guesses: Ruckus ZoneFlex R710 WAP (Linux 3.4) (87%), Linux 2.4.21 (86%), Linux 3.6 - 3.10 (85%), Linux 4.1 (85%), Linux 2.6.18 - 2.6.32 (85%), Linux 5.10 - 5.15 (85%), Linux 5.4 (85%), MikroTik RouterOS 7.2 (Linux 5.6.3) (85%)
+No exact OS matches for host (If you know what OS is running on it, see https://nmap.org/submit/ ).
+TCP/IP fingerprint:
+OS:SCAN(V=7.98%E=4%D=6/24%OT=80%CT=9999%CU=42733%PV=Y%DS=1%DC=D%G=Y%M=BC241
+OS:1%TM=6A3C7156%P=x86_64-pc-linux-gnu)SEQ(SP=104%GCD=1%ISR=108%TI=RD%CI=RD
+OS:%II=RI%TS=A)SEQ(SP=106%GCD=1%ISR=10B%TI=RD%CI=RD%II=RI%TS=A)SEQ(SP=107%G
+OS:CD=1%ISR=10B%TI=RD%CI=RD%II=RI%TS=A)SEQ(SP=107%GCD=1%ISR=10C%TI=RD%CI=RD
+OS:%II=RI%TS=A)SEQ(SP=FD%GCD=2%ISR=109%TI=RD%CI=RD%II=RI%TS=A)OPS(O1=M5B4ST
+OS:11NW6%O2=M5B4ST11NW6%O3=M5B4NNT11NW6%O4=M5B4ST11NW6%O5=M5B4ST11NW6%O6=M5
+OS:B4ST11)WIN(W1=3908%W2=3908%W3=3908%W4=3908%W5=3908%W6=3908)ECN(R=Y%DF=Y%
+OS:T=40%W=3908%O=M5B4NNSNW6%CC=Y%Q=)T1(R=Y%DF=Y%T=40%S=O%A=S+%F=EAS%RD=0%Q=
+OS:)T2(R=Y%DF=Y%T=40%W=0%S=Z%A=S%F=AR%O=%RD=0%Q=)T3(R=Y%DF=Y%T=40%W=0%S=Z%A
+OS:=O%F=AR%O=%RD=0%Q=)T4(R=Y%DF=Y%T=40%W=0%S=Z%A=Z%F=R%O=%RD=0%Q=)T5(R=Y%DF
+OS:=N%T=40%W=0%S=Z%A=S+%F=AR%O=%RD=0%Q=)T6(R=Y%DF=Y%T=40%W=0%S=Z%A=Z%F=R%O=
+OS:%RD=0%Q=)T7(R=Y%DF=Y%T=40%W=0%S=Z%A=S+%F=AR%O=%RD=0%Q=)U1(R=Y%DF=N%T=40%
+OS:IPL=164%UN=0%RIPL=G%RID=G%RIPCK=G%RUCK=G%RUD=G)IE(R=Y%DFI=N%T=40%CD=S)
+
+Network Distance: 1 hop
+
+OS detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 9.90 seconds
+

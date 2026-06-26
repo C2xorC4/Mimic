@@ -1,0 +1,30 @@
+﻿Starting Nmap 7.98 ( https://nmap.org ) at 2026-06-24 19:54 -0400
+Nmap scan report for WIN-OJ2V77OK60G.blackic.systems (10.0.251.37)
+Host is up (0.0016s latency).
+
+PORT     STATE  SERVICE
+80/tcp   open   http
+9999/tcp closed abyss
+MAC Address: BC:24:11:37:40:D4 (Proxmox Server Solutions GmbH)
+Aggressive OS guesses: Linux 4.4 (88%), Android 4.4.0 (87%), Linux 4.1 (87%), Linux 3.16 (87%), Linux 5.10 - 5.15 (87%), Linux 5.4 (87%), Linksys EA3500 WAP (87%), BlackBox Coalesce wireless collaborations system (Android 5.1) (86%), Linux 2.4.21 (86%), Sony Ericsson W705 or W715 Walkman mobile phone (85%)
+No exact OS matches for host (If you know what OS is running on it, see https://nmap.org/submit/ ).
+TCP/IP fingerprint:
+OS:SCAN(V=7.98%E=4%D=6/24%OT=80%CT=9999%CU=33876%PV=Y%DS=1%DC=D%G=Y%M=BC241
+OS:1%TM=6A3C6E5A%P=x86_64-pc-linux-gnu)SEQ(SP=105%GCD=1%ISR=108%TI=RD%CI=RD
+OS:%II=RI%TS=U)SEQ(SP=106%GCD=1%ISR=108%TI=RD%CI=RD%II=I%TS=U)SEQ(SP=106%GC
+OS:D=1%ISR=10A%TI=RD%CI=RD%II=RI%TS=U)SEQ(SP=108%GCD=1%ISR=109%TI=RD%CI=RI%
+OS:II=RI%TS=U)SEQ(SP=109%GCD=1%ISR=107%TI=RD%CI=RD%II=RI%TS=U)OPS(O1=M5B4ST
+OS:11NW7%O2=M5B4ST11NW7%O3=M5B4NW8%O4=M5B4ST11NW7%O5=M5B4ST11NW7%O6=M5B4NNS
+OS:)WIN(W1=FFFF%W2=FFFF%W3=FFFF%W4=FFFF%W5=FFFF%W6=FFFF)ECN(R=Y%DF=Y%T=40%W
+OS:=FFFF%O=M5B4NNSNW7%CC=Y%Q=)T1(R=Y%DF=Y%T=40%S=O%A=S+%F=EAS%RD=0%Q=)T2(R=
+OS:Y%DF=Y%T=40%W=0%S=Z%A=S%F=AR%O=%RD=0%Q=)T3(R=Y%DF=Y%T=40%W=0%S=Z%A=O%F=A
+OS:R%O=%RD=0%Q=)T4(R=Y%DF=Y%T=40%W=0%S=Z%A=Z%F=R%O=%RD=0%Q=)T5(R=Y%DF=N%T=4
+OS:0%W=0%S=Z%A=S+%F=AR%O=%RD=0%Q=)T6(R=Y%DF=Y%T=40%W=0%S=Z%A=Z%F=R%O=%RD=0%
+OS:Q=)T7(R=Y%DF=Y%T=40%W=0%S=Z%A=S+%F=AR%O=%RD=0%Q=)U1(R=Y%DF=N%T=40%IPL=16
+OS:4%UN=0%RIPL=G%RID=G%RIPCK=G%RUCK=G%RUD=G)IE(R=Y%DFI=N%T=40%CD=S)
+
+Network Distance: 1 hop
+
+OS detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 9.94 seconds
+

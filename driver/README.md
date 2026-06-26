@@ -110,3 +110,19 @@ The trailing `DrvCat` MSBuild task errors on a missing `Microsoft.Kits.Logger` a
 **Key fix:** rewrite the IP-ID by mapping the MDL in place (`MmGetSystemAddressForMdlSafe`),
 NOT `NdisGetDataBuffer` + a scratch copy (which silently no-ops on the non-contiguous send
 case → TI stayed =I). See `filter.c` `FilterSendNetBufferLists`.
+
+## ⚠️ KNOWN DEFECT — not matrix-stable (2026-06-25 evening matrix)
+
+The single-profile proof above holds, but a **full profile-cycle matrix is NOT yet
+stable.** In two independent runs against fresh Server-2016 SeaBIOS clones, the driver
+delivered `Linux 4.15 - 5.19` EXACT on the first 1–4 Linux profiles, then the VM **lost
+all network connectivity (WinRM unrecoverable) and did not recover** — run 1 died after
+~4 profiles, run 2 after 1. The standard WinDivert and eBPF backends ran their full
+matrices clean on their own hosts, so the instability is **specific to the LWF send-path.**
+
+Likely cause (unconfirmed): the in-place IP-ID/checksum rewrite in
+`FilterSendNetBufferLists` intermittently corrupts the WinRM management flow (or arm/
+disarm wedges the NIC) under sustained cycling. Repro evidence:
+`captures/ss-book/matrix-2026-06-25/run_hifi.log` + `run_hifi2.log`. **Top driver queue
+item** — investigate under driver tracing; consider excluding the management flow from
+rewrite, or use a non-WinRM control channel so a drop doesn't blind the harness.
