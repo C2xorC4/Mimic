@@ -55,3 +55,26 @@ blocker).
 
 The two remaining fixes are eBPF C (fingerprint.c) + a bpf2go bytecode regen (clang on a
 Linux box) — well-scoped, no ISN-rewriting required.
+
+---
+
+## eBPF Windows EXACT chase — COMPLETE: 6/6 (2026-06-26)
+
+★ FRAMING CORRECTION: the cross-OS paths are the GOLD STANDARD, not secondary —
+**Linux/eBPF host → exact Windows** and **Windows host → exact Linux**. A real Linux box
+that fingerprints as Windows sends an attacker chasing Windows CVEs/0-days that don't
+apply (and vice versa). Same-OS (Win→Win, Linux→Linux) is the secondary/easy path.
+
+Three fixes took the PRIMARY eBPF Linux→Windows path from 3/6 → **6/6 EXACT**, with the
+Linux→Linux path staying 7/7 (full matrix `matrix_ebpf_fixed.log`, STABILITY PASS):
+1. `6fdb34b` Win11 — ICMP-echo gating (reset mode keeps echo → IE/II/SS).
+2. `ba80dd4` Server 2019 — ecnCC (CC=Y).
+3. `ebd1b84` Win10 + Server 2019 — TS-off OPS shrink (`shrink_tcp_options`: physically
+   shorten the SYN-ACK so nmap reads the real timestamp-free options, not a NOP pad).
+
+None required ISN-rewriting (the SEQ SP/ISR landed in-range). Final eBPF matrix:
+| | Windows personas | Linux personas | Stable |
+|---|---|---|---|
+| **eBPF (Linux host)** | **EXACT 6/6** | **EXACT 7/7** | PASS |
+Win10→`Windows 10 1909`, Win11/Srv2022/2025→`Win10 1703/Win11 21H2`, Srv2016→`Win10
+1507-1607`, **Srv2019→`Windows Server 2019`**; Linux→`4.15-5.19` / CentOS7→`3.2-4.14`.

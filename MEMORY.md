@@ -30,10 +30,39 @@ substrate: a fresh wired VM clone eliminates it entirely.
 
 ## Current Status (as of 2026-06-26; HiFi driver stability bug FIXED + matrix-validated)
 
+> **★★★ DECEPTION-DIRECTION FRAMING (user-corrected 2026-06-26 — load-bearing).** The
+> GOLD-STANDARD paths are CROSS-OS: **Linux/eBPF host → exact Windows** and **Windows host
+> → exact Linux**. A real Linux box serving Linux software but fingerprinting as Windows
+> sends an attacker chasing Windows CVEs/0-days that don't apply (and vice versa) — that's
+> the value. Same-OS (Win→Win via WinDivert, Linux→Linux via eBPF) is the SECONDARY/minor
+> path (easiest to hit exact, useful for masking same-OS-specific 0-days, but not the goal).
+> Do NOT describe eBPF-Windows or WinDivert-Linux as "secondary" — they ARE the primary.
+
+> **★★ CHECKPOINT — eBPF Linux→Windows now 6/6 EXACT (the PRIMARY path) (2026-06-26).**
+> Branch `feat/ebpf-windows-exact` (`6fdb34b` Win11 merged via main; `ba80dd4` ecnCC,
+> `ebd1b84` OPS shrink). eBPF backend went 3/6 → **6/6 EXACT Windows personas** on a fresh
+> ubuntu-2204 clone (Win10/11, Server 2016/2019/2022/2025) while keeping **7/7 Linux**
+> (full matrix `captures/ss-book/matrix-2026-06-26-validation/matrix_ebpf_fixed.log`,
+> STABILITY PASS). The 3 fixes (none needed ISN-rewriting — SEQ SP/ISR were in-range):
+> 1. Win11: ICMP-echo drop was gated on bare `isWorkstation`, ignoring
+>    `closed_port_behavior: reset` → `IE(R=N)` + lost `II`/`SS`. Gated on `autoDrop`.
+> 2. Server 2019: ecnCC — repurposed `_pad3`→`ecn_cc`; ECN-probe ECE-clear now
+>    `!ecn_echo && !ecn_cc` so servers (explicit_congestion: echo) keep ECE → CC=Y.
+> 3. Win10 + Server 2019 (both tcp_timestamps:false): TS-off OPS shrink. A Linux host's
+>    SYN-ACK always carries a TS option; the templates NOP'd it but kept the 20B length →
+>    nmap saw a NOP-padded OPS. New `shrink_tcp_options()` (data-offset + pseudo-hdr-len +
+>    IP-total-len + `bpf_skb_change_tail`) physically shortens the SYN-ACK so nmap reads the
+>    real timestamp-free options (O1-O5 M5B4NW8NNS/M5B4NW8; new TS-off O6 → M5B4NNS, W6=FF70
+>    for a 65535-window Server). Verifier-clean.
+> **eBPF regen pipeline (proven):** edit fingerprint.c → `scp -P 2222` to argus
+> (10.0.254.45, clang 18 + Go 1.25 + asm symlink all present) → `make generate` → pull
+> `*_bpf*.{go,o}` back → build → deploy to a fresh ubuntu clone → scan from Kali. (Repurpose
+> a struct `_padN` byte for new os_profile fields — keeps the C↔Go layout identical.)
+
 > **★★ CHECKPOINT — HiFi DRIVER NETWORK-BREAK FIXED + FULL CAPTURED-PROFILE MATRIX
-> GREEN (2026-06-26).** Branch `feat/hifi-ndis-driver`, commit `4d9755e`. The 2026-06-25
-> driver stability bug is ROOT-CAUSED, FIXED, and validated across all 3 fidelity levels.
-> Ready to merge to main pending user go.
+> GREEN (2026-06-26).** Branch `feat/hifi-ndis-driver`, commit `4d9755e`. MERGED to main
+> (`3c00b6d`). The 2026-06-25 driver stability bug is ROOT-CAUSED, FIXED, and validated
+> across all 3 fidelity levels.
 >
 > **Root cause (empirical, byte-level):** the mimic-hifi LWF rewrote the IP-ID and
 > recomputed the IPv4 header checksum **while leaving the NIC's TX IP-checksum-offload
