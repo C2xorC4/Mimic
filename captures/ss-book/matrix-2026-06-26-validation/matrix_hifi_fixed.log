@@ -1,0 +1,31 @@
+=== MATRIX mode=hifi vmid=9523 vmip=10.0.255.102 ===
+[hifi] Windows 10               up=True            OS details: Microsoft Windows 10 1909
+[hifi] Windows 11               up=True            OS details: Microsoft Windows 10 1703 or Windows 11 21H2
+[hifi] Windows Server 2016      up=True            OS details: Microsoft Windows 10 1507 - 1607
+[hifi] Windows Server 2019      up=True            OS details: Microsoft Windows Server 2019
+[hifi] Windows Server 2022      up=True            OS details: Microsoft Windows 10 1703 or Windows 11 21H2
+[hifi] Windows Server 2025      up=True            OS details: Microsoft Windows 10 1703 or Windows 11 21H2
+[hifi] Ubuntu                   up=True            OS details: Linux 4.15 - 5.19
+[hifi] Debian                   up=True            OS details: Linux 4.15 - 5.19
+[hifi] Fedora                   up=True            OS details: Linux 4.15 - 5.19
+[hifi] Rocky Linux              up=True            OS details: Linux 4.15 - 5.19
+[hifi] CentOS 7                 up=True            OS details: Linux 3.2 - 4.14
+[hifi] Arch Linux               up=True            OS details: Linux 4.15 - 5.19
+[hifi] Kali Linux               up=True            OS details: Linux 4.15 - 5.19
+
+=== SUMMARY (hifi) ===
+  Windows 10               [win]            OS details: Microsoft Windows 10 1909
+  Windows 11               [win]            OS details: Microsoft Windows 10 1703 or Windows 11 21H2
+  Windows Server 2016      [win]            OS details: Microsoft Windows 10 1507 - 1607
+  Windows Server 2019      [win]            OS details: Microsoft Windows Server 2019
+  Windows Server 2022      [win]            OS details: Microsoft Windows 10 1703 or Windows 11 21H2
+  Windows Server 2025      [win]            OS details: Microsoft Windows 10 1703 or Windows 11 21H2
+  Ubuntu                   [linux]            OS details: Linux 4.15 - 5.19
+  Debian                   [linux]            OS details: Linux 4.15 - 5.19
+  Fedora                   [linux]            OS details: Linux 4.15 - 5.19
+  Rocky Linux              [linux]            OS details: Linux 4.15 - 5.19
+  CentOS 7                 [linux]            OS details: Linux 3.2 - 4.14
+  Arch Linux               [linux]            OS details: Linux 4.15 - 5.19
+  Kali Linux               [linux]            OS details: Linux 4.15 - 5.19
+
+STABILITY: PASS (all profiles reachable)

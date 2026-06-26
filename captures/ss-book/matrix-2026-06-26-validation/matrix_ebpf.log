@@ -1,0 +1,31 @@
+=== eBPF MATRIX vmip=10.0.250.53 ===
+[ebpf] Windows 10               up=True TI=I       Aggressive OS guesses: Microsoft Windows 10 1909 (95%), Microsoft Windows Longhorn (95%), Microsoft Windows 10 1809 (94%), Microsoft Windows Server 2008 R2 (93%), Microsoft Windows 10 1507 - 1607 (92%), Microsoft Windows Server 2008 SP2 or Windows 10 or Xbox One (92%), Microsoft Windows Vista SP2 or Windows 7 or Windows Server 2008 R2 or Windows 8.1 (92%), Microsoft Windows 7 or Windows Server 2008 (92%), Microsoft Windows 7 Professional (92%), Microsoft Windows 7 Ultimate (92%)
+[ebpf] Windows 11               up=True TI=I       Aggressive OS guesses: Microsoft Windows 10 1703 or Windows 11 21H2 (98%), Microsoft Windows 11 21H2 (97%), Microsoft Windows 10 1507 - 1607 (95%), Microsoft Windows 10 1703 (95%), Microsoft Windows Server 2022 (95%), Microsoft Windows 10 1511 (94%), Microsoft Windows Longhorn (92%), Microsoft Windows Server 2008 SP2 or Windows 10 or Xbox One (92%), Microsoft Windows Vista SP2 or Windows 7 or Windows Server 2008 R2 or Windows 8.1 (92%), Microsoft Windows Server 2016 or Server 2019 (92%)
+[ebpf] Windows Server 2016      up=True            OS details: Microsoft Windows 10 1507 - 1607
+[ebpf] Windows Server 2019      up=True TI=I       Aggressive OS guesses: Microsoft Windows 10 1709 - 21H2 (96%), Microsoft Windows 10 1903 (96%), Microsoft Windows Longhorn (96%), Microsoft Windows 10 1803 (95%), Microsoft Windows 10 21H1 (95%), Microsoft Windows 10 (95%), Microsoft Windows 10 1703 or Windows 11 21H2 (94%), Microsoft Windows 7 SP1 (94%), Microsoft Windows 10 1909 (94%), Microsoft Windows 10 20H2 (94%)
+[ebpf] Windows Server 2022      up=True            OS details: Microsoft Windows 10 1703 or Windows 11 21H2
+[ebpf] Windows Server 2025      up=True            OS details: Microsoft Windows 10 1703 or Windows 11 21H2
+[ebpf] Ubuntu                   up=True            OS details: Linux 4.15 - 5.19
+[ebpf] Debian                   up=True            OS details: Linux 4.15 - 5.19
+[ebpf] Fedora                   up=True            OS details: Linux 4.15 - 5.19
+[ebpf] Rocky Linux              up=True            OS details: Linux 4.15 - 5.19
+[ebpf] CentOS 7                 up=True            OS details: Linux 3.2 - 4.14
+[ebpf] Arch Linux               up=True            OS details: Linux 4.15 - 5.19
+[ebpf] Kali Linux               up=True            OS details: Linux 4.15 - 5.19
+
+=== SUMMARY (ebpf) ===
+  Windows 10               [win] TI=I       Aggressive OS guesses: Microsoft Windows 10 1909 (95%), Microsoft Windows Longhorn (95%), Microsoft Windows 10 1809 (94%), Microsoft Windows Server 2008 R2 (93%), Microsoft Windows 10 1507 - 1607 (92%), Microsoft Windows Server 2008 SP2 or Windows 10 or Xbox One (92%), Microsoft Windows Vista SP2 or Windows 7 or Windows Server 2008 R2 or Windows 8.1 (92%), Microsoft Windows 7 or Windows Server 2008 (92%), Microsoft Windows 7 Professional (92%), Microsoft Windows 7 Ultimate (92%)
+  Windows 11               [win] TI=I       Aggressive OS guesses: Microsoft Windows 10 1703 or Windows 11 21H2 (98%), Microsoft Windows 11 21H2 (97%), Microsoft Windows 10 1507 - 1607 (95%), Microsoft Windows 10 1703 (95%), Microsoft Windows Server 2022 (95%), Microsoft Windows 10 1511 (94%), Microsoft Windows Longhorn (92%), Microsoft Windows Server 2008 SP2 or Windows 10 or Xbox One (92%), Microsoft Windows Vista SP2 or Windows 7 or Windows Server 2008 R2 or Windows 8.1 (92%), Microsoft Windows Server 2016 or Server 2019 (92%)
+  Windows Server 2016      [win]            OS details: Microsoft Windows 10 1507 - 1607
+  Windows Server 2019      [win] TI=I       Aggressive OS guesses: Microsoft Windows 10 1709 - 21H2 (96%), Microsoft Windows 10 1903 (96%), Microsoft Windows Longhorn (96%), Microsoft Windows 10 1803 (95%), Microsoft Windows 10 21H1 (95%), Microsoft Windows 10 (95%), Microsoft Windows 10 1703 or Windows 11 21H2 (94%), Microsoft Windows 7 SP1 (94%), Microsoft Windows 10 1909 (94%), Microsoft Windows 10 20H2 (94%)
+  Windows Server 2022      [win]            OS details: Microsoft Windows 10 1703 or Windows 11 21H2
+  Windows Server 2025      [win]            OS details: Microsoft Windows 10 1703 or Windows 11 21H2
+  Ubuntu                   [linux]            OS details: Linux 4.15 - 5.19
+  Debian                   [linux]            OS details: Linux 4.15 - 5.19
+  Fedora                   [linux]            OS details: Linux 4.15 - 5.19
+  Rocky Linux              [linux]            OS details: Linux 4.15 - 5.19
+  CentOS 7                 [linux]            OS details: Linux 3.2 - 4.14
+  Arch Linux               [linux]            OS details: Linux 4.15 - 5.19
+  Kali Linux               [linux]            OS details: Linux 4.15 - 5.19
+
+STABILITY: PASS (all reachable)

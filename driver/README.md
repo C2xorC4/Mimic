@@ -111,18 +111,31 @@ The trailing `DrvCat` MSBuild task errors on a missing `Microsoft.Kits.Logger` a
 NOT `NdisGetDataBuffer` + a scratch copy (which silently no-ops on the non-contiguous send
 case → TI stayed =I). See `filter.c` `FilterSendNetBufferLists`.
 
-## ⚠️ KNOWN DEFECT — not matrix-stable (2026-06-25 evening matrix)
+## ✅ Offload/LSO stability fix — matrix-stable (2026-06-26)
 
-The single-profile proof above holds, but a **full profile-cycle matrix is NOT yet
-stable.** In two independent runs against fresh Server-2016 SeaBIOS clones, the driver
-delivered `Linux 4.15 - 5.19` EXACT on the first 1–4 Linux profiles, then the VM **lost
-all network connectivity (WinRM unrecoverable) and did not recover** — run 1 died after
-~4 profiles, run 2 after 1. The standard WinDivert and eBPF backends ran their full
-matrices clean on their own hosts, so the instability is **specific to the LWF send-path.**
+The 2026-06-25 matrix surfaced a network break: with the driver armed on a host with NIC
+TX offload (the default), **all outbound TCP was dropped** — the VM lost connectivity after
+1–4 profiles. Root-caused (offload-toggle A/B + tcpdump, `captures/ss-book/matrix-2026-06-25/
+PHASE0-rootcause-2026-06-26.md`): the LWF rewrote the IP-ID and **recomputed the IPv4 header
+checksum while the IP-checksum-offload request stayed set**, so the NIC re-checksummed on top
+of our value (one's-complement double-add → `0xffff`) and every outbound IP packet shipped a
+bad header checksum. TI=Z was on the wire, but the host couldn't talk.
 
-Likely cause (unconfirmed): the in-place IP-ID/checksum rewrite in
-`FilterSendNetBufferLists` intermittently corrupts the WinRM management flow (or arm/
-disarm wedges the NIC) under sustained cycling. Repro evidence:
-`captures/ss-book/matrix-2026-06-25/run_hifi.log` + `run_hifi2.log`. **Top driver queue
-item** — investigate under driver tracing; consider excluding the management flow from
-rewrite, or use a non-WinRM control channel so a drop doesn't blind the harness.
+**Fix (`FilterSendNetBufferLists` + `MimicHiFi_RewriteIpId`):**
+- Honor TX IP-checksum offload: when `TcpIpChecksumNetBufferListInfo.Transmit.IpHeaderChecksum`
+  is set, rewrite only the IP-ID and **leave the checksum to the NIC** (no double-add).
+  Recompute it ourselves only when the checksum is in-band (offload off / reinjected packets).
+- Skip LSO super-packets (`TcpLargeSendNetBufferListInfo`) — the NIC re-stamps per-segment
+  IDs/checksums below us; editing the template is both pointless and corrupting.
+- Atomic ICMP IP-ID (`InterlockedIncrement16`); corrected the VLAN bound (22→38).
+- Off-target unit test `test/rewrite_test.c` (15/15).
+
+**Validated (clone 9523, offload ON, full captured-profile matrix):** all 7 armed Linux
+personas → `Linux 4.15 - 5.19` / `Linux 3.2 - 4.14` EXACT with the VM reachable throughout
+(STABILITY: PASS); on-wire SYN shows `id 0` + a **correct** IP checksum (was `bad cksum
+ffff`). See `captures/ss-book/matrix-2026-06-26-validation/`.
+
+A userland connectivity safeguard backs this up: `internal/stack/connmon_windows.go` pings
+the gateway while armed and auto-disarms to WinDivert on sustained loss — opt-out via
+`stack.high_fidelity_watchdog: false` (deception-priority; also denies an induced-degradation
+fingerprinting oracle).

@@ -1,0 +1,31 @@
+=== MATRIX mode=winstd vmid=9523 vmip=10.0.255.102 ===
+[winstd] Windows 10               up=True            OS details: Microsoft Windows 10 1909
+[winstd] Windows 11               up=True            OS details: Microsoft Windows 10 1703 or Windows 11 21H2
+[winstd] Windows Server 2016      up=True            OS details: Microsoft Windows 10 1507 - 1607
+[winstd] Windows Server 2019      up=True            OS details: Microsoft Windows Server 2019
+[winstd] Windows Server 2022      up=True            OS details: Microsoft Windows 10 1703 or Windows 11 21H2
+[winstd] Windows Server 2025      up=True            OS details: Microsoft Windows 10 1703 or Windows 11 21H2
+[winstd] Ubuntu                   up=True TI=I       Aggressive OS guesses: Linux 4.15 - 5.19 (95%), Linux 3.2 - 4.14 (93%), Linux 2.6.32 (92%), Android 10 - 12 (Linux 4.14 - 4.19) (92%), Linux 5.10 - 5.19 (92%), Linux 4.19 (92%), OpenWrt 21.02 (Linux 5.4) (92%), MikroTik RouterOS 7.2 - 7.5 (Linux 5.6.3) (92%), Android 9 (Linux 4.4) (92%), Linux 2.6.32 - 3.10 (92%)
+[winstd] Debian                   up=True TI=I       Aggressive OS guesses: Linux 4.15 - 5.19 (95%), Linux 3.2 - 4.14 (93%), Linux 2.6.32 (92%), Android 10 - 12 (Linux 4.14 - 4.19) (92%), Linux 5.10 - 5.19 (92%), Linux 4.19 (92%), OpenWrt 21.02 (Linux 5.4) (92%), MikroTik RouterOS 7.2 - 7.5 (Linux 5.6.3) (92%), Android 9 (Linux 4.4) (92%), Linux 2.6.32 - 3.10 (92%)
+[winstd] Fedora                   up=True TI=I       Aggressive OS guesses: Linux 4.15 - 5.19 (95%), Linux 3.2 - 4.14 (93%), Linux 2.6.32 (92%), Android 10 - 12 (Linux 4.14 - 4.19) (92%), Linux 5.10 - 5.19 (92%), Linux 4.19 (92%), OpenWrt 21.02 (Linux 5.4) (92%), MikroTik RouterOS 7.2 - 7.5 (Linux 5.6.3) (92%), Android 9 (Linux 4.4) (92%), Linux 2.6.32 - 3.10 (92%)
+[winstd] Rocky Linux              up=True TI=I       Aggressive OS guesses: Linux 4.15 - 5.19 (95%), Linux 3.2 - 4.14 (93%), Linux 2.6.32 (92%), Android 10 - 12 (Linux 4.14 - 4.19) (92%), Linux 5.10 - 5.19 (92%), Linux 4.19 (92%), OpenWrt 21.02 (Linux 5.4) (92%), MikroTik RouterOS 7.2 - 7.5 (Linux 5.6.3) (92%), Android 9 (Linux 4.4) (92%), Linux 2.6.32 - 3.10 (92%)
+[winstd] CentOS 7                 up=True TI=I       Aggressive OS guesses: Linux 3.2 - 4.14 (97%), Linux 3.10 - 4.11 (94%), Linux 3.13 - 3.16 (94%), Linux 3.8 - 3.16 (94%), Linux 4.10 (94%), Linux 3.4 - 3.10 (93%), Linux 2.6.32 (93%), Synology DiskStation Manager 5.2-5644 (93%), Linux 3.18 (93%), Linux 3.10 (93%)
+[winstd] Arch Linux               up=True TI=I       Aggressive OS guesses: Linux 4.15 - 5.19 (95%), Linux 3.2 - 4.14 (93%), Linux 2.6.32 (92%), Android 10 - 12 (Linux 4.14 - 4.19) (92%), Linux 5.10 - 5.19 (92%), Linux 4.19 (92%), OpenWrt 21.02 (Linux 5.4) (92%), MikroTik RouterOS 7.2 - 7.5 (Linux 5.6.3) (92%), Linux 2.6.32 - 3.10 (92%), Crestron XPanel control system (91%)
+[winstd] Kali Linux               up=True TI=I       Aggressive OS guesses: Linux 4.15 - 5.19 (95%), Linux 3.2 - 4.14 (93%), Linux 2.6.32 (92%), Android 10 - 12 (Linux 4.14 - 4.19) (92%), Linux 5.10 - 5.19 (92%), Linux 4.19 (92%), OpenWrt 21.02 (Linux 5.4) (92%), MikroTik RouterOS 7.2 - 7.5 (Linux 5.6.3) (92%), Android 9 (Linux 4.4) (92%), Linux 2.6.32 - 3.10 (92%)
+
+=== SUMMARY (winstd) ===
+  Windows 10               [win]            OS details: Microsoft Windows 10 1909
+  Windows 11               [win]            OS details: Microsoft Windows 10 1703 or Windows 11 21H2
+  Windows Server 2016      [win]            OS details: Microsoft Windows 10 1507 - 1607
+  Windows Server 2019      [win]            OS details: Microsoft Windows Server 2019
+  Windows Server 2022      [win]            OS details: Microsoft Windows 10 1703 or Windows 11 21H2
+  Windows Server 2025      [win]            OS details: Microsoft Windows 10 1703 or Windows 11 21H2
+  Ubuntu                   [linux] TI=I       Aggressive OS guesses: Linux 4.15 - 5.19 (95%), Linux 3.2 - 4.14 (93%), Linux 2.6.32 (92%), Android 10 - 12 (Linux 4.14 - 4.19) (92%), Linux 5.10 - 5.19 (92%), Linux 4.19 (92%), OpenWrt 21.02 (Linux 5.4) (92%), MikroTik RouterOS 7.2 - 7.5 (Linux 5.6.3) (92%), Android 9 (Linux 4.4) (92%), Linux 2.6.32 - 3.10 (92%)
+  Debian                   [linux] TI=I       Aggressive OS guesses: Linux 4.15 - 5.19 (95%), Linux 3.2 - 4.14 (93%), Linux 2.6.32 (92%), Android 10 - 12 (Linux 4.14 - 4.19) (92%), Linux 5.10 - 5.19 (92%), Linux 4.19 (92%), OpenWrt 21.02 (Linux 5.4) (92%), MikroTik RouterOS 7.2 - 7.5 (Linux 5.6.3) (92%), Android 9 (Linux 4.4) (92%), Linux 2.6.32 - 3.10 (92%)
+  Fedora                   [linux] TI=I       Aggressive OS guesses: Linux 4.15 - 5.19 (95%), Linux 3.2 - 4.14 (93%), Linux 2.6.32 (92%), Android 10 - 12 (Linux 4.14 - 4.19) (92%), Linux 5.10 - 5.19 (92%), Linux 4.19 (92%), OpenWrt 21.02 (Linux 5.4) (92%), MikroTik RouterOS 7.2 - 7.5 (Linux 5.6.3) (92%), Android 9 (Linux 4.4) (92%), Linux 2.6.32 - 3.10 (92%)
+  Rocky Linux              [linux] TI=I       Aggressive OS guesses: Linux 4.15 - 5.19 (95%), Linux 3.2 - 4.14 (93%), Linux 2.6.32 (92%), Android 10 - 12 (Linux 4.14 - 4.19) (92%), Linux 5.10 - 5.19 (92%), Linux 4.19 (92%), OpenWrt 21.02 (Linux 5.4) (92%), MikroTik RouterOS 7.2 - 7.5 (Linux 5.6.3) (92%), Android 9 (Linux 4.4) (92%), Linux 2.6.32 - 3.10 (92%)
+  CentOS 7                 [linux] TI=I       Aggressive OS guesses: Linux 3.2 - 4.14 (97%), Linux 3.10 - 4.11 (94%), Linux 3.13 - 3.16 (94%), Linux 3.8 - 3.16 (94%), Linux 4.10 (94%), Linux 3.4 - 3.10 (93%), Linux 2.6.32 (93%), Synology DiskStation Manager 5.2-5644 (93%), Linux 3.18 (93%), Linux 3.10 (93%)
+  Arch Linux               [linux] TI=I       Aggressive OS guesses: Linux 4.15 - 5.19 (95%), Linux 3.2 - 4.14 (93%), Linux 2.6.32 (92%), Android 10 - 12 (Linux 4.14 - 4.19) (92%), Linux 5.10 - 5.19 (92%), Linux 4.19 (92%), OpenWrt 21.02 (Linux 5.4) (92%), MikroTik RouterOS 7.2 - 7.5 (Linux 5.6.3) (92%), Linux 2.6.32 - 3.10 (92%), Crestron XPanel control system (91%)
+  Kali Linux               [linux] TI=I       Aggressive OS guesses: Linux 4.15 - 5.19 (95%), Linux 3.2 - 4.14 (93%), Linux 2.6.32 (92%), Android 10 - 12 (Linux 4.14 - 4.19) (92%), Linux 5.10 - 5.19 (92%), Linux 4.19 (92%), OpenWrt 21.02 (Linux 5.4) (92%), MikroTik RouterOS 7.2 - 7.5 (Linux 5.6.3) (92%), Android 9 (Linux 4.4) (92%), Linux 2.6.32 - 3.10 (92%)
+
+STABILITY: PASS (all profiles reachable)

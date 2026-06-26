@@ -28,7 +28,55 @@ substrate: a fresh wired VM clone eliminates it entirely.
 - ss-book stays the DEV/build host (edit, `go build`, unit tests); fidelity scans go to
   a VM. If ss-book MUST be used, wire it (no Wi-Fi) + quiesce background traffic first.
 
-## Current Status (as of 2026-06-26; latest work 2026-06-25 evening matrix)
+## Current Status (as of 2026-06-26; HiFi driver stability bug FIXED + matrix-validated)
+
+> **★★ CHECKPOINT — HiFi DRIVER NETWORK-BREAK FIXED + FULL CAPTURED-PROFILE MATRIX
+> GREEN (2026-06-26).** Branch `feat/hifi-ndis-driver`, commit `4d9755e`. The 2026-06-25
+> driver stability bug is ROOT-CAUSED, FIXED, and validated across all 3 fidelity levels.
+> Ready to merge to main pending user go.
+>
+> **Root cause (empirical, byte-level):** the mimic-hifi LWF rewrote the IP-ID and
+> recomputed the IPv4 header checksum **while leaving the NIC's TX IP-checksum-offload
+> request set** → the NIC re-checksummed on top (one's-complement double-add → `0xffff`) →
+> every outbound IP packet shipped a bad header checksum → all outbound TCP dropped (host +
+> WinRM lost connectivity) on any host with offload on (the default). TI=Z WAS on the wire;
+> the host just couldn't talk. Confirmed by an offload-toggle A/B + tcpdump on a fresh
+> Server-2016 VM (`captures/ss-book/matrix-2026-06-25/PHASE0-rootcause-2026-06-26.md`).
+> Earlier OOB-write / stale-profile hypotheses were REFUTED by reading the source; the
+> `device present: False` log line was a false negative (`Test-Path` on a `\\.\` device).
+>
+> **Fix (`driver/mimichifi/{filter.c,mimichifi.h,filter.h}`):** `MimicHiFi_RewriteIpId` gains
+> `recomputeChecksum` — when IP-checksum offload is requested, change only the IP-ID and
+> leave the checksum to the NIC (no double-add); recompute only when in-band. Skip LSO NBLs
+> (`TcpLargeSendNetBufferListInfo`). Atomic ICMP IP-ID (`InterlockedIncrement16`); VLAN bound
+> 22→38. Off-target unit test `test/rewrite_test.c` 15/15. Rebuilt via EWDK (mounted E:),
+> re-signed with the VM-trusted `Mimic HiFi Test` cert (79B5; CurrentUser\My, no elevation).
+>
+> **Connectivity safeguard (`internal/stack/connmon_windows.go`, new):** while armed, ICMP-ping
+> the gateway/canary every 5s via the mutated path; 3 sustained failures (~15s) auto-disarm to
+> WinDivert and do NOT re-arm until restart. Operator policy `stack.high_fidelity_watchdog`
+> (*bool, default ON = connectivity-priority; false = hold the deception AND deny an attacker
+> an induced-degradation oracle) + optional `stack.high_fidelity_canary`. Validated on-VM: no
+> false-trip on a healthy gateway; trips+disarms on induced loss (IP-ID 0→non-zero on the wire);
+> holds when disabled.
+>
+> **★ VALIDATION MATRIX (captured profiles only — Win10/11, Srv2016/19/22/25; Linux
+> Ubuntu/Debian/Fedora/Rocky/CentOS-7/Arch/Kali). STABILITY: PASS on all 3 runs.**
+> Full report `captures/ss-book/matrix-2026-06-26-validation/SUMMARY.md`:
+> | Backend (host) | Windows | Linux | Stable |
+> |---|---|---|---|
+> | WinDivert-std (Win) | EXACT 6/6 | family ~95% (TI=I ceiling) | PASS |
+> | **hifi driver (Win)** | **EXACT 6/6** | **EXACT 7/7 (TI=Z)** | **PASS** |
+> | eBPF (Linux) | family (top guess correct) | EXACT 7/7 | PASS |
+> The hifi tier now reaches EXACT on BOTH families WITH stability; winstd vs hifi isolates the
+> driver's value (same Linux persona 95%/TI=I → exact/TI=Z). eBPF/WinDivert paths untouched by
+> the fix (Windows-only code). **Harness learning:** drive the VM out-of-band via the QEMU
+> guest agent (`scratchpad/ga.py`, reuses lab.py PVE auth) so a connectivity blip can't strand
+> the run — this is what made the matrix robust where the old WinRM harness self-severed.
+>
+> **REMAINING:** merge `feat/hifi-ndis-driver`→main (pending user go); then the deferred
+> cleanup (drop the now-redundant WinDivert IP-ID-0 write for Linux personas when the driver
+> is present) + backend build-out. Lab clones 9523/9524 destroyed post-matrix.
 
 > **★ CHECKPOINT — FULL TRI-BACKEND MATRIX (2026-06-25 evening) + HiFi DRIVER
 > STABILITY BUG (recovered 2026-06-26).** This run was executed the evening of
