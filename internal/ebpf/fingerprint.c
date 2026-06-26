@@ -120,6 +120,43 @@ struct {
     __type(value, struct seq_cache_val);
 } seq_cache SEC(".maps");
 
+// shrink_tcp_options physically shortens a SYN-ACK's TCP options from old_optlen to
+// new_optlen bytes (both multiples of 4). Used for TS-off Windows personas on a Linux
+// host: the kernel's SYN-ACK carries a timestamp option the persona must not advertise,
+// so the option templates overwrite the TS bytes with NOPs and this removes the pad so
+// nmap reads the real option length (e.g. M5B4NW8NNS, not M5B4NW8NNS+NNNNNNNN). The caller
+// must have already (a) written the real option bytes and (b) subtracted the trailing
+// NOP-pad words from the L4 checksum. This fixes the TCP data offset, the TCP
+// pseudo-header length, the IP total length, and truncates the packet. change_tail
+// invalidates direct data/data_end pointers — the egress path below uses only
+// skb-relative helpers after this, so that is safe here.
+static __always_inline void
+shrink_tcp_options(struct __sk_buff *skb, __u32 tcp_offset, __u32 old_optlen, __u32 new_optlen) {
+    __u32 trim = old_optlen - new_optlen;
+    // TCP data offset (high nibble of the byte at tcp+12): (20 + new_optlen)/4 words.
+    __u8 doff_old = 0;
+    if (bpf_skb_load_bytes(skb, tcp_offset + 12, &doff_old, 1) >= 0) {
+        __u8 doff_new = (__u8)((((20 + new_optlen) / 4) << 4) | (doff_old & 0x0F));
+        if (bpf_skb_store_bytes(skb, tcp_offset + 12, &doff_new, 1, 0) >= 0) {
+            bpf_l4_csum_replace(skb, tcp_offset + 16,
+                (__u16)doff_old << 8, (__u16)doff_new << 8, 2);
+        }
+    }
+    // TCP checksum's pseudo-header carries the segment length; it shrank by trim.
+    bpf_l4_csum_replace(skb, tcp_offset + 16,
+        (__u16)(20 + old_optlen), (__u16)(20 + new_optlen), 2);
+    // IP total length (at 14+2) -= trim; fix the IP header checksum (at 14+10).
+    __be16 iptot_old = 0;
+    if (bpf_skb_load_bytes(skb, 16, &iptot_old, 2) >= 0) {
+        __be16 iptot_new = bpf_htons((__u16)(bpf_ntohs(iptot_old) - (__u16)trim));
+        if (bpf_skb_store_bytes(skb, 16, &iptot_new, 2, 0) >= 0) {
+            bpf_l3_csum_replace(skb, 24, iptot_old, iptot_new, 2);
+        }
+    }
+    // Physically remove the trailing pad. MUST be last — invalidates packet pointers.
+    bpf_skb_change_tail(skb, skb->len - trim, 0);
+}
+
 SEC("tc/ingress")
 int fingerprint_ingress(struct __sk_buff *skb) {
     __u32 key = 0;
@@ -550,6 +587,26 @@ int fingerprint_egress(struct __sk_buff *skb) {
             bpf_l4_csum_replace(skb, tcp_offset + 16,
                 ((__u16)old_opts[18] << 8) | old_opts[19],
                 ((__u16)new_opts[18] << 8) | new_opts[19], 2);
+
+            // TS-off Windows: the real template is shorter than 20B (the kernel's
+            // timestamp option was overwritten with trailing NOPs above). Shrink the
+            // header to the real length so nmap reads M5B4NW8NNS (12B) / M5B4NW8 (8B, the
+            // no-SACK O3) instead of a NOP-padded OPS. TS-on Windows + Linux keep 20B
+            // (their options legitimately fill it).
+            if (profile->win_quirks && profile->tcp_timestamps == 0) {
+                __u32 keep = (profile->window_scale > 0) ? (use_sack ? 12 : 8) : 8;
+                // Subtract the trailing NOP-pad words (new_opts[keep..19], each 0x0101)
+                // from the L4 checksum: 12→4 words, 8→6 words.
+                bpf_l4_csum_replace(skb, tcp_offset + 16, 0x0101, 0, 2);
+                bpf_l4_csum_replace(skb, tcp_offset + 16, 0x0101, 0, 2);
+                bpf_l4_csum_replace(skb, tcp_offset + 16, 0x0101, 0, 2);
+                bpf_l4_csum_replace(skb, tcp_offset + 16, 0x0101, 0, 2);
+                if (keep == 8) {
+                    bpf_l4_csum_replace(skb, tcp_offset + 16, 0x0101, 0, 2);
+                    bpf_l4_csum_replace(skb, tcp_offset + 16, 0x0101, 0, 2);
+                }
+                shrink_tcp_options(skb, tcp_offset, 20, keep);
+            }
         }
 
         // === 12-byte options template (ECN probe, no timestamps negotiated) ===
@@ -637,6 +694,53 @@ int fingerprint_egress(struct __sk_buff *skb) {
                             ((__u16)old16[4] << 8) | old16[5],
                             ((__u16)new_tsval16[2] << 8) | new_tsval16[3], 2);
                     }
+                }
+            }
+        }
+
+        // === TS-off Windows O6 (no-WS probe): rewrite to M5B4NNS + shrink ===
+        // The kernel's O6 SYN-ACK is MSS+SACK+TS = 16B. A TS-off Windows persona must
+        // advertise M5B4NNS (MSS NOP NOP SACK = 8B, no timestamp). Rewrite + shrink to 8B.
+        // W6 (no-WS window): a 65535-window no-TS Server (Server 2019) advertises FF70
+        // here; smaller-window editions (Win10 = 2000) keep the general window value.
+        if (opt_len == 16 && profile->win_quirks && profile->tcp_timestamps == 0 && is_syn) {
+            __u32 o6 = tcp_offset + 20;
+            __u8 o6_old[16];
+            if (bpf_skb_load_bytes(skb, o6, o6_old, 16) >= 0) {
+                __u16 mss6 = profile->mss;
+                if (o6_old[0] == TCPOPT_MSS && o6_old[1] == 4) {
+                    mss6 = ((__u16)o6_old[2] << 8) | o6_old[3];
+                }
+                __u8 o6_new[16] = {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1};
+                o6_new[0] = TCPOPT_MSS; o6_new[1] = 4;
+                o6_new[2] = (mss6 >> 8) & 0xFF; o6_new[3] = mss6 & 0xFF;
+                o6_new[4] = TCPOPT_NOP; o6_new[5] = TCPOPT_NOP;
+                o6_new[6] = TCPOPT_SACK_PERM; o6_new[7] = 2;
+                // o6_new[8..15] stay NOP (the timestamp is dropped)
+                if (bpf_skb_store_bytes(skb, o6, o6_new, 16, 0) >= 0) {
+                    bpf_l4_csum_replace(skb, tcp_offset+16, ((__u16)o6_old[0]<<8)|o6_old[1], ((__u16)o6_new[0]<<8)|o6_new[1], 2);
+                    bpf_l4_csum_replace(skb, tcp_offset+16, ((__u16)o6_old[2]<<8)|o6_old[3], ((__u16)o6_new[2]<<8)|o6_new[3], 2);
+                    bpf_l4_csum_replace(skb, tcp_offset+16, ((__u16)o6_old[4]<<8)|o6_old[5], ((__u16)o6_new[4]<<8)|o6_new[5], 2);
+                    bpf_l4_csum_replace(skb, tcp_offset+16, ((__u16)o6_old[6]<<8)|o6_old[7], ((__u16)o6_new[6]<<8)|o6_new[7], 2);
+                    bpf_l4_csum_replace(skb, tcp_offset+16, ((__u16)o6_old[8]<<8)|o6_old[9], ((__u16)o6_new[8]<<8)|o6_new[9], 2);
+                    bpf_l4_csum_replace(skb, tcp_offset+16, ((__u16)o6_old[10]<<8)|o6_old[11], ((__u16)o6_new[10]<<8)|o6_new[11], 2);
+                    bpf_l4_csum_replace(skb, tcp_offset+16, ((__u16)o6_old[12]<<8)|o6_old[13], ((__u16)o6_new[12]<<8)|o6_new[13], 2);
+                    bpf_l4_csum_replace(skb, tcp_offset+16, ((__u16)o6_old[14]<<8)|o6_old[15], ((__u16)o6_new[14]<<8)|o6_new[15], 2);
+                    // remove the trailing 4 NOP-pad words [8..15] (now 0x0101)
+                    bpf_l4_csum_replace(skb, tcp_offset+16, 0x0101, 0, 2);
+                    bpf_l4_csum_replace(skb, tcp_offset+16, 0x0101, 0, 2);
+                    bpf_l4_csum_replace(skb, tcp_offset+16, 0x0101, 0, 2);
+                    bpf_l4_csum_replace(skb, tcp_offset+16, 0x0101, 0, 2);
+                    // W6: a 65535-window no-TS Server advertises FF70 on the no-WS probe.
+                    if (profile->window_size == 0xFFFF) {
+                        __be16 w6n = bpf_htons((__u16)0xFF70), w6c = 0;
+                        if (bpf_skb_load_bytes(skb, tcp_offset + 14, &w6c, 2) >= 0 && w6c != w6n) {
+                            if (bpf_skb_store_bytes(skb, tcp_offset + 14, &w6n, 2, 0) >= 0) {
+                                bpf_l4_csum_replace(skb, tcp_offset + 16, w6c, w6n, 2);
+                            }
+                        }
+                    }
+                    shrink_tcp_options(skb, tcp_offset, 16, 8);
                 }
             }
         }
