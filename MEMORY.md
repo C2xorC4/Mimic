@@ -74,9 +74,39 @@ substrate: a fresh wired VM clone eliminates it entirely.
 > guest agent (`scratchpad/ga.py`, reuses lab.py PVE auth) so a connectivity blip can't strand
 > the run — this is what made the matrix robust where the old WinRM harness self-severed.
 >
-> **REMAINING:** merge `feat/hifi-ndis-driver`→main (pending user go); then the deferred
-> cleanup (drop the now-redundant WinDivert IP-ID-0 write for Linux personas when the driver
-> is present) + backend build-out. Lab clones 9523/9524 destroyed post-matrix.
+> **★ eBPF WINDOWS-PERSONA EXACT CHASE (2026-06-26, `6fdb34b` + queued).** The matrix
+> showed eBPF Windows personas split 3 exact (Srv 2016/2022/2025) / 3 not (Win10/11/Srv2019).
+> NOT a regression and NOT the SEQ/ISN ceiling — all their SEQ SP/ISR land IN the nmap-os-db
+> range. Root cause = edition-specific fixes the WinDivert backend got but never reached the
+> Linux paths. Diffed every failing vector vs nmap-os-db (`captures/ss-book/matrix-2026-06-26-
+> validation/SUMMARY.md`):
+> - **Win11 → FIXED + validated EXACT (`6fdb34b`, Go-only):** `run.go` dropped ICMP echo for
+>   any workstation persona (bare `isWorkstation`) ignoring `closed_port_behavior: reset`,
+>   unlike the WinDivert path (gates on `autoDrop`). On a Linux host → `IE(R=N)` + lost `II`/`SS`.
+>   Gated on `autoDrop` → echo answered in reset mode → `OS details: Win10 1703/Win11 21H2` EXACT.
+> - **Win10 (QUEUED, needs fingerprint.c + bpf2go regen):** TS-off OPS not normalized on a
+>   Linux host — `O1..O5` padded with trailing NOPs, `O6=M5B4ST11` (stray TS) vs ref
+>   `M5B4NW8NNS`/`M5B4NNS`. Needs the eBPF equivalent of WinDivert's `shrinkTCPHeader` (strip
+>   TS for TS-off Windows + shrink the option length).
+> - **Server 2019 (QUEUED, needs fingerprint.c + regen):** `ECN CC=N` vs ref `CC=Y` — the
+>   `ecnCC`/`explicit_congestion: echo` split was never ported to fingerprint.c (only `ecn_echo`).
+> bpf2go regen = clang on a Linux box (the documented fresh-VM cycle: cloud-init wait, asm
+> symlink, Go 1.25). Pull the regenerated `*_bpf*.{go,o}` back before committing.
+>
+> **VALIDATION HARNESS (reusable, in `captures/ss-book/matrix-2026-06-26-validation/`):**
+> `ga.py` = out-of-band QEMU guest-agent exec (reuses `infra/proxmox/lab.py` PVE auth; survives
+> a connectivity blip — the key to a robust Windows matrix). `matrix_run.py` (Windows host,
+> hifi|winstd via guest agent), `ebpf_matrix.py` (Linux host via SSH root@). Profile set =
+> captured+integrated only (Win10/11, Srv2016/19/22/25; Ubuntu/Debian/Fedora/Rocky/CentOS-7/
+> Arch/Kali). Lab note: SSH user for ubuntu-2204 cloud clones = `root`; scp-over-a-running
+> binary can leave a STALE inode — `rm -f` the target first (cost me a confusing iteration).
+>
+> **REMAINING (post-merge):** (1) eBPF Win10 OPS + Server-2019 ecnCC in fingerprint.c + regen;
+> (2) RHEL images added to proxmox (not installed) → templatize + capture, then add to matrix;
+> (3) macOS VMs 9401/9402 unstable at load/install (proxmox-macOS-on-KVM: CPU flags/OSK/
+> OpenCore/OVMF) — separate track, profile still unbuilt; (4) deferred cleanup (drop the
+> now-redundant WinDivert IP-ID-0 write for Linux personas when the driver is present). Lab
+> clones 9523/9524 destroyed post-matrix.
 
 > **★ CHECKPOINT — FULL TRI-BACKEND MATRIX (2026-06-25 evening) + HiFi DRIVER
 > STABILITY BUG (recovered 2026-06-26).** This run was executed the evening of

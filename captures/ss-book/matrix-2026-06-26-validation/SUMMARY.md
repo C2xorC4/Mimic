@@ -36,3 +36,22 @@ guest agent (Windows) / SSH (Linux).
 
 Raw logs: `matrix_hifi_fixed.log`, `matrix_winstd.log`, `matrix_ebpf.log`.
 Harness: `matrix_run.py` (Windows, guest-agent), `ebpf_matrix.py` (Linux, SSH), `ga.py`.
+
+---
+
+## eBPF Windows-persona EXACT chase — diagnosis (2026-06-26)
+
+NOT the SEQ/ISN ceiling and NOT a sampling artifact. eBPF Windows personas split 3 exact
+(Srv 2016/2022/2025) / 3 not (Win10/11/Srv2019) on edition-specific indicators that the
+WinDivert backend received but were never back-ported to the Linux paths. SEQ SP/ISR for
+all of them land IN the nmap-os-db reference range (ISR marginally high = flicker, not the
+blocker).
+
+| Persona | Primary divergence vs nmap-os-db | Fix |
+|---|---|---|
+| **Windows 11** | ICMP echo dropped in `reset` mode (`run.go` gated on bare `isWorkstation`, not `autoDrop`) → `IE(R=N)` + lost `II`/`SS` | **FIXED `6fdb34b` (Go) → now `Win10 1703/Win11 21H2` EXACT** |
+| Windows 10 | TS-off OPS not normalized on a Linux host: `O1..O5` padded with trailing NOPs, `O6=M5B4ST11` (stray TS) vs ref `M5B4NW8NNS`/`M5B4NNS` | fingerprint.c TS-strip + option-length shrink (eBPF `shrinkTCPHeader` equiv) + bytecode regen |
+| Server 2019 | `ECN CC=N` vs ref `CC=Y` — the `ecnCC`/`explicit_congestion: echo` split was never ported to fingerprint.c | fingerprint.c ecnCC + bytecode regen |
+
+The two remaining fixes are eBPF C (fingerprint.c) + a bpf2go bytecode regen (clang on a
+Linux box) — well-scoped, no ISN-rewriting required.
