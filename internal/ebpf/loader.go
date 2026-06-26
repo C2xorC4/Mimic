@@ -239,6 +239,12 @@ func profileToBPF(profile *config.OSProfile) *OSProfileBPF {
 	case "linux", "macos":
 		bpf.EcnEcho = 1
 	}
+	// CC=Y also applies to modern Windows Server editions that reflect ECE on the ECN
+	// probe (explicit_congestion: echo) — e.g. Server 2019. Mirrors the WinDivert ecnCC
+	// split; Linux/macOS already get CC=Y via EcnEcho. Workstation stays CC=N.
+	if bpf.EcnEcho == 1 || strings.EqualFold(profile.Stack.ExplicitCongestion, "echo") {
+		bpf.EcnCC = 1
+	}
 	// Windows-only stack quirks (shared IP-ID/SS=S, A=O RST, ICMP CD=Z) apply only
 	// to Windows profiles; a Linux/macOS profile keeps the host's native behavior so
 	// it fingerprints cleanly as that OS (#13 — distro-spoofing correctness).

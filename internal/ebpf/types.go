@@ -29,8 +29,11 @@ type OSProfileBPF struct {
 	WinQuirks uint8
 
 	// RST behavior
-	AckInRST    uint8
-	_pad3       uint8
+	AckInRST uint8
+	// EcnCC: 1 = reflect ECE on the ECN-probe SYN-ACK → nmap CC=Y (Linux/macOS, and
+	// Windows Server editions via explicit_congestion: echo); 0 = clear ECE → CC=N
+	// (Windows workstation). Repurposes the former _pad3 byte (no struct-layout change).
+	EcnCC       uint8
 	WindowInRST uint16
 
 	// ICMP

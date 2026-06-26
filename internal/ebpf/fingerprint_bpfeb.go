@@ -36,7 +36,7 @@ type fingerprintOsProfile struct {
 	TcpOptionsCount       uint8
 	WinQuirks             uint8
 	AckInRst              uint8
-	Pad3                  uint8
+	EcnCc                 uint8
 	WindowInRst           uint16
 	IcmpQuoteSize         uint8
 	IcmpDfInQuote         uint8

@@ -57,7 +57,7 @@ struct os_profile {
 
     // RST behavior
     __u8  ack_in_rst;
-    __u8  _pad3;
+    __u8  ecn_cc;       // 1 = reflect ECE on the ECN-probe SYN-ACK → nmap CC=Y (Linux/macOS, and Windows Server via explicit_congestion: echo); 0 = clear ECE → CC=N (Windows workstation). Repurposes the former _pad3 byte.
     __u16 window_in_rst;
 
     // ICMP
@@ -754,8 +754,10 @@ int fingerprint_egress(struct __sk_buff *skb) {
         // ecn_support in the profile means the OS initiates ECN connections, not that it
         // echoes ECE in SYN-ACK back to probers.
         // Only applies to SYN-ACK (SYN=1 + ACK=1, flags & 0x12 == 0x12).
-        // Gated by !ecn_echo: Linux/macOS echo ECE (CC=Y), so only Windows clears it (#12).
-        if ((tcp_flags & 0x12) == 0x12 && (tcp_flags & 0x40) && !profile->ecn_echo) {
+        // Gated by !ecn_echo && !ecn_cc: Linux/macOS (ecn_echo) AND modern Windows Server
+        // editions that reflect ECE (ecn_cc, from explicit_congestion: echo) keep it →
+        // CC=Y; only Windows workstation clears it → CC=N (#12; Server 2019 needs CC=Y).
+        if ((tcp_flags & 0x12) == 0x12 && (tcp_flags & 0x40) && !profile->ecn_echo && !profile->ecn_cc) {
             __u8 no_ece = tcp_flags & ~(__u8)0x40;  // clear ECE (bit 6)
             if (bpf_skb_store_bytes(skb, tcp_offset + 13, &no_ece, 1, 0) >= 0) {
                 bpf_l4_csum_replace(skb, tcp_offset + 16,
