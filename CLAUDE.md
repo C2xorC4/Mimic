@@ -285,8 +285,9 @@ work is profile validation depth and a few structural gaps.
    read as Linux there. Fixable config-side: dhcpcd/systemd-networkd option-55 ordering.
 
 **Profile validation — remaining:**
-- Win7 / Win8 / Server 2008 R2 / Server 2012 R2: real VM captures done; EXACT-chase
-  (per-indicator diff vs nmap-os-db) not yet started.
+- Win7 / Win8 / Server 2008 R2 / Server 2012 R2: **EXACT** (eBPF, 2026-06-29 commit `cfe0280`).
+  Key fix: ts_slow=1 (100Hz TS → TS=7) via loader ordering fix + new TsSlow field.
+  Server2012R2 also needed explicit_congestion: echo (CC=Y).
 - Vista / Win8.1 / Server 2008 / Server 2012: profile corrected from nmap-os-db;
   no real VM captures; no Proxmox templates.
 - XP SP2/SP3 / Server 2003: T00 behavior unimplemented; profiles exist.
@@ -315,14 +316,17 @@ work is profile validation depth and a few structural gaps.
 - **Capture automation** — `mimic capture pcap` → manifest + response templates.
 - **Interactive honeypot mode** — SSH/SMB/RDP with credential-leak loop; security
   event logging; RBAC-gated control plane; Windows tray UI.
-- **Legacy Windows captures** (2026-06-29) — Win7 SP1 (9007), Win8 Pro N (9008),
+- **Legacy Windows captures + EXACT** (2026-06-29) — Win7 SP1 (9007), Win8 Pro N (9008),
   Server 2008 R2 SP1 (9108), Server 2012 R2 (9112) real VM captures + templatized.
   Profile era-wide audit: tcp_timestamps, window_scale, explicit_congestion fixed
   across Vista through Server 2012 R2 based on nmap-os-db + real captures.
+  All four profiles now EXACT on eBPF (commit `cfe0280`): TS=7 (100Hz via ts_slow),
+  correct CC per band (Win7/Win8/2008R2=CC=N, Server2012R2=CC=Y).
 
 **Future:**
-- EXACT-chase for legacy Windows (Win7/Win8/Server2008R2/Server2012R2) — per-indicator
-  diff vs nmap-os-db; analogous to the Win10/11/Server2016-2025 iteration.
+- EXACT-chase for remaining legacy Windows (Vista, Win8.1, Server2008, Server2003, XP) —
+  no real VM captures; profile-only (nmap-os-db grounded). T00 (XP/Server2003) requires
+  a separate eBPF code path (TS option present, TSval=0).
 - XP/Server 2003 T00 timestamp implementation.
 - DHCP option-55 spoofing (config-side; no kernel work required).
 - macOS as a HOST platform (running Mimic on macOS itself) — KVM/OpenCore instability;

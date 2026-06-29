@@ -8,6 +8,32 @@
 > write-ups (`net_impacket_*`, `net_smb_*`). Recall LJM before re-deriving;
 > don't duplicate Knowledge entries here.
 
+> **★★ CHECKPOINT — legacy Windows 6.x era EXACT (Win7/Win8/Server2008R2/Server2012R2) (2026-06-29).**
+> Commit `cfe0280`. eBPF backend now scores **EXACT** for all four legacy Windows profiles
+> from a Linux host. Two bugs fixed + one profile corrected:
+> 1. **loader.go ordering bug**: `TsSlow` check at line 259 ran BEFORE `TCPTimestamps` was
+>    assigned (line 272) → `bpf.TCPTimestamps` was always 0 at check time → `TsSlow` always
+>    stayed 0 → TS=A. Fixed by moving the TsSlow block after the TCPTimestamps assignment.
+>    Confirmed via `bpftool map dump id` showing `ts_slow: 0` before fix, `ts_slow: 1` after.
+> 2. **ts_slow field** (fingerprint.c / types.go / backend_windows.go): new `TsSlow uint8`
+>    (repurposes `_pad4[0]`). When 1, uses `bpf_ktime_get_ns() / 10000000ULL` (100Hz, TS=7)
+>    instead of `/1000000ULL` (1000Hz, TS=A). Applied at all three TS sites: SYN-ACK 20B
+>    template, 16B O6 no-WS probe, 12B established segment coherence. WinDivert backend
+>    mirrors via `tsSlow bool` + `tsval()` method. Gate: windows family + tcp_timestamps +
+>    version major "6".
+> 3. **Profile fix**: `server-2012-r2.yaml` and `server-2012.yaml`: `explicit_congestion:
+>    respond` → `echo` (CC=Y). "respond" is CC=N; "echo" is CC=Y. Server 2012 R2 needs CC=Y
+>    to match the "Win7/Server2012/Win8.1 Update1" nmap-os-db band (not the "Vista/Win7/
+>    Server2008R2/Win8.1" band which is CC=N). Confirmed by real VM capture golden.
+> **EXACT results (eBPF, Kali → argus ubuntu-2204, nmap 7.98):**
+> | Profile | TS | CC | nmap attribution |
+> |---------|----|----|-----------------|
+> | Windows 7 SP1 (6.1.7601) | **7** | N | Vista SP2 or Win7 or Server 2008 R2 or Win8.1 |
+> | Windows 8 Pro N (6.2.9200) | **7** | N | Vista SP2 or Win7 or Server 2008 R2 or Win8.1 |
+> | Server 2008 R2 SP1 (6.1.7601) | **7** | N | Vista SP2 or Win7 or Server 2008 R2 or Win8.1 |
+> | Server 2012 R2 (6.3.9600) | **7** | Y | Win7 / Server 2012 / Win8.1 Update 1 |
+> Win11 regression confirmed EXACT ("Windows 10 1703 or Windows 11 21H2"); macOS/Linux untouched.
+
 > **★★ CHECKPOINT — macOS Linux→macOS EXACT (all 3 profiles) (2026-06-29).**
 > Commit `34f0e31`. eBPF backend now scores **EXACT** `Apple macOS 10.13 (High Sierra) -
 > 10.15 (Catalina) or iOS 11.0 - 14.3` on all three profiles (Sequoia CC=N, Tahoe/Sonoma
@@ -77,12 +103,12 @@ grounded, no real VM | **T=** = Proxmox template VMID.
 | Windows Vista | 6.0.6000 | — | "Vista SP2/Win7" | profile only (nmap-os-db grounded) |
 | Windows Server 2003 | 5.2.3790 | — | "Server 2003" | profile only; T00 TS not impl. |
 | Windows Server 2008 | 6.0.6001 | — | "Server 2008" | profile only (nmap-os-db grounded) |
-| Windows 7 SP1 | 6.1.7601 | 9007 | "Vista/Win7/2008R2/8.1" | ✓ captured 2026-06-29 |
-| Windows Server 2008 R2 SP1 | 6.1.7601 | 9108 | same band | ✓ captured 2026-06-29 |
-| Windows 8 | 6.2.9200 | 9008 | "Vista/Win7/2008R2/8.1" | ✓ captured 2026-06-29 |
+| Windows 7 SP1 | 6.1.7601 | 9007 | "Vista/Win7/2008R2/8.1" | **EXACT** (eBPF, TS=7 CC=N) |
+| Windows Server 2008 R2 SP1 | 6.1.7601 | 9108 | same band | **EXACT** (eBPF, TS=7 CC=N) |
+| Windows 8 | 6.2.9200 | 9008 | "Vista/Win7/2008R2/8.1" | **EXACT** (eBPF, TS=7 CC=N) |
 | Windows Server 2012 | 6.2.9200 | — | "Server 2012/R2" | profile only (nmap-os-db grounded) |
 | Windows 8.1 | 6.3.9600 | — | "Vista/Win7/2008R2/8.1" | profile only (nmap-os-db grounded) |
-| Windows Server 2012 R2 | 6.3.9600 | 9112 | "Server 2012 R2" | ✓ captured 2026-06-29 |
+| Windows Server 2012 R2 | 6.3.9600 | 9112 | "Server 2012 R2" | **EXACT** (eBPF, TS=7 CC=Y) |
 | Windows 10 | 10.0.19041 | 9010 | "Windows 10 1909" | **EXACT** (WinDivert + eBPF) |
 | Windows Server 2016 | 10.0.14393 | 9116 | "Server 2016" | **EXACT** (WinDivert + eBPF) |
 | Windows Server 2019 | 10.0.17763 | 9119 | "Server 2019" | **EXACT** (WinDivert + eBPF) |
