@@ -8,6 +8,21 @@
 > write-ups (`net_impacket_*`, `net_smb_*`). Recall LJM before re-deriving;
 > don't duplicate Knowledge entries here.
 
+> **★★ CHECKPOINT — macOS Linux→macOS EXACT (all 3 profiles) (2026-06-29).**
+> Commit `34f0e31`. eBPF backend now scores **EXACT** `Apple macOS 10.13 (High Sierra) -
+> 10.15 (Catalina) or iOS 11.0 - 14.3` on all three profiles (Sequoia CC=N, Tahoe/Sonoma
+> CC=Y) from a Linux eBPF host — no nmap submission prompt. Six fixes closed the 96%→EXACT
+> gap (each was a TCP option negotiation or protocol subtlety):
+> 1. **O3 SACK**: gate macOS 20→24B expand on `use_sack`; P3 omits SACK → O3=M5B4NW6NNT11.
+> 2. **O6 WS**: 16B handler: NOP+NOP (not NOP+WS), expand 16→20B; P6 omits WS → O6=M5B4NNT11SLL.
+> 3. **ECN O**: macOS 12B handler: SACK+EOL+EOL (SLL) not NOP+NOP+SACK → ECN O=M5B4NW6SLL.
+> 4. **T5/T7 DF=N**: macOS RST+ACK to closed ports clears DF (open-port RSTs keep DF=Y).
+> 5. **RUCK=0**: zero inner UDP checksum in ICMP quote before recomputing outer ICMP csum.
+> 6. **T7 A=S**: new `fin_probe_map` (ingress tracks FIN+PSH+URG probes); egress RST+ACK
+>    decrements ACK by 1 for FIN probes (macOS doesn't consume FIN seq for closed-port RST).
+> No regression: Windows 6/6 EXACT, Linux 7/7 EXACT confirmed post-fix. Profiles:
+> `profiles/macos/{sequoia,tahoe,sonoma}.yaml`. Test VM: ubuntu-2204 clone 10.0.254.160.
+
 ## ★ METHODOLOGY RULE — develop & fidelity-test against a FRESH lab VM, never ss-book
 
 **Always run mimic and scan it on a clean proxmox VM clone (or a recently-spun-up
