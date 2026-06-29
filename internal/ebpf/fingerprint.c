@@ -68,7 +68,8 @@ struct os_profile {
 
     // UDP
     __u8  udp_closed_port_response;
-    __u8  _pad4[3];
+    __u8  ts_slow;  // 1 = 10ms TSval clock (-> nmap TS=7, Windows 6.x era); 0 = 1ms (-> TS=A, Win 10+)
+    __u8  _pad4[2];
 };
 
 // Global state for IP ID generation
@@ -701,7 +702,12 @@ int fingerprint_egress(struct __sk_buff *skb) {
                 } else if (old_opts[4] == TCPOPT_TIMESTAMP && old_opts[5] == TCPOLEN_TIMESTAMP) {
                     orig_tsecr = ((__u32)old_opts[10]<<24)|((__u32)old_opts[11]<<16)|((__u32)old_opts[12]<<8)|old_opts[13];
                 }
-                __u32 win_tsval = (__u32)(bpf_ktime_get_ns() / 1000000ULL);
+                __u32 win_tsval;
+                if (profile->ts_slow) {
+                    win_tsval = (__u32)(bpf_ktime_get_ns() / 10000000ULL);
+                } else {
+                    win_tsval = (__u32)(bpf_ktime_get_ns() / 1000000ULL);
+                }
 
                 new_opts[0] = TCPOPT_MSS;
                 new_opts[1] = 4;
@@ -894,7 +900,12 @@ int fingerprint_egress(struct __sk_buff *skb) {
                 if (old16[0] == TCPOPT_TIMESTAMP && old16[1] == TCPOLEN_TIMESTAMP) {
                     // TS at options offset 6: MSS(0-3) + SACK(4-5) + TS(6-15)
                     // TSval is at options offset 8..11 → packet offset opt16_start+8
-                    __u32 win_tsval16 = (__u32)(bpf_ktime_get_ns() / 1000000ULL);
+                    __u32 win_tsval16;
+                    if (profile->ts_slow) {
+                        win_tsval16 = (__u32)(bpf_ktime_get_ns() / 10000000ULL);
+                    } else {
+                        win_tsval16 = (__u32)(bpf_ktime_get_ns() / 1000000ULL);
+                    }
                     __u8 new_tsval16[4] = {
                         (win_tsval16 >> 24) & 0xFF,
                         (win_tsval16 >> 16) & 0xFF,
@@ -1040,7 +1051,12 @@ int fingerprint_egress(struct __sk_buff *skb) {
                     sig[2] == TCPOPT_TIMESTAMP && sig[3] == TCPOLEN_TIMESTAMP) {
                     __u8 old_tsval[4];
                     if (bpf_skb_load_bytes(skb, ts_opt_start + 4, old_tsval, 4) >= 0) {
-                        __u32 win_tsval = (__u32)(bpf_ktime_get_ns() / 1000000ULL);
+                        __u32 win_tsval;
+                        if (profile->ts_slow) {
+                            win_tsval = (__u32)(bpf_ktime_get_ns() / 10000000ULL);
+                        } else {
+                            win_tsval = (__u32)(bpf_ktime_get_ns() / 1000000ULL);
+                        }
                         __u8 new_tsval[4] = {
                             (win_tsval >> 24) & 0xFF,
                             (win_tsval >> 16) & 0xFF,

@@ -50,6 +50,14 @@ func uptimeMs64() uint64 {
 	r, _, _ := procGetTickCount64.Call()
 	return uint64(r)
 }
+// tsval returns the TSval clock appropriate for this profile: Windows 6.x
+// (ts_slow) ticks at 10ms (~100 Hz, TS=7); all others tick at 1ms (TS=A).
+func (p *winProfile) tsval() uint32 {
+	if p.tsSlow {
+		return uptimeMs() / 10
+	}
+	return uptimeMs()
+}
 
 // IP-ID behaviors (mirror internal/ebpf constants).
 const (
@@ -75,6 +83,7 @@ type winProfile struct {
 	ecnCC         bool  // echo ECE on the ECN-probe SYN-ACK → nmap CC=Y (Linux/macOS + Windows Server via explicit_congestion: echo); Windows workstation = N
 	ecnWindow     uint16 // window advertised on the ECN-probe SYN-ACK (nmap ECN W=); 0 = use windowSize. Linux ECN rwnd differs from the OS-probe WIN (FE88→FAF0).
 	winQuirks     bool  // Windows profile → apply Windows-only quirks (ICMP CD=Z, A=O RST); off for Linux (#13)
+	tsSlow        bool  // Windows 6.x era: TSval at 10ms (-> TS=7); false = 1ms (-> TS=A, Win 10+)
 	highFidelity  bool  // opt-in: arm the mimic-hifi driver so a Linux persona emits IP-ID 0 (TI/CI=Z) below the re-stamp
 	hifiWatchdog  bool  // when high_fidelity is armed, auto-disarm on sustained outbound-connectivity loss (default on; false = hold the deception)
 	hifiCanary    string // optional watchdog probe target IP (default: the interface gateway)
@@ -112,15 +121,23 @@ func toWinProfile(p *config.OSProfile) *winProfile {
 		wp.opt1 = tcpOptKind(s.TCPOptionsOrder[1])
 	}
 	switch strings.ToLower(p.Family) {
-	case "linux", "macos":
+	case "linux":
 		wp.ecnEcho = true
+	// macOS: ECN varies per version (Tahoe CC=Y, Sequoia CC=N).
+	// ecnEcho NOT set for macOS; explicit_congestion drives ecnCC below.
+	// (ecnEcho also controls the Linux ECN-probe options template — macOS
+	// doesn't use that template, so leaving it false is correct.)
 	}
-	// CC=Y (echo ECE) for Linux/macOS always, and for any profile that opts in via
-	// `explicit_congestion: echo` (modern Windows Server reflects ECE → nmap CC=Y;
-	// Windows workstation = respond/CC=N). Kept separate from ecnEcho so a Windows
-	// Server profile gets CC=Y WITHOUT the Linux ECN-options template.
+	// CC=Y: Linux (via ecnEcho), macOS Tahoe/Sonoma (explicit_congestion: echo),
+	// and Windows Server editions that reflect ECE (explicit_congestion: echo).
 	wp.ecnCC = wp.ecnEcho || strings.EqualFold(s.ExplicitCongestion, "echo")
 	wp.winQuirks = strings.EqualFold(p.Family, "windows")
+	// Windows 6.x era uses ~100 Hz timestamps (TS=7); Win 10+ uses ~1000 Hz (TS=A).
+	if wp.winQuirks && wp.tcpTimestamps {
+		if parts := strings.SplitN(p.Version, ".", 2); len(parts) > 0 && parts[0] == "6" {
+			wp.tsSlow = true
+		}
+	}
 	wp.highFidelity = s.HighFidelity
 	// watchdog defaults ON (nil) — connectivity-preserving — unless explicitly disabled.
 	wp.hifiWatchdog = s.HighFidelityWatchdog == nil || *s.HighFidelityWatchdog
@@ -762,7 +779,7 @@ func (b *windowsBackend) applyTCP(pkt []byte, ihl int, p *winProfile) ([]byte, b
 				no[8], no[9] = optSACKPerm, 2
 			}
 			no[10], no[11] = optTimestamp, olenTimestamp
-			binary.BigEndian.PutUint32(no[12:16], uptimeMs())
+			binary.BigEndian.PutUint32(no[12:16], p.tsval())
 			// TSecr must echo the client's SYN TSval for nmap OPS to read ST11. The
 			// Windows host has TCP timestamps disabled, so its own SYN-ACK carries
 			// nothing to echo (origTSecr==0) → nmap reads ST10. Prefer the real client
@@ -777,15 +794,30 @@ func (b *windowsBackend) applyTCP(pkt []byte, ihl int, p *winProfile) ([]byte, b
 			}
 			binary.BigEndian.PutUint32(no[16:20], origTSecr)
 		default:
-			// macOS/default: MSS, NOP, WS, SACK, NOPs
+			// macOS: MSS(4)+NOP+WS(3)+NOP+NOP+TS(10) = first 20B.
+			// SACK(2)+EOL+EOL are appended via growTCPHeader after the copy below.
+			var macTSecr uint32
+			switch {
+			case old[8] == optTimestamp && old[9] == olenTimestamp:
+				macTSecr = binary.BigEndian.Uint32(old[14:18])
+			case old[6] == optTimestamp && old[7] == olenTimestamp:
+				macTSecr = binary.BigEndian.Uint32(old[12:16])
+			case old[4] == optTimestamp && old[5] == olenTimestamp:
+				macTSecr = binary.BigEndian.Uint32(old[10:14])
+			}
+			if haveFlow && flow.hadTS && flow.tsval != 0 {
+				macTSecr = flow.tsval
+			}
+			if macTSecr == 0 {
+				macTSecr = uptimeMs()
+			}
 			putMSS(no[:], 0, mss)
 			no[4] = optNOP
-			if p.windowScale > 0 {
-				no[5], no[6], no[7] = optWScale, 3, p.windowScale
-			}
-			if useSACK {
-				no[8], no[9] = optSACKPerm, 2
-			}
+			no[5], no[6], no[7] = optWScale, 3, p.windowScale
+			no[8], no[9] = optNOP, optNOP
+			no[10], no[11] = optTimestamp, olenTimestamp
+			binary.BigEndian.PutUint32(no[12:16], uptimeMs())
+			binary.BigEndian.PutUint32(no[16:20], macTSecr)
 		}
 		copy(tcp[20:40], no[:])
 		if wantOptLen < 20 {
@@ -793,6 +825,15 @@ func (b *windowsBackend) applyTCP(pkt []byte, ihl int, p *winProfile) ([]byte, b
 			tcp = pkt[ihl:]
 			tcpHL = 20 + wantOptLen
 			optLen = wantOptLen
+		}
+		// macOS: expand from 20B options to 24B by appending SACK+EOL+EOL.
+		if !p.winQuirks && p.ipidBehavior == ipidZero && p.tcpTimestamps && wantOptLen == 20 {
+			pkt = growTCPHeader(pkt, ihl, 40, 44)
+			tcp = pkt[ihl:]
+			tcp[40], tcp[41] = optSACKPerm, 2
+			tcp[42], tcp[43] = optEOL, optEOL
+			tcpHL = 44
+			optLen = 24
 		}
 		modified = true
 	}
@@ -886,7 +927,7 @@ func (b *windowsBackend) applyTCP(pkt []byte, ihl int, p *winProfile) ([]byte, b
 		}
 		// options offset 6 = tcp[26]; TS option there → TSval at tcp[28:32]
 		if tcp[26] == optTimestamp && tcp[27] == olenTimestamp {
-			binary.BigEndian.PutUint32(tcp[28:32], uptimeMs())
+			binary.BigEndian.PutUint32(tcp[28:32], p.tsval())
 			modified = true
 		}
 	}
@@ -925,7 +966,7 @@ func (b *windowsBackend) applyTCP(pkt []byte, ihl int, p *winProfile) ([]byte, b
 	// === TS coherence for established data / pure-ACK (NOP,NOP,TS = 12 bytes) ===
 	if optLen == 12 && !isSYN && p.tcpTimestamps && p.windowScale > 0 && len(tcp) >= 32 {
 		if tcp[20] == optNOP && tcp[21] == optNOP && tcp[22] == optTimestamp && tcp[23] == olenTimestamp {
-			binary.BigEndian.PutUint32(tcp[24:28], uptimeMs()) // TSval; TSecr (28:32) preserved
+			binary.BigEndian.PutUint32(tcp[24:28], p.tsval()) // TSval; TSecr (28:32) preserved
 			modified = true
 		}
 	}

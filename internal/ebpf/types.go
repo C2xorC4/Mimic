@@ -1,4 +1,4 @@
-package ebpf
+﻿package ebpf
 
 // OSProfileBPF is the BPF map representation of an OS profile
 // Must match the struct os_profile in fingerprint.c exactly
@@ -7,9 +7,9 @@ type OSProfileBPF struct {
 	TTL          uint8
 	DFBit        uint8
 	IPIDBehavior uint8
-	// EcnEcho: 1 = OS echoes ECE in the SYN-ACK (Linux/macOS → nmap CC=Y) and keeps
+	// EcnEcho: 1 = OS echoes ECE in the SYN-ACK (Linux/macOS â†’ nmap CC=Y) and keeps
 	// its native ECN-probe options; 0 = clear ECE + force Windows-ordered ECN options
-	// (Windows → CC=N). Repurposes the former _pad1 byte (no struct-layout change).
+	// (Windows â†’ CC=N). Repurposes the former _pad1 byte (no struct-layout change).
 	EcnEcho uint8
 
 	// TCP layer
@@ -23,15 +23,15 @@ type OSProfileBPF struct {
 	// TCP options order (max 10 options, 0 = end)
 	TCPOptionsOrder [10]uint8
 	TCPOptionsCount uint8
-	// WinQuirks: 1 = Windows profile → apply Windows-only stack quirks (shared
+	// WinQuirks: 1 = Windows profile â†’ apply Windows-only stack quirks (shared
 	// IP-ID/SS=S, A=O RST ack, ICMP CD=Z). 0 (Linux/macOS) leaves the host's native
 	// behavior. Repurposes the former _pad2 byte (no struct-layout change).
 	WinQuirks uint8
 
 	// RST behavior
 	AckInRST uint8
-	// EcnCC: 1 = reflect ECE on the ECN-probe SYN-ACK → nmap CC=Y (Linux/macOS, and
-	// Windows Server editions via explicit_congestion: echo); 0 = clear ECE → CC=N
+	// EcnCC: 1 = reflect ECE on the ECN-probe SYN-ACK â†’ nmap CC=Y (Linux/macOS, and
+	// Windows Server editions via explicit_congestion: echo); 0 = clear ECE â†’ CC=N
 	// (Windows workstation). Repurposes the former _pad3 byte (no struct-layout change).
 	EcnCC       uint8
 	WindowInRST uint16
@@ -44,7 +44,11 @@ type OSProfileBPF struct {
 
 	// UDP
 	UDPClosedPortResponse uint8
-	_pad4                 [3]uint8
+	// TsSlow: 1 = use 10ms TSval clock (-> nmap TS=7, Windows 6.x era: Vista/7/8/
+	// Server 2008/2012). 0 = use 1ms TSval clock (-> TS=A, Windows 10+ era).
+	// Linux/macOS unaffected. Repurposes the first byte of the former _pad4[3].
+	TsSlow uint8
+	_pad4  [2]uint8
 }
 
 // IPIDState maintains state for IP ID generation
@@ -127,3 +131,4 @@ func AckInRSTFromString(s string) uint8 {
 		return AckRSTZero
 	}
 }
+

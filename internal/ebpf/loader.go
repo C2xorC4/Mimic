@@ -1,4 +1,4 @@
-//go:build linux
+﻿//go:build linux
 
 package ebpf
 
@@ -118,7 +118,7 @@ func (fm *FingerprintManager) attachTC() error {
 	}
 	fm.filter = filter
 
-	// Attach BPF filter to ingress (for seq_cache population — T4/T6 A=O fix)
+	// Attach BPF filter to ingress (for seq_cache population â€” T4/T6 A=O fix)
 	ingressAttrs := netlink.FilterAttrs{
 		LinkIndex: fm.iface.Index,
 		Parent:    netlink.HANDLE_MIN_INGRESS,
@@ -231,27 +231,28 @@ func profileToBPF(profile *config.OSProfile) *OSProfileBPF {
 		ICMPTTLInQuote: profile.Stack.ICMPTTLInQuote,
 	}
 
-	// ECN behaviour by family: Linux/macOS echo ECE in the SYN-ACK (nmap CC=Y) and
-	// keep their native ECN-probe options; Windows clears ECE (CC=N) and uses the
-	// Windows-ordered ECN template. (#12 — gates the Windows-specific ECN quirks so
-	// Linux profiles don't leak a CC=N / Windows-ordered ECN tell.)
+	// ECN behaviour:
+	// Linux: always CC=Y (EcnEcho=1 â†’ native ECE in SYN-ACK, Linux ECN options order).
+	// macOS: CC varies per version (Tahoe=echo/CC=Y, Sequoia=""/CC=N, Sonoma=echo/CC=Y).
+	//   EcnEcho NOT set for macOS; explicit_congestion drives EcnCC below.
+	//   (EcnEcho=1 also controls the Linux ECN-probe window override and Linux options
+	//   detection; macOS doesn't need either, so leaving EcnEcho=0 is correct.)
+	// Windows: EcnEcho stays 0 (CC=N for workstation; CC=Y via EcnCC for Server editions).
 	switch strings.ToLower(profile.Family) {
-	case "linux", "macos":
+	case "linux":
 		bpf.EcnEcho = 1
 	}
-	// CC=Y also applies to modern Windows Server editions that reflect ECE on the ECN
-	// probe (explicit_congestion: echo) — e.g. Server 2019. Mirrors the WinDivert ecnCC
-	// split; Linux/macOS already get CC=Y via EcnEcho. Workstation stays CC=N.
+	// CC=Y applies to: Linux (already EcnEcho=1 â†’ EcnCC=1 below), macOS Tahoe/Sonoma
+	// (explicit_congestion: echo), and Windows Server editions that reflect ECE.
 	if bpf.EcnEcho == 1 || strings.EqualFold(profile.Stack.ExplicitCongestion, "echo") {
 		bpf.EcnCC = 1
 	}
 	// Windows-only stack quirks (shared IP-ID/SS=S, A=O RST, ICMP CD=Z) apply only
 	// to Windows profiles; a Linux/macOS profile keeps the host's native behavior so
-	// it fingerprints cleanly as that OS (#13 — distro-spoofing correctness).
+	// it fingerprints cleanly as that OS (#13 â€” distro-spoofing correctness).
 	if strings.EqualFold(profile.Family, "windows") {
 		bpf.WinQuirks = 1
 	}
-
 	// DF bit
 	if profile.Stack.DFBit {
 		bpf.DFBit = 1
@@ -260,6 +261,15 @@ func profileToBPF(profile *config.OSProfile) *OSProfileBPF {
 	// TCP timestamps
 	if profile.Stack.TCPTimestamps {
 		bpf.TCPTimestamps = 1
+	}
+
+	// Windows 6.x era (Vista/7/8/Server 2008/2012) uses ~100 Hz timestamps -> TS=7.
+	// Windows 10+ era uses ~1000 Hz timestamps -> TS=A. Gate: Windows family +
+	// tcp_timestamps + major version "6". Must be after TCPTimestamps is set above.
+	if bpf.WinQuirks == 1 && bpf.TCPTimestamps == 1 {
+		if parts := strings.SplitN(profile.Version, ".", 2); len(parts) > 0 && parts[0] == "6" {
+			bpf.TsSlow = 1
+		}
 	}
 
 	// SACK permitted
@@ -315,3 +325,4 @@ func (fm *FingerprintManager) GetInterfaceName() string {
 	}
 	return ""
 }
+

@@ -43,7 +43,8 @@ type fingerprintOsProfile struct {
 	IcmpTtlInQuote        uint8
 	IcmpRateLimit         uint8
 	UdpClosedPortResponse uint8
-	Pad4                  [3]uint8
+	TsSlow                uint8
+	Pad4                  [2]uint8
 }
 
 type fingerprintSeqCacheKey struct {
