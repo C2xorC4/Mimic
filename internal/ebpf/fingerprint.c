@@ -120,6 +120,24 @@ struct {
     __type(value, struct seq_cache_val);
 } seq_cache SEC(".maps");
 
+// macOS DFI=S: ingress captures ICMP echo request DF bit by source IP;
+// egress applies it to the matching echo reply. LRU size 64 (nmap sends 2 probes).
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, 64);
+    __type(key, __u32);   // source IP of the ICMP echo probe
+    __type(value, __u8);  // probe's DF bit (0 or 1)
+} icmp_df_map SEC(".maps");
+
+// macOS T7 A=S: track FIN+PSH+URG probes so egress RST+ACK uses ACK=seq (not seq+1).
+// macOS does not consume the FIN's sequence number for closed-port RST+ACK (unlike Linux).
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, 64);
+    __type(key, struct seq_cache_key);  // {probe_src_ip, probe_src_port, our_dst_port}
+    __type(value, __u32);               // FIN probe seq in host byte order
+} fin_probe_map SEC(".maps");
+
 // shrink_tcp_options physically shortens a SYN-ACK's TCP options from old_optlen to
 // new_optlen bytes (both multiples of 4). Used for TS-off Windows personas on a Linux
 // host: the kernel's SYN-ACK carries a timestamp option the persona must not advertise,
@@ -155,6 +173,32 @@ shrink_tcp_options(struct __sk_buff *skb, __u32 tcp_offset, __u32 old_optlen, __
     }
     // Physically remove the trailing pad. MUST be last — invalidates packet pointers.
     bpf_skb_change_tail(skb, skb->len - trim, 0);
+}
+
+// expand_tcp_options physically extends a SYN-ACK's TCP options from old_optlen to
+// new_optlen bytes (both multiples of 4). Used for macOS personas on a Linux host:
+// macOS SYN-ACK carries 24 bytes of options; the Linux kernel generates 20.
+// The caller must: (a) have already written and checksummed the first old_optlen bytes,
+// (b) write the added bytes at tcp_offset+20+old_optlen and update their checksum after.
+// bpf_skb_change_tail invalidates direct data/data_end — use only skb-relative helpers after.
+static __always_inline int
+expand_tcp_options(struct __sk_buff *skb, __u32 tcp_offset, __u32 old_optlen, __u32 new_optlen) {
+    __u32 added = new_optlen - old_optlen;
+    __u8 doff_old = 0;
+    if (bpf_skb_load_bytes(skb, tcp_offset + 12, &doff_old, 1) < 0) return -1;
+    __u8 doff_new = (__u8)((((20 + new_optlen) / 4) << 4) | (doff_old & 0x0F));
+    __be16 iptot_old = 0;
+    if (bpf_skb_load_bytes(skb, 16, &iptot_old, 2) < 0) return -1;
+    __be16 iptot_new = bpf_htons((__u16)(bpf_ntohs(iptot_old) + (__u16)added));
+    if (bpf_skb_change_tail(skb, skb->len + added, 0) < 0) return -1;
+    if (bpf_skb_store_bytes(skb, tcp_offset + 12, &doff_new, 1, 0) < 0) return -1;
+    bpf_l4_csum_replace(skb, tcp_offset + 16,
+        (__u16)doff_old << 8, (__u16)doff_new << 8, 2);
+    bpf_l4_csum_replace(skb, tcp_offset + 16,
+        (__u16)(20 + old_optlen), (__u16)(20 + new_optlen), 2);
+    if (bpf_skb_store_bytes(skb, 16, &iptot_new, 2, 0) < 0) return -1;
+    bpf_l3_csum_replace(skb, 24, iptot_old, iptot_new, 2);
+    return 0;
 }
 
 SEC("tc/ingress")
@@ -193,22 +237,40 @@ int fingerprint_ingress(struct __sk_buff *skb) {
     if (bpf_skb_load_bytes(skb, 14 + 9, &proto, 1) < 0) {
         return TC_ACT_OK;
     }
-    if (proto != IPPROTO_TCP) {
-        return TC_ACT_OK;
-    }
 
     __u32 ip_hlen = (ihl_byte & 0x0F) * 4;
     if (ip_hlen < 20) {
         return TC_ACT_OK;
     }
-    __u32 tcp_off = 14 + ip_hlen;
 
     __u32 saddr;
+    if (bpf_skb_load_bytes(skb, 14 + 12, &saddr, 4) < 0) {
+        return TC_ACT_OK;
+    }
+
+    if (proto == IPPROTO_ICMP) {
+        // macOS DFI=S: capture ICMP echo request DF bit, keyed by source IP.
+        // The egress hook applies it to the echo reply for DFI=S behavior.
+        __u8 icmp_type;
+        if (bpf_skb_load_bytes(skb, 14 + ip_hlen, &icmp_type, 1) == 0 && icmp_type == 8) {
+            __be16 frag_off;
+            if (bpf_skb_load_bytes(skb, 14 + 6, &frag_off, 2) == 0) {
+                __u8 df = (bpf_ntohs(frag_off) & 0x4000) ? 1 : 0;
+                bpf_map_update_elem(&icmp_df_map, &saddr, &df, BPF_ANY);
+            }
+        }
+        return TC_ACT_OK;
+    }
+
+    if (proto != IPPROTO_TCP) {
+        return TC_ACT_OK;
+    }
+
+    __u32 tcp_off = 14 + ip_hlen;
     __be16 sport, dport;
     __be32 tcp_seq_be, tcp_ack_be;
 
-    if (bpf_skb_load_bytes(skb, 14 + 12, &saddr, 4) < 0 ||
-        bpf_skb_load_bytes(skb, tcp_off,     &sport, 2) < 0 ||
+    if (bpf_skb_load_bytes(skb, tcp_off,     &sport, 2) < 0 ||
         bpf_skb_load_bytes(skb, tcp_off + 2, &dport, 2) < 0 ||
         bpf_skb_load_bytes(skb, tcp_off + 4, &tcp_seq_be, 4) < 0 ||
         bpf_skb_load_bytes(skb, tcp_off + 8, &tcp_ack_be, 4) < 0) {
@@ -225,6 +287,21 @@ int fingerprint_ingress(struct __sk_buff *skb) {
     cval.ack_num = bpf_ntohl(tcp_ack_be);
 
     bpf_map_update_elem(&seq_cache, &ckey, &cval, BPF_ANY);
+
+    // macOS T7 A=S: if FIN+PSH+URG (nmap T7 probe), record the probe SEQ.
+    // The egress RST+ACK handler will use ACK=seq instead of seq+1.
+    __u8 tcp_ingress_flags;
+    if (bpf_skb_load_bytes(skb, tcp_off + 13, &tcp_ingress_flags, 1) == 0) {
+        if ((tcp_ingress_flags & 0x29) == 0x29) {
+            struct seq_cache_key fin_key = {};
+            fin_key.saddr = saddr;
+            fin_key.sport = sport;
+            fin_key.dport = dport;
+            __u32 fin_seq_val = bpf_ntohl(tcp_seq_be);
+            bpf_map_update_elem(&fin_probe_map, &fin_key, &fin_seq_val, BPF_ANY);
+        }
+    }
+
     return TC_ACT_OK;
 }
 
@@ -285,8 +362,11 @@ int fingerprint_egress(struct __sk_buff *skb) {
 
     // === DF Bit Modification ===
     // DF is bit 14 of frag_off field (big-endian), which is 0x4000 in network order
+    // macOS ICMP: skip DF override so the Linux kernel mirrors the probe's DF bit
+    // naturally → DFI=S. Forcing DF=1 on ICMP would give DFI=Y (always set).
+    __u8 is_macos_profile = (!profile->win_quirks && profile->ip_id_behavior == IPID_ZERO);
     __u8 current_df = (bpf_ntohs(old_frag_off) & 0x4000) ? 1 : 0;
-    if (current_df != profile->df_bit) {
+    if (current_df != profile->df_bit && !(is_macos_profile && proto == IPPROTO_ICMP)) {
         __be16 new_frag_off;
         if (profile->df_bit) {
             new_frag_off = old_frag_off | bpf_htons(0x4000);  // Set DF
@@ -302,11 +382,62 @@ int fingerprint_egress(struct __sk_buff *skb) {
         bpf_l3_csum_replace(skb, 14 + 10, old_frag_off, new_frag_off, 2);
     }
 
-    // === IP ID Modification (Windows profiles only) ===
-    // Override from our shared counter so TCP and ICMP share one sequence (SS=S),
-    // the Windows trait. For a Linux/macOS profile this is SKIPPED: the host is
-    // Linux, whose native per-socket IP-ID is already the correct behavior (random,
-    // SS=O) — forcing the shared counter would itself be a Windows tell (#13).
+    // macOS: RST+ACK (T5/T7 — closed-port SYN/FIN response) has DF=N per nmap-os-db.
+    // Open-port RSTs (T4/T6, pure RST) keep DF=Y from profile->df_bit above.
+    if (is_macos_profile && proto == IPPROTO_TCP) {
+        __u8 rst_ihl;
+        if (bpf_skb_load_bytes(skb, 14, &rst_ihl, 1) == 0) {
+            __u32 rst_hlen = (__u32)((rst_ihl & 0x0F) * 4);
+            __u8 rst_flags;
+            if (bpf_skb_load_bytes(skb, 14 + rst_hlen + 13, &rst_flags, 1) == 0) {
+                if ((rst_flags & 0x14) == 0x14) { // RST+ACK
+                    // T5/T7: macOS RST+ACK to closed port has DF=N.
+                    __be16 rst_frag;
+                    if (bpf_skb_load_bytes(skb, 14 + 6, &rst_frag, 2) == 0) {
+                        __be16 rst_no_df = rst_frag & bpf_htons((__u16)(~0x4000U));
+                        if (rst_no_df != rst_frag) {
+                            if (bpf_skb_store_bytes(skb, 14 + 6, &rst_no_df, 2, 0) >= 0) {
+                                bpf_l3_csum_replace(skb, 14 + 10, rst_frag, rst_no_df, 2);
+                            }
+                        }
+                    }
+                    // T7 A=S: for FIN+PSH+URG probes, macOS RST+ACK uses ACK=seq not seq+1.
+                    // Look up fin_probe_map keyed by (nmap_ip, nmap_port, our_closed_port).
+                    __u32 rst_daddr;
+                    __be16 rst_tcp_sport, rst_tcp_dport;
+                    if (bpf_skb_load_bytes(skb, 14 + 16, &rst_daddr, 4) == 0 &&
+                        bpf_skb_load_bytes(skb, 14 + rst_hlen, &rst_tcp_sport, 2) == 0 &&
+                        bpf_skb_load_bytes(skb, 14 + rst_hlen + 2, &rst_tcp_dport, 2) == 0) {
+                        struct seq_cache_key fin_key = {};
+                        fin_key.saddr = rst_daddr;     // nmap's IP
+                        fin_key.sport = rst_tcp_dport; // nmap's ephemeral port (RST tcp dst)
+                        fin_key.dport = rst_tcp_sport; // our closed port (RST tcp src)
+                        __u32 *fin_seq = bpf_map_lookup_elem(&fin_probe_map, &fin_key);
+                        if (fin_seq) {
+                            __be32 old_ack_be;
+                            if (bpf_skb_load_bytes(skb, 14 + rst_hlen + 8, &old_ack_be, 4) == 0) {
+                                __be32 new_ack_be = bpf_htonl(*fin_seq);
+                                if (new_ack_be != old_ack_be) {
+                                    if (bpf_skb_store_bytes(skb, 14 + rst_hlen + 8,
+                                                            &new_ack_be, 4, 0) >= 0) {
+                                        bpf_l4_csum_replace(skb, 14 + rst_hlen + 16,
+                                            old_ack_be, new_ack_be, 4);
+                                    }
+                                }
+                            }
+                            bpf_map_delete_elem(&fin_probe_map, &fin_key);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // === IP ID Modification ===
+    // Windows: shared counter across TCP+ICMP gives SS=S (#13 — win_quirks gate).
+    // macOS: TCP IP-ID=0 (TI=Z), ICMP left native Linux-random (II=RI, CI=RD).
+    //        ip_id_behavior==IPID_ZERO && !win_quirks identifies macOS profiles.
+    // Linux: native per-socket random (SS=O) — no override needed.
     if (profile->win_quirks) {
         struct ip_id_state *id_state = bpf_map_lookup_elem(&ip_id_map, &key);
         if (id_state) {
@@ -333,6 +464,43 @@ int fingerprint_egress(struct __sk_buff *skb) {
                     return TC_ACT_OK;
                 }
                 bpf_l3_csum_replace(skb, 14 + 10, old_id, new_id, 2);
+            }
+        }
+    } else if (profile->ip_id_behavior == IPID_ZERO && !profile->win_quirks) {
+        if (proto == IPPROTO_TCP) {
+            // macOS TCP: IP-ID=0 for SYN/data (TI=Z). RSTs get random IP-ID (CI=RD)
+            // because the kernel also generates RSTs with IP-ID=0, so we must actively
+            // override to random (not just skip) to avoid CI=Z.
+            __u8 ihl_nip = 0;
+            bpf_skb_load_bytes(skb, 14, &ihl_nip, 1);
+            __u32 ip_hdr_len = (__u32)((ihl_nip & 0x0F) * 4);
+            __u8 tcp_flags_byte = 0;
+            bpf_skb_load_bytes(skb, 14 + ip_hdr_len + 13, &tcp_flags_byte, 1);
+            if (tcp_flags_byte & 0x04) { // RST: active random for CI=RD
+                __u32 rand_id = bpf_get_prandom_u32();
+                __be16 new_id = bpf_htons((__u16)(rand_id & 0xFFFF));
+                if (old_id != new_id) {
+                    if (bpf_skb_store_bytes(skb, 14 + 4, &new_id, 2, 0) >= 0) {
+                        bpf_l3_csum_replace(skb, 14 + 10, old_id, new_id, 2);
+                    }
+                }
+            } else { // not RST: zero IP-ID for TI=Z
+                __be16 zero_id = 0;
+                if (old_id != zero_id) {
+                    if (bpf_skb_store_bytes(skb, 14 + 4, &zero_id, 2, 0) >= 0) {
+                        bpf_l3_csum_replace(skb, 14 + 10, old_id, zero_id, 2);
+                    }
+                }
+            }
+        } else if (proto == IPPROTO_ICMP) {
+            // macOS ICMP: Linux sequential IP-ID would give II=I; override with
+            // per-packet random so nmap sees II=RI (random incremental).
+            __u32 rand_id = bpf_get_prandom_u32();
+            __be16 new_id = bpf_htons((__u16)(rand_id & 0xFFFF));
+            if (old_id != new_id) {
+                if (bpf_skb_store_bytes(skb, 14 + 4, &new_id, 2, 0) >= 0) {
+                    bpf_l3_csum_replace(skb, 14 + 10, old_id, new_id, 2);
+                }
             }
         }
     }
@@ -492,6 +660,30 @@ int fingerprint_egress(struct __sk_buff *skb) {
                     new_opts[18] = 3;
                     new_opts[19] = profile->window_scale;
                 }
+            } else if (!profile->win_quirks && profile->ip_id_behavior == IPID_ZERO &&
+                       profile->window_scale > 0 && profile->tcp_timestamps) {
+                // macOS: first 20B = MSS(4)+NOP+WS(3)+NOP+NOP+TS(10).
+                // Followed by expand to 24B: +SACK(2)+EOL+EOL (done after the write below).
+                __u32 mac_tsecr = 0;
+                if (old_opts[8] == TCPOPT_TIMESTAMP && old_opts[9] == TCPOLEN_TIMESTAMP) {
+                    mac_tsecr = ((__u32)old_opts[14]<<24)|((__u32)old_opts[15]<<16)|((__u32)old_opts[16]<<8)|old_opts[17];
+                } else if (old_opts[6] == TCPOPT_TIMESTAMP && old_opts[7] == TCPOLEN_TIMESTAMP) {
+                    mac_tsecr = ((__u32)old_opts[12]<<24)|((__u32)old_opts[13]<<16)|((__u32)old_opts[14]<<8)|old_opts[15];
+                } else if (old_opts[4] == TCPOPT_TIMESTAMP && old_opts[5] == TCPOLEN_TIMESTAMP) {
+                    mac_tsecr = ((__u32)old_opts[10]<<24)|((__u32)old_opts[11]<<16)|((__u32)old_opts[12]<<8)|old_opts[13];
+                }
+                __u32 mac_tsval = (__u32)(bpf_ktime_get_ns() / 1000000ULL);
+                new_opts[0] = TCPOPT_MSS;      new_opts[1] = 4;
+                new_opts[2] = (mss_val >> 8) & 0xFF; new_opts[3] = mss_val & 0xFF;
+                new_opts[4] = TCPOPT_NOP;
+                new_opts[5] = TCPOPT_WSCALE;   new_opts[6] = 3;
+                new_opts[7] = profile->window_scale;
+                new_opts[8] = TCPOPT_NOP;      new_opts[9] = TCPOPT_NOP;
+                new_opts[10] = TCPOPT_TIMESTAMP; new_opts[11] = TCPOLEN_TIMESTAMP;
+                new_opts[12] = (mac_tsval >> 24) & 0xFF; new_opts[13] = (mac_tsval >> 16) & 0xFF;
+                new_opts[14] = (mac_tsval >> 8) & 0xFF;  new_opts[15] = mac_tsval & 0xFF;
+                new_opts[16] = (mac_tsecr >> 24) & 0xFF; new_opts[17] = (mac_tsecr >> 16) & 0xFF;
+                new_opts[18] = (mac_tsecr >> 8) & 0xFF;  new_opts[19] = mac_tsecr & 0xFF;
             } else if (profile->window_scale > 0 && profile->tcp_timestamps) {
                 // Windows 10/11: MSS(4) + NOP(1) + WS(3) + SACK(2) + TS(10) = 20 bytes
                 // The kernel already set TSecr correctly in the original packet (it echoes
@@ -607,6 +799,18 @@ int fingerprint_egress(struct __sk_buff *skb) {
                 }
                 shrink_tcp_options(skb, tcp_offset, 20, keep);
             }
+            // macOS: expand 20B → 24B, append SACK(2)+EOL+EOL at the tail.
+            // Only when the client negotiated SACK (use_sack=1): nmap P3 omits SACK so
+            // O3 stays 20B (= M5B4NW6NNT11, no SLL), matching the nmap-os-db entry.
+            if (!profile->win_quirks && profile->ip_id_behavior == IPID_ZERO &&
+                profile->window_scale > 0 && profile->tcp_timestamps && use_sack) {
+                if (expand_tcp_options(skb, tcp_offset, 20, 24) == 0) {
+                    __u8 mac_extra[4] = {TCPOPT_SACK_PERM, 2, TCPOPT_EOL, TCPOPT_EOL};
+                    if (bpf_skb_store_bytes(skb, opt_start + 20, mac_extra, 4, 0) >= 0) {
+                        bpf_l4_csum_replace(skb, tcp_offset + 16, 0, bpf_htons((__u16)0x0402), 2);
+                    }
+                }
+            }
         }
 
         // === 12-byte options template (ECN probe, no timestamps negotiated) ===
@@ -632,11 +836,22 @@ int fingerprint_egress(struct __sk_buff *skb) {
                 new12[5] = TCPOPT_WSCALE;
                 new12[6] = 3;
                 new12[7] = profile->window_scale;
-                new12[8] = TCPOPT_NOP;
-                new12[9] = TCPOPT_NOP;
-                if (profile->sack_permitted && had_sack12) {
-                    new12[10] = TCPOPT_SACK_PERM;
-                    new12[11] = 2;
+                if (!profile->win_quirks && profile->ip_id_behavior == IPID_ZERO) {
+                    // macOS ECN: MSS+NOP+WS+SACK+EOL+EOL (per nmap-os-db O field in ECN probe)
+                    if (profile->sack_permitted && had_sack12) {
+                        new12[8] = TCPOPT_SACK_PERM;
+                        new12[9] = 2;
+                    }
+                    new12[10] = TCPOPT_EOL;
+                    new12[11] = TCPOPT_EOL;
+                } else {
+                    // Windows: MSS+NOP+WS+NOP+NOP+SACK
+                    new12[8] = TCPOPT_NOP;
+                    new12[9] = TCPOPT_NOP;
+                    if (profile->sack_permitted && had_sack12) {
+                        new12[10] = TCPOPT_SACK_PERM;
+                        new12[11] = 2;
+                    }
                 }
                 if (bpf_skb_store_bytes(skb, opt12_start, new12, 12, 0) >= 0) {
                     bpf_l4_csum_replace(skb, tcp_offset + 16,
@@ -661,7 +876,7 @@ int fingerprint_egress(struct __sk_buff *skb) {
         // leaks through and breaks nmap's TS rate calculation. Override TSval here.
         // Also set window to 0xFFDC (65500): Windows 10/11 uses this value for W6 (probe
         // without WS), while probes 1-5 (WS negotiated) get W=FFFF.
-        if (opt_len == 16 && profile->tcp_timestamps && is_syn) {
+        if (opt_len == 16 && profile->tcp_timestamps && is_syn && profile->win_quirks) {
             if (profile->window_size == 0xFFFF) {
                 __be16 w6_new = bpf_htons((__u16)0xFFDC);
                 __be16 w6_cur;
@@ -741,6 +956,61 @@ int fingerprint_egress(struct __sk_buff *skb) {
                         }
                     }
                     shrink_tcp_options(skb, tcp_offset, 16, 8);
+                }
+            }
+        }
+
+        // === macOS O6 (no-WS probe): expand 16B → 24B with full macOS options ===
+        // nmap P6 sends SYN without WS; Linux kernel replies with MSS+SACK+TS = 16B.
+        // macOS Darwin: when client omits WS, server also omits it (TCP option negotiation).
+        // O6 = M5B4NNT11SLL = MSS(4)+NOP+NOP+TS(10)+SACK(2)+EOL+EOL = 20B.
+        // (O1-O5 are 24B with WS; O6 is 20B without WS — per nmap-os-db.)
+        if (opt_len == 16 && !profile->win_quirks && profile->ip_id_behavior == IPID_ZERO &&
+            profile->window_scale > 0 && profile->tcp_timestamps && is_syn) {
+            __u32 opt16m_start = tcp_offset + 20;
+            __u8 old16m[16];
+            if (bpf_skb_load_bytes(skb, opt16m_start, old16m, 16) == 0) {
+                // Extract MSS from probe echo
+                __u16 mss16m = profile->mss;
+                if (old16m[0] == TCPOPT_MSS && old16m[1] == 4) {
+                    mss16m = ((__u16)old16m[2] << 8) | old16m[3];
+                }
+                __u32 mac_tsval16 = (__u32)(bpf_ktime_get_ns() / 1000000ULL);
+                // Extract TSecr from Linux SYN-ACK: MSS+SACK+TS in 16B.
+                // TS at offset 6: [6]=kind=8, [7]=len=10, [8-11]=TSval, [12-15]=TSecr
+                __u32 mac_tsecr16 = 0;
+                if (old16m[6] == TCPOPT_TIMESTAMP && old16m[7] == TCPOLEN_TIMESTAMP) {
+                    mac_tsecr16 = ((__u32)old16m[12]<<24)|((__u32)old16m[13]<<16)|
+                                  ((__u32)old16m[14]<<8)|old16m[15];
+                }
+                // Build 16B template: MSS(4)+NOP+NOP+TS(10) — no WS, TSecr at [12-15].
+                // Expand to 20B for SACK+EOL+EOL at [16-19].
+                __u8 new16m[16];
+                new16m[0]  = TCPOPT_MSS;         new16m[1]  = 4;
+                new16m[2]  = (mss16m >> 8) & 0xFF; new16m[3] = mss16m & 0xFF;
+                new16m[4]  = TCPOPT_NOP;          new16m[5]  = TCPOPT_NOP;
+                new16m[6]  = TCPOPT_TIMESTAMP;    new16m[7]  = TCPOLEN_TIMESTAMP;
+                new16m[8]  = (mac_tsval16 >> 24) & 0xFF; new16m[9]  = (mac_tsval16 >> 16) & 0xFF;
+                new16m[10] = (mac_tsval16 >> 8) & 0xFF;  new16m[11] = mac_tsval16 & 0xFF;
+                new16m[12] = (mac_tsecr16 >> 24) & 0xFF; new16m[13] = (mac_tsecr16 >> 16) & 0xFF;
+                new16m[14] = (mac_tsecr16 >> 8) & 0xFF;  new16m[15] = mac_tsecr16 & 0xFF;
+                if (bpf_skb_store_bytes(skb, opt16m_start, new16m, 16, 0) >= 0) {
+                    #pragma unroll
+                    for (int j = 0; j < 8; j++) {
+                        __u16 old_w = ((__u16)old16m[j*2] << 8) | old16m[j*2+1];
+                        __u16 new_w = ((__u16)new16m[j*2] << 8) | new16m[j*2+1];
+                        if (old_w != new_w) {
+                            bpf_l4_csum_replace(skb, tcp_offset + 16,
+                                bpf_htons(old_w), bpf_htons(new_w), 2);
+                        }
+                    }
+                    // Expand 16B → 20B: 4 new bytes at [16-19] = SACK+len+EOL+EOL.
+                    if (expand_tcp_options(skb, tcp_offset, 16, 20) == 0) {
+                        __u8 mac_trail4[4] = {TCPOPT_SACK_PERM, 2, TCPOPT_EOL, TCPOPT_EOL};
+                        if (bpf_skb_store_bytes(skb, opt16m_start + 16, mac_trail4, 4, 0) >= 0) {
+                            bpf_l4_csum_replace(skb, tcp_offset + 16, 0, bpf_htons((__u16)0x0402), 2);
+                        }
+                    }
                 }
             }
         }
@@ -897,26 +1167,117 @@ int fingerprint_egress(struct __sk_buff *skb) {
     }
 
     // === ICMP Behavior ===
-    // Windows does not set DF bit in ICMP responses (nmap: IE DFI=N, U1 DF=N).
-    // Our DF section above forces DF=1 on all packets; undo it for ICMP.
+    // Windows/Linux: DF cleared in ICMP responses (IE DFI=N, U1 DF=N).
+    // macOS: DF MIRRORED from probe (IE DFI=S) — ingress captures probe's DF bit in
+    //   icmp_df_map; egress applies it to echo replies so each reply mirrors its probe.
     // Linux also echoes the ICMP code from echo requests; Windows sends code=0 (CD=Z).
     if (proto == IPPROTO_ICMP) {
-        // Clear DF bit in ICMP packets
-        __be16 icmp_frag_off;
-        if (bpf_skb_load_bytes(skb, 14 + 6, &icmp_frag_off, 2) >= 0) {
-            __be16 icmp_no_df = icmp_frag_off & bpf_htons((__u16)(~0x4000U));
-            if (icmp_no_df != icmp_frag_off) {
-                if (bpf_skb_store_bytes(skb, 14 + 6, &icmp_no_df, 2, 0) >= 0) {
-                    bpf_l3_csum_replace(skb, 14 + 10, icmp_frag_off, icmp_no_df, 2);
+        // Read IHL to find ICMP header offset (shared between macOS DFI=S and CD=Z paths).
+        __u8 icmp_ihl;
+        __u32 icmp_start = 0;
+        if (bpf_skb_load_bytes(skb, 14, &icmp_ihl, 1) >= 0) {
+            icmp_start = 14 + ((__u32)(icmp_ihl & 0x0F) * 4);
+        }
+
+        if (is_macos_profile) {
+            // macOS U1: truncate port-unreachable (type=3,code=3) quote to
+            // icmp_quote_size bytes past the inner IP header (IPL=38h=56d for 8-byte quote).
+            // Linux includes the full inner datagram; macOS quotes only 8 bytes.
+            if (icmp_start > 0 && profile->icmp_quote_size > 0) {
+                __u8 u1_type, u1_code;
+                if (bpf_skb_load_bytes(skb, icmp_start, &u1_type, 1) == 0 &&
+                    bpf_skb_load_bytes(skb, icmp_start + 1, &u1_code, 1) == 0 &&
+                    u1_type == 3 && u1_code == 3) {
+                    // Determine inner IP header length (default 20; nmap U1 probe uses no opts)
+                    __u8 inner_ihl;
+                    __u32 inner_ip_len = 20;
+                    if (bpf_skb_load_bytes(skb, icmp_start + 8, &inner_ihl, 1) == 0) {
+                        __u32 tmp = (__u32)((inner_ihl & 0x0F) * 4);
+                        if (tmp >= 20 && tmp <= 60) inner_ip_len = tmp;
+                    }
+                    // Target outer IP total length = 20 + 8 (ICMP hdr) + inner_ip + quote_size
+                    __u32 target_ip_len = 20 + 8 + inner_ip_len + (__u32)profile->icmp_quote_size;
+                    __be16 old_tot;
+                    if (bpf_skb_load_bytes(skb, 14 + 2, &old_tot, 2) == 0) {
+                        __u32 cur_ip_len = (__u32)bpf_ntohs(old_tot);
+                        if (cur_ip_len > target_ip_len) {
+                            __be16 new_tot = bpf_htons((__u16)target_ip_len);
+                            if (bpf_skb_change_tail(skb, 14 + target_ip_len, 0) == 0) {
+                                // Update outer IP total length and fix IP checksum
+                                if (bpf_skb_store_bytes(skb, 14 + 2, &new_tot, 2, 0) >= 0) {
+                                    bpf_l3_csum_replace(skb, 14 + 10, old_tot, new_tot, 2);
+                                }
+                                // Recompute ICMP checksum over 36 bytes:
+                                // ICMP hdr(8) + inner IP(20) + 8-byte quote = 36 bytes.
+                                // Hard-coded 36 (18 × u16) keeps the verifier happy.
+                                __u8 icmp_msg[36];
+                                if (bpf_skb_load_bytes(skb, icmp_start, icmp_msg, 36) == 0) {
+                                    icmp_msg[2] = 0; icmp_msg[3] = 0; // zero checksum field
+                                    icmp_msg[34] = 0; icmp_msg[35] = 0; // zero inner UDP csum (RUCK=0)
+                                    __u32 csum32 = 0;
+                                    #pragma unroll
+                                    for (int k = 0; k < 18; k++) {
+                                        csum32 += ((__u32)icmp_msg[k * 2] << 8) |
+                                                  (__u32)icmp_msg[k * 2 + 1];
+                                    }
+                                    csum32 = (csum32 >> 16) + (csum32 & 0xFFFF);
+                                    csum32 += (csum32 >> 16);
+                                    __u16 icmp_csum = (__u16)(~csum32);
+                                    bpf_skb_store_bytes(skb, icmp_start + 2, &icmp_csum, 2, 0);
+                                    // Write zeroed inner UDP checksum to packet
+                                    __be16 zero16 = 0;
+                                    bpf_skb_store_bytes(skb, icmp_start + 34, &zero16, 2, 0);
+                                }
+                                return TC_ACT_OK; // packet structure changed; done
+                            }
+                        }
+                    }
+                }
+            }
+
+            // macOS DFI=S: for echo replies (type=0), look up the probe's DF bit.
+            if (icmp_start > 0) {
+                __u8 icmp_type;
+                if (bpf_skb_load_bytes(skb, icmp_start, &icmp_type, 1) == 0 && icmp_type == 0) {
+                    __u32 daddr;
+                    if (bpf_skb_load_bytes(skb, 14 + 16, &daddr, 4) == 0) {
+                        __u8 *probe_df = bpf_map_lookup_elem(&icmp_df_map, &daddr);
+                        if (probe_df) {
+                            __be16 rep_frag;
+                            if (bpf_skb_load_bytes(skb, 14 + 6, &rep_frag, 2) == 0) {
+                                __be16 new_frag;
+                                if (*probe_df) {
+                                    new_frag = rep_frag | bpf_htons(0x4000);
+                                } else {
+                                    new_frag = rep_frag & bpf_htons((__u16)(~0x4000U));
+                                }
+                                if (new_frag != rep_frag) {
+                                    if (bpf_skb_store_bytes(skb, 14 + 6, &new_frag, 2, 0) >= 0) {
+                                        bpf_l3_csum_replace(skb, 14 + 10, rep_frag, new_frag, 2);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            // Windows/Linux: clear DF bit on ICMP responses (DFI=N).
+            __be16 icmp_frag_off;
+            if (bpf_skb_load_bytes(skb, 14 + 6, &icmp_frag_off, 2) >= 0) {
+                __be16 icmp_no_df = icmp_frag_off & bpf_htons((__u16)(~0x4000U));
+                if (icmp_no_df != icmp_frag_off) {
+                    if (bpf_skb_store_bytes(skb, 14 + 6, &icmp_no_df, 2, 0) >= 0) {
+                        bpf_l3_csum_replace(skb, 14 + 10, icmp_frag_off, icmp_no_df, 2);
+                    }
                 }
             }
         }
+
         // For ICMP echo replies (type=0): force code=0 (Windows: CD=Z). Windows
         // profiles only — Linux echoes the probe's code (CD=S), which is the host's
         // native behavior, so a Linux profile leaves it untouched (#13).
-        __u8 icmp_ihl;
-        if (profile->win_quirks && bpf_skb_load_bytes(skb, 14, &icmp_ihl, 1) >= 0) {
-            __u32 icmp_start = 14 + ((__u32)(icmp_ihl & 0x0F) * 4);
+        if (profile->win_quirks && icmp_start > 0) {
             __u8 icmp_hdr2[2];
             if (bpf_skb_load_bytes(skb, icmp_start, icmp_hdr2, 2) >= 0) {
                 if (icmp_hdr2[0] == 0 && icmp_hdr2[1] != 0) {

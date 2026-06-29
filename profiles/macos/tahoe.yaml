@@ -1,17 +1,16 @@
-name: "macOS Sonoma"
-description: "macOS 14 Sonoma TCP/IP stack fingerprint (Darwin 23.x)"
+name: "macOS Tahoe"
+description: "macOS 26 Tahoe TCP/IP stack fingerprint (Darwin 25.x)"
 family: macos
-version: "14.0"
+version: "26.5.1"
 
 stack:
   # IP Layer
   ttl: 64
   df_bit: true
   ip_id_behavior: zero        # TI=Z — Darwin/XNU sends IP-ID=0 on all TCP packets
-                               # Validated on Sequoia/Tahoe; same XNU stack on Sonoma
 
-  # TCP Layer — interpolated from Sequoia/Tahoe captures (same XNU stack family)
-  # nmap matches Sonoma to "macOS 11-13" range; stack vectors identical to Sequoia
+  # TCP Layer — from nmap capture: Kali→Tahoe 2026-06-29
+  # OPS: M5B4NW6NNT11SLL  WIN: FFFF  TS=21
   window_size: 65535
   window_scale: 6
   mss: 1460
@@ -32,7 +31,7 @@ stack:
   ack_in_rst: zero
   window_in_rst: 0
 
-  # ECN: Sonoma CC behavior unvalidated; use echo (same as Tahoe/macOS default)
+  # ECN: CC=Y on Tahoe (reflects ECE on ECN probe)
   explicit_congestion: echo
 
   # ICMP — U1(IPL=38h=56d → 8-byte quote), IE(DFI=S → DF mirrored)

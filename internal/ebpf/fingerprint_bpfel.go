@@ -109,10 +109,12 @@ type fingerprintProgramSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type fingerprintMapSpecs struct {
-	EnabledMap *ebpf.MapSpec `ebpf:"enabled_map"`
-	IpIdMap    *ebpf.MapSpec `ebpf:"ip_id_map"`
-	ProfileMap *ebpf.MapSpec `ebpf:"profile_map"`
-	SeqCache   *ebpf.MapSpec `ebpf:"seq_cache"`
+	EnabledMap  *ebpf.MapSpec `ebpf:"enabled_map"`
+	FinProbeMap *ebpf.MapSpec `ebpf:"fin_probe_map"`
+	IcmpDfMap   *ebpf.MapSpec `ebpf:"icmp_df_map"`
+	IpIdMap     *ebpf.MapSpec `ebpf:"ip_id_map"`
+	ProfileMap  *ebpf.MapSpec `ebpf:"profile_map"`
+	SeqCache    *ebpf.MapSpec `ebpf:"seq_cache"`
 }
 
 // fingerprintVariableSpecs contains global variables before they are loaded into the kernel.
@@ -141,15 +143,19 @@ func (o *fingerprintObjects) Close() error {
 //
 // It can be passed to loadFingerprintObjects or ebpf.CollectionSpec.LoadAndAssign.
 type fingerprintMaps struct {
-	EnabledMap *ebpf.Map `ebpf:"enabled_map"`
-	IpIdMap    *ebpf.Map `ebpf:"ip_id_map"`
-	ProfileMap *ebpf.Map `ebpf:"profile_map"`
-	SeqCache   *ebpf.Map `ebpf:"seq_cache"`
+	EnabledMap  *ebpf.Map `ebpf:"enabled_map"`
+	FinProbeMap *ebpf.Map `ebpf:"fin_probe_map"`
+	IcmpDfMap   *ebpf.Map `ebpf:"icmp_df_map"`
+	IpIdMap     *ebpf.Map `ebpf:"ip_id_map"`
+	ProfileMap  *ebpf.Map `ebpf:"profile_map"`
+	SeqCache    *ebpf.Map `ebpf:"seq_cache"`
 }
 
 func (m *fingerprintMaps) Close() error {
 	return _FingerprintClose(
 		m.EnabledMap,
+		m.FinProbeMap,
+		m.IcmpDfMap,
 		m.IpIdMap,
 		m.ProfileMap,
 		m.SeqCache,
