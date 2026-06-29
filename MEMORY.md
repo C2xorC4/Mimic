@@ -23,6 +23,21 @@
 > No regression: Windows 6/6 EXACT, Linux 7/7 EXACT confirmed post-fix. Profiles:
 > `profiles/macos/{sequoia,tahoe,sonoma}.yaml`. Test VM: ubuntu-2204 clone 10.0.254.160.
 
+> **★★ CHECKPOINT — legacy Windows captures + profile audit (2026-06-29).**
+> Captured real VMs for Win7 SP1 (9007), Win8 Pro N (9008), Server 2008 R2 SP1 (9108),
+> Server 2012 R2 (9112); all four converted to Proxmox templates. Also captured RHEL 9.8
+> (9312) and RHEL 10.2 (9313) — already templatized. Golden files created for all six.
+> **Profile audit (nmap-os-db grounded):** all Vista/Win7/Win8/Win8.1/Server2008/2012 era
+> profiles had `tcp_timestamps:false` — WRONG. Real VM captures show `OPS=M5B4NW8ST11`
+> (ST11 = timestamps ON) across the entire 6.0–6.3 kernel family. Fixed all six profiles.
+> Win8 and Win8.1 also had `explicit_congestion:respond` (CC=Y) — WRONG for workstation
+> (CC=N; server editions use respond). Vista and Server 2008 had `window_scale:2` — fixed
+> to 8 to match dominant nmap-os-db entries. **Win7 and Win8 are byte-identical stacks**
+> — nmap attributes both to the "Vista SP2 / Win7 / Server 2008 R2 / Win8.1" band.
+> Commits: `9a127a0` (2008R2/2012R2 profiles + goldens), `59bdd8b` (batch Vista–Win8.1),
+> `c9c8f80` (Win7/Win8 goldens). XP/Server-2003 era has T00 (TS present, TSval=0) —
+> distinct behavior, not yet implemented in eBPF/WinDivert backends.
+
 ## ★ METHODOLOGY RULE — develop & fidelity-test against a FRESH lab VM, never ss-book
 
 **Always run mimic and scan it on a clean proxmox VM clone (or a recently-spun-up
@@ -36,12 +51,128 @@ substrate: a fresh wired VM clone eliminates it entirely.
 
 - **Spin one with:** `python infra/proxmox/lab.py deploy <tpl> <clone> --linked --start`
   → `lab.py ip` → `lab.py prep` (Windows: fw-off + WinRM) → deploy mimic → scan from
-  Kali (10.0.254.70) → `lab.py destroy`. Templates: win 9010/9011/9116/9119/9122/9125;
-  linux 9302/9304/9306/9310/9311/9341. Harnesses: `scratchpad/matrix_winvm.ps1`,
+  Kali (10.0.254.70) → `lab.py destroy`.
+  Windows templates: 9007 (Win7), 9008 (Win8), 9010 (Win10), 9011 (Win11),
+  9108 (Srv2008R2), 9112 (Srv2012R2), 9116 (Srv2016), 9119 (Srv2019), 9122 (Srv2022),
+  9125 (Srv2025). Linux: 9302 (Ubuntu2204), 9303 (Ubuntu2004), 9304 (Debian12),
+  9305 (Debian11), 9306 (Rocky9), 9307 (Rocky8), 9310 (Fedora), 9311 (Arch),
+  9312 (RHEL9.8), 9313 (RHEL10.2), 9341 (Kali). macOS: 9401 (Sequoia), 9402 (Tahoe).
+  Harnesses: `scratchpad/matrix_winvm.ps1`,
   `matrix_linuxvm.sh` (this session). WinRM admin sessions are already ELEVATED (no UAC
   on the VM, unlike ss-book). Linux clones need `libpcap` installed (apt/dnf/pacman).
 - ss-book stays the DEV/build host (edit, `go build`, unit tests); fidelity scans go to
   a VM. If ss-book MUST be used, wire it (no Wi-Fi) + quiesce background traffic first.
+
+## ★ OS SUPPORT MATRIX (as of 2026-06-29)
+
+Legend: **EXACT** = nmap attribution exact, no submit prompt | **✓ captured** = real VM
+captured + profile grounded | **profile** = profile exists, hand-authored or nmap-os-db
+grounded, no real VM | **T=** = Proxmox template VMID.
+
+### Windows — 17 profiles
+
+| Profile | Version | Template | nmap-os-db band | Validation |
+|---------|---------|----------|-----------------|------------|
+| Windows XP SP2/SP3 | 5.1.2600 | — | "Windows XP" | profile only; T00 TS not impl. |
+| Windows Vista | 6.0.6000 | — | "Vista SP2/Win7" | profile only (nmap-os-db grounded) |
+| Windows Server 2003 | 5.2.3790 | — | "Server 2003" | profile only; T00 TS not impl. |
+| Windows Server 2008 | 6.0.6001 | — | "Server 2008" | profile only (nmap-os-db grounded) |
+| Windows 7 SP1 | 6.1.7601 | 9007 | "Vista/Win7/2008R2/8.1" | ✓ captured 2026-06-29 |
+| Windows Server 2008 R2 SP1 | 6.1.7601 | 9108 | same band | ✓ captured 2026-06-29 |
+| Windows 8 | 6.2.9200 | 9008 | "Vista/Win7/2008R2/8.1" | ✓ captured 2026-06-29 |
+| Windows Server 2012 | 6.2.9200 | — | "Server 2012/R2" | profile only (nmap-os-db grounded) |
+| Windows 8.1 | 6.3.9600 | — | "Vista/Win7/2008R2/8.1" | profile only (nmap-os-db grounded) |
+| Windows Server 2012 R2 | 6.3.9600 | 9112 | "Server 2012 R2" | ✓ captured 2026-06-29 |
+| Windows 10 | 10.0.19041 | 9010 | "Windows 10 1909" | **EXACT** (WinDivert + eBPF) |
+| Windows Server 2016 | 10.0.14393 | 9116 | "Server 2016" | **EXACT** (WinDivert + eBPF) |
+| Windows Server 2019 | 10.0.17763 | 9119 | "Server 2019" | **EXACT** (WinDivert + eBPF) |
+| Windows 11 | 10.0.26200 | 9011 | "Win10/Win11 21H2" | **EXACT** (WinDivert + eBPF) |
+| Windows Server 2022 | 10.0.20348 | 9122 | "Server 2022" | **EXACT** (WinDivert + eBPF) |
+| Windows Server 2025 | 10.0.26100 | 9125 | "Server 2025" | **EXACT** (WinDivert + eBPF) |
+
+### Linux — 17 profiles
+
+| Profile | Kernel | Template | nmap band | Validation |
+|---------|--------|----------|-----------|------------|
+| CentOS 7 | 3.10 | 9308 (VM, not tpl) | "Linux 3.2–4.14" | **EXACT** (eBPF) |
+| Ubuntu | 5.15 | 9302 | "Linux 4.15–5.19" | **EXACT** (eBPF) |
+| Ubuntu 20.04 | 5.15 | 9303 | "Linux 4.15–5.19" | ✓ captured (via 9302) |
+| Debian | 5.10 | 9304 | "Linux 4.15–5.19" | **EXACT** (eBPF) |
+| Debian 11 | 5.10 | 9305 | same | ✓ captured (via 9304) |
+| Rocky Linux | 5.14 | 9306 | "Linux 4.15–5.19" | **EXACT** (eBPF) |
+| Rocky Linux 8 | 4.18 | 9307 | "Linux 3.2–4.14" | ✓ captured |
+| Fedora | 6.2 | 9310 | "Linux 4.15–5.19" | **EXACT** (eBPF) |
+| Arch Linux | 6.6 | 9311 | "Linux 4.15–5.19" | **EXACT** (eBPF) |
+| Kali Linux | 6.1 | 9341 | "Linux 4.15–5.19" | **EXACT** (eBPF) |
+| RHEL | 5.14 | 9312 | "Linux 4.15–5.19" | ✓ captured 2026-06-29 |
+| RHEL 10 | 6.12 | 9313 | "Linux 4.15–5.19" | ✓ captured 2026-06-29 |
+| AlmaLinux | 5.14 | — | "Linux 4.15–5.19" | profile only (RHEL 9 grounded) |
+| CentOS Stream | 5.14 | — | "Linux 4.15–5.19" | profile only |
+| Alpine Linux | 6.1 | — | "Linux 4.15–5.19" | profile only |
+| Gentoo | 6.6 | — | "Linux 4.15–5.19" | profile only |
+| Linux Mint | 5.15 | — | "Linux 4.15–5.19" | profile only |
+| Manjaro | 6.6 | — | "Linux 4.15–5.19" | profile only |
+| openSUSE | 5.14 | — | "Linux 4.15–5.19" | profile only |
+| Slackware | 5.15 | — | "Linux 4.15–5.19" | profile only |
+
+### macOS — 3 profiles
+
+| Profile | Version | Template | nmap attribution | Validation |
+|---------|---------|----------|-----------------|------------|
+| macOS Sequoia | 15.x | 9401 | "macOS 10.13–10.15" | **EXACT** (eBPF, CC=N) |
+| macOS Tahoe | 26.x | 9402 | "macOS 10.13–10.15" | **EXACT** (eBPF, CC=Y) |
+| macOS Sonoma | 14.0 | — | "macOS 10.13–10.15" | **EXACT** (eBPF, CC=Y) |
+
+Note: macOS VMs 9401/9402 exist but were unstable at load (KVM/OpenCore). Profiles are
+eBPF-validated from a Linux host scanning into a macOS VM clone via the standard capture
+flow. Running Mimic ON macOS (as a host) is not implemented.
+
+### Service / port coverage (17 services)
+
+| Port | Service | Notes |
+|------|---------|-------|
+| 22 | SSH | Interactive honeypot: shell, SFTP, per-distro banner |
+| 23 | Telnet | Template (Cisco IOS banner) |
+| 25 | SMTP | Template |
+| 80 | HTTP | Per-distro nginx/Apache headers + body |
+| 135 | MSRPC | Interactive: EPM ept_lookup, 138-endpoint map, dynamic RPC pools |
+| 137 | NBNS | Template (NetBIOS node status) |
+| 139 | NetBIOS | Honeypot (SMB over NBSS 0x81→0x82 → full SMB2/3 state machine) |
+| 443 | HTTPS | Dual-path TLS: JARM static Schannel + crypto/tls for real clients |
+| 445 | SMB | Interactive honeypot: SMB1+2/3.1.1, signing, SAMR/LSARPC, file download |
+| 1433 | MSSQL | Template |
+| 3306 | MySQL | Template |
+| 3389 | RDP | Interactive: X.224→TLS→CredSSP→NTLM Type2 (Product_Version from profile) |
+| 5357 | WSD | HTTP.sys 404 (workstation-only) |
+| 5900 | VNC | Template; macOS sends RFB 003.889, others RFB 003.008 |
+| 5985 | WinRM | Template (401 Negotiate/Kerberos challenge, live Date:) |
+| 6379 | Redis | Template |
+| 7680 | DeliveryOpt | HTTP.sys 404 (workstation-only) |
+
+### Not built / not yet implemented
+
+**Originally planned / explicitly deferred:**
+- macOS as a HOST (running Mimic on macOS) — KVM/OpenCore instability; unimplemented
+- XP/Server-2003 T00 timestamp behavior (TS option present, TSval=0) — distinct from T11;
+  needs eBPF + backend handler; profiled but won't fingerprint correctly without it
+- DHCP option fingerprinting (`⚠ DAYDREAM 2026-06-29`): Linux DHCP clients emit a
+  different option-55 parameter request list than Windows. NAC systems (Cisco ISE,
+  PacketFence, Fingerbank) fingerprint at DHCP time — before any TCP. Mimic "Windows 11"
+  reads as Linux at L2/DHCP time; fixable via dhcpcd/systemd-networkd option-55 config
+  (no kernel work required). Structurally the same gap as DbgNexum's ETW:TI blind spot.
+- Profile auto-detection from pcap (originally planned in CLAUDE.md capture vision)
+- IPv6 stack fingerprint spoofing (nmap has a separate IPv6 fingerprint engine)
+- macOS-specific application services: AFP/netatalk, Bonjour/mDNS (UDP 5353), Time Machine
+- LDAP (389), DNS (53), Kerberos (88), NFS (2049) service templates
+- POP3/IMAP service templates
+- SNMP full walk — only system MIB (1.3.6.1.2.1.1.*); full ifTable walk deferred
+
+**Profiles that exist but have no real VM / no Proxmox template:**
+Win Vista, Win8.1, Server 2008 (non-R2), Server 2012 (non-R2), Server 2003, XP SP2/SP3,
+Alpine, Gentoo, Mint, Manjaro, openSUSE, Slackware, CentOS Stream, AlmaLinux.
+
+**VM templates with no Mimic profile:**
+Amazon Linux 2023 (9309), Parrot OS 7 Security (9342), Ubuntu 24.04 (9301).
 
 ## Current Status (as of 2026-06-26; HiFi driver stability bug FIXED + matrix-validated)
 

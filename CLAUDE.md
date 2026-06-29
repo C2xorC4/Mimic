@@ -271,35 +271,61 @@ mimic capture pcap capture.pcap --server-ip 192.168.1.100 --service smb --os "Wi
 
 ## Implementation Gaps (Tactical Priority)
 
-Core TCP/IP stack fingerprinting is functional. Remaining work focuses on edge cases and service expansion.
+Core stack fingerprinting and service emulation are largely complete. Remaining
+work is profile validation depth and a few structural gaps.
 
-**eBPF Remaining (lower priority - core fingerprint works):**
-1. **ECN flag handling** — CWR/ECE response behavior varies by OS
-2. **ICMP quote handling** — Quote size, DF preservation, TTL in quoted header
-3. **UDP closed port ICMP** — Port unreachable response timing/content
-4. **ACK in RST** — Sequence number behavior varies by OS
-5. **TCP timestamp values** — Currently removed; could modify TSval/TSecr instead
+**eBPF / stack — remaining edge cases:**
+1. **XP/Server 2003 T00 timestamp** — TS option present but TSval=0; distinct from T11
+   and from timestamps-off. Profiles exist but won't fingerprint correctly without a
+   separate backend code path.
+2. **IPv6 stack fingerprinting** — nmap has a separate IPv6 OS engine; not addressed.
+3. **DHCP option fingerprinting** — Linux DHCP clients emit a different option-55
+   parameter request list than Windows. NAC (Cisco ISE, PacketFence, Fingerbank)
+   fingerprints at L2/DHCP time, before any TCP scan — Mimic "Windows" would still
+   read as Linux there. Fixable config-side: dhcpcd/systemd-networkd option-55 ordering.
 
-**Service Expansion (active priority):**
-1. **MSRPC (port 135)** — Capture Windows RPC endpoint mapper responses
-2. **Multi-service convenience** — Add `--services all` flag or service groups
-3. **RDP, HTTP, SSH banners** — Capture and replay common service responses
-4. **nmap script responses** — Deeper SMB enumeration (smb-os-discovery, etc.)
+**Profile validation — remaining:**
+- Win7 / Win8 / Server 2008 R2 / Server 2012 R2: real VM captures done; EXACT-chase
+  (per-indicator diff vs nmap-os-db) not yet started.
+- Vista / Win8.1 / Server 2008 / Server 2012: profile corrected from nmap-os-db;
+  no real VM captures; no Proxmox templates.
+- XP SP2/SP3 / Server 2003: T00 behavior unimplemented; profiles exist.
+- Linux distros without real VM: Alpine, Gentoo, Mint, Manjaro, openSUSE, Slackware,
+  AlmaLinux, CentOS Stream. All profile-only, grounded in the same 5.x/6.x nmap band.
+- Amazon Linux 2023, Parrot OS 7: VM templates exist (9309, 9342) but no profiles.
 
-**Infrastructure:**
-- Combined CLI mode (`mimic run` = apply + serve)
+**Services — remaining:**
+- DHCP option-55 spoofing (see above)
+- LDAP (389), DNS (53), Kerberos (88), NFS (2049) — no templates
+- POP3/IMAP — no templates
+- SNMP full walk (only system MIB currently; full ifTable = 233 exchanges)
+- macOS-specific: AFP/netatalk, Bonjour/mDNS (UDP 5353), Time Machine
 - Service hot-reload without restart
-- Per-connection state for stateful protocols
 
 **Done (was "future"):**
-- **Windows port** — implemented via WinDivert (host-wide packet mutation) + a WFP
-  hard-permit filter for U1; an Npcap-free `run`/`serve` binary. Validated across all 6
-  Windows host editions (Win10/11, Server 2016–2025) and reaches EXACT nmap matches for
-  Win11/Server-2022. See MEMORY.md + `captures/ss-book/matrix-report-2026-06-24.md`.
+- **Windows port** — WinDivert + WFP hard-permit, Npcap-free binary. 6/6 Windows
+  editions EXACT (Win10/11, Server 2016–2025). See MEMORY.md checkpoints.
+- **HiFi NDIS driver** — reaches TI=Z for Linux personas on Windows host (EXACT 7/7).
+- **Linux eBPF EXACT** — 7/7 Linux profiles EXACT on Linux host. `Linux 4.15-5.19`
+  no submit prompt. 7/7 Linux + 6/6 Windows + 3/3 macOS all EXACT on Linux eBPF host.
+- **macOS personas** — Sequoia, Tahoe, Sonoma EXACT (`Apple macOS 10.13-10.15`).
+- **Service honeypots** — SSH (shell+SFTP), SMB (3.1.1 signing, SAMR/LSARPC, file
+  download), RDP (CredSSP/NTLM Type2), MSRPC EPM (138-endpoint map, dynamic ports),
+  FTP, HTTP/HTTPS (per-distro nginx/Apache, dual-path TLS for JARM+real clients).
+- **Capture automation** — `mimic capture pcap` → manifest + response templates.
+- **Interactive honeypot mode** — SSH/SMB/RDP with credential-leak loop; security
+  event logging; RBAC-gated control plane; Windows tray UI.
+- **Legacy Windows captures** (2026-06-29) — Win7 SP1 (9007), Win8 Pro N (9008),
+  Server 2008 R2 SP1 (9108), Server 2012 R2 (9112) real VM captures + templatized.
+  Profile era-wide audit: tcp_timestamps, window_scale, explicit_congestion fixed
+  across Vista through Server 2012 R2 based on nmap-os-db + real captures.
 
 **Future:**
-- macOS profile build-out (image → capture → response templates; currently unbuilt)
-- Push per-profile fingerprints to EXACT for the remaining profiles (per-indicator
-  iteration vs nmap-os-db; see the matrix report's gap table)
-- Profile auto-detection from pcap
-- Honeypot mode with logging
+- EXACT-chase for legacy Windows (Win7/Win8/Server2008R2/Server2012R2) — per-indicator
+  diff vs nmap-os-db; analogous to the Win10/11/Server2016-2025 iteration.
+- XP/Server 2003 T00 timestamp implementation.
+- DHCP option-55 spoofing (config-side; no kernel work required).
+- macOS as a HOST platform (running Mimic on macOS itself) — KVM/OpenCore instability;
+  no implementation path yet.
+- Profile auto-detection from pcap.
+- Amazon Linux 2023, Parrot OS 7 profiles.
