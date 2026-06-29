@@ -1,0 +1,15 @@
+# Golden fingerprint surface for the "RHEL 10" profile.
+# Captured 2026-06-29 from a fresh RHEL 10.2 VM (kernel 6.12.0-211.7.3.el10_2.x86_64)
+# scanned by Kali (nmap 7.98 -Pn -O --osscan-guess -sV -p 22,80,443).
+# nmap attributes: "Linux 4.15 - 5.19" (same fingerprint family as other modern Linux).
+profile: "RHEL 10"
+
+os_match:
+  family: linux
+  gens: ["4.X", "5.X"]
+
+open_ports: [22]
+closed_or_filtered: [80, 443]
+
+services:
+  22: "ssh"

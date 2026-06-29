@@ -33,6 +33,11 @@ probes:
     response_file: responses/banner_kali.bin
     requires: { os_name: "Kali Linux" }
 
+  - name: ssh_banner_rhel10
+    signature: { pattern: '', offset: 0, min_length: 0 }
+    response_file: responses/banner_rhel.bin
+    requires: { os_name: "RHEL 10" }
+
   - name: ssh_banner_rhel
     signature: { pattern: '', offset: 0, min_length: 0 }
     response_file: responses/banner_rhel.bin
