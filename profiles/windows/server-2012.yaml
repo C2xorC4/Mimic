@@ -13,15 +13,14 @@ stack:
   window_size: 8192
   window_scale: 8
   mss: 1460
-  tcp_timestamps: false
+  tcp_timestamps: true
   sack_permitted: true
   tcp_options_order:
     - mss
     - nop
     - window_scale
-    - nop
-    - nop
     - sack_permitted
+    - timestamp
 
   # TCP Quirks
   ecn_support: true
