@@ -1,0 +1,19 @@
+# Golden fingerprint surface for the "Windows 8" profile.
+# Captured 2026-06-29 from a real Win8 Pro N VM (6.2.9200)
+# scanned by Kali (nmap 7.98 -Pn -O --osscan-guess -sV -p 22,80,135,139,445,3389).
+# Key stack: TI=I TS=7 OPS=M5B4NW8ST11 WIN=2000 (8192) CC=N T2/T3=R=Y (fw off)
+# nmap attribution: "Vista SP2 or Win7 or Server 2008 R2 or Win8.1" — same OPS band.
+# Win8 stack is byte-identical to Win7; nmap cannot distinguish them by stack alone.
+profile: "Windows 8"
+
+os_match:
+  family: windows
+  gens: ["8"]
+
+open_ports: [135, 139, 445, 3389]
+closed_or_filtered: [22]
+
+services:
+  135: "msrpc"
+  445: "microsoft-ds"
+  3389: "ms-wbt-server"
