@@ -1,0 +1,19 @@
+# Golden fingerprint surface for the "Windows Server 2012 R2" profile.
+# Captured 2026-06-29 from a real Server 2012 R2 Update 1 VM (6.3.9600)
+# scanned by Kali (nmap 7.98 -Pn -O --osscan-guess -sV -p 22,135,139,445,3389,5985).
+# Key stack: TI=I TS=7 OPS=M5B4NW8ST11 WIN=2000 (8192) T2/T3=R=Y CC=Y
+# Note: nmap attributes "Server 2012 R2 / Win7 / Win8.1 Update 1" — same fingerprint band.
+profile: "Windows Server 2012 R2"
+
+os_match:
+  family: windows
+  gens: ["7", "8"]
+
+open_ports: [135, 139, 445, 3389, 5985]
+closed_or_filtered: [22]
+
+services:
+  135: "msrpc"
+  445: "microsoft-ds"
+  3389: "ms-wbt-server"
+  5985: "wsman"

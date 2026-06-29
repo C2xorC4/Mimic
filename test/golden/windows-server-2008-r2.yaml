@@ -1,0 +1,17 @@
+# Golden fingerprint surface for the "Windows Server 2008 R2" profile.
+# Captured 2026-06-29 from a real Server 2008 R2 SP1 VM (6.1.7601)
+# scanned by Kali (nmap 7.98 -Pn -O --osscan-guess -sV -p 22,135,139,445,3389).
+# Key stack: TI=I TS=7 OPS=M5B4NW8ST11 WIN=2000 (8192) T2/T3=R=Y CC=N
+profile: "Windows Server 2008 R2"
+
+os_match:
+  family: windows
+  gens: ["7"]
+
+open_ports: [135, 139, 445, 3389]
+closed_or_filtered: [22]
+
+services:
+  135: "msrpc"
+  445: "microsoft-ds"
+  3389: "ms-wbt-server"
