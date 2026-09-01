@@ -329,8 +329,14 @@ analyst probing both paths could distinguish.
 
 ## License
 
-This is a **private, proprietary** development repository. Source code is governed
-by [LICENSE](LICENSE) (all rights reserved). eBPF kernel programs under
-`internal/ebpf/` are GPLv2-compatible — see [LICENSE-GPL](LICENSE-GPL). Distributed
-binaries are governed by [EULA.txt](EULA.txt). Legal templates and demo-repo
-scaffolding: [docs/legal/](docs/legal/).
+Source is licensed under the [PolyForm Shield License 1.0.0](LICENSE).
+Source-available, not OSI open source.
+
+You may use, modify, and share it — including individual professional
+use. You may not provide a product that competes with this software, or
+with any product the copyright holder provides using it.
+
+eBPF kernel programs under `internal/ebpf/` remain GPLv2-compatible —
+see [LICENSE-GPL](LICENSE-GPL). Binaries the copyright holder distributes
+may also be governed by [EULA.txt](EULA.txt). Other legal templates:
+[docs/legal/](docs/legal/).

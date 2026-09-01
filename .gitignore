@@ -56,3 +56,7 @@ __pycache__/
 
 # Vendored deps (kept local for offline lab builds; not source)
 vendor/
+
+# Commercial/strategy notes — local only, never track
+Mimic_R_C.md
+Mimic_R_G.md

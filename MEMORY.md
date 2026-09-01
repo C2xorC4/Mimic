@@ -1497,7 +1497,7 @@ pipeline inverted) after Linux benchmarks pass.
    banner still prints "0 authenticated session(s)" (smbmap accounting quirk, not a
    functional failure). Pre-fix v1.10.4 no-enum is closed.
 2. ✅ **Build-number / cross-layer OS-identity coherence (RESOLVED 2026-06-17;
-   roadmap Mimic_R_C.md item #7 "self-consistency is the entire value prop").**
+   "self-consistency is the entire value prop").**
    NTLM CHALLENGE Version derived from the profile via `Server.osVersionTriple()`;
    fallback 10.0.19041 only when OSVersion unset. All 17 Windows profiles carry a
    correct `version:` (each emits its own build), so "hardcoded 19041 regardless of

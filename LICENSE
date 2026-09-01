@@ -1,73 +1,166 @@
-Mimic — Proprietary Source Code License
-========================================
+Required Notice: Copyright 2026 C2xorC4 (https://github.com/C2xorC4)
 
-Copyright (c) 2026 [COPYRIGHT HOLDER]. All Rights Reserved.
+# PolyForm Shield License 1.0.0
 
-IMPORTANT: This repository contains confidential, proprietary source code.
-Possession of or access to this repository does not grant any license or
-right to use, copy, modify, merge, publish, distribute, sublicense, or
-sell any part of this software.
+<https://polyformproject.org/licenses/shield/1.0.0>
 
-1. Reservation of Rights
+## Acceptance
 
-   Except as expressly set forth in a separate written agreement signed
-   by the copyright holder, no license or other right is granted under
-   any patent, copyright, trademark, trade secret, or other intellectual
-   property right.
+In order to get any license under these terms, you must agree
+to them as both strict obligations and conditions to all
+your licenses.
 
-2. Authorized Access Only
+## Copyright License
 
-   Access to this repository is limited to the copyright holder and
-   persons explicitly authorized in writing. Unauthorized access,
-   cloning, copying, or use is prohibited.
+The licensor grants you a copyright license for the
+software to do everything you might do with the software
+that would otherwise infringe the licensor's copyright
+in it for any permitted purpose.  However, you may
+only distribute the software according to [Distribution
+License](#distribution-license) and make changes or new works
+based on the software according to [Changes and New Works
+License](#changes-and-new-works-license).
 
-3. No Implied License
+## Distribution License
 
-   The absence of a public distribution or a LICENSE file granting
-   open-source rights is intentional. Do not infer permission to use
-   this software from repository visibility, README content, or
-   prior informal sharing.
+The licensor grants you an additional copyright license
+to distribute copies of the software.  Your license
+to distribute covers distributing the software with
+changes and new works permitted by [Changes and New Works
+License](#changes-and-new-works-license).
 
-4. Binary Distribution
+## Notices
 
-   Use of compiled binaries, installers, or appliances is governed
-   solely by the End User License Agreement (EULA.txt) or a separate
-   commercial license agreement — not by this file.
+You must ensure that anyone who gets a copy of any part of
+the software from you also gets a copy of these terms or the
+URL for them above, as well as copies of any plain-text lines
+beginning with `Required Notice:` that the licensor provided
+with the software.  For example:
 
-5. eBPF Component
+> Required Notice: Copyright Yoyodyne, Inc. (http://example.com)
 
-   The eBPF programs under internal/ebpf/ are marked GPL-compatible for
-   loading into the Linux kernel (see internal/ebpf/fingerprint.c and
-   LICENSE-GPL). That kernel-loading requirement does not grant any
-   broader license to the remainder of this repository.
+## Changes and New Works License
 
-6. Third-Party Components
+The licensor grants you an additional copyright license to
+make changes and new works based on the software for any
+permitted purpose.
 
-   This software may incorporate third-party open-source components
-   subject to their respective licenses (see go.mod and component
-   notices). Those licenses apply only to the covered third-party
-   portions.
+## Patent License
 
-7. Feedback
+The licensor grants you a patent license for the software that
+covers patent claims the licensor can license, or becomes able
+to license, that you would infringe by using the software.
 
-   If you provide suggestions, bug reports, or other feedback without
-   a separate agreement, the copyright holder may use that feedback
-   without obligation or compensation, and you grant no rights in your
-   feedback beyond what is necessary for the copyright holder to
-   incorporate it.
+## Noncompete
 
-8. Licensing Inquiries
+Any purpose is a permitted purpose, except for providing any
+product that competes with the software or any product the
+licensor or any of its affiliates provides using the software.
 
-   For evaluation access, commercial licensing, or acquisition
-   discussions, contact:
+## Competition
 
-       [CONTACT EMAIL]
+Goods and services compete even when they provide functionality
+through different kinds of interfaces or for different technical
+platforms.  Applications can compete with services, libraries
+with plugins, frameworks with development tools, and so on,
+even if they're written in different programming languages
+or for different computer architectures.  Goods and services
+compete even when provided free of charge.  If you market a
+product as a practical substitute for the software or another
+product, it definitely competes.
 
----
+## New Products
 
-THIS SOFTWARE IS PROVIDED "AS IS" FOR AUTHORIZED INTERNAL DEVELOPMENT
-ONLY. NO WARRANTY. SEE EULA.txt FOR END-USER TERMS APPLICABLE TO
-DISTRIBUTED BINARIES.
+If you are using the software to provide a product that does
+not compete, but the licensor or any of its affiliates brings
+your product into competition by providing a new version of
+the software or another product using the software, you may
+continue using versions of the software available under these
+terms beforehand to provide your competing product, but not
+any later versions.
 
-This document is a template for internal IP hygiene, not legal advice.
-Have qualified counsel review before reliance or distribution.
+## Discontinued Products
+
+You may begin using the software to compete with a product
+or service that the licensor or any of its affiliates has
+stopped providing, unless the licensor includes a plain-text
+line beginning with `Licensor Line of Business:` with the
+software that mentions that line of business.  For example:
+
+> Licensor Line of Business: YoyodyneCMS Content Management
+System (http://example.com/cms)
+
+## Sales of Business
+
+If the licensor or any of its affiliates sells a line of
+business developing the software or using the software
+to provide a product, the buyer can also enforce
+[Noncompete](#noncompete) for that product.
+
+## Fair Use
+
+You may have "fair use" rights for the software under the
+law. These terms do not limit them.
+
+## No Other Rights
+
+These terms do not allow you to sublicense or transfer any of
+your licenses to anyone else, or prevent the licensor from
+granting licenses to anyone else.  These terms do not imply
+any other licenses.
+
+## Patent Defense
+
+If you make any written claim that the software infringes or
+contributes to infringement of any patent, your patent license
+for the software granted under these terms ends immediately. If
+your company makes such a claim, your patent license ends
+immediately for work on behalf of your company.
+
+## Violations
+
+The first time you are notified in writing that you have
+violated any of these terms, or done anything with the software
+not covered by your licenses, your licenses can nonetheless
+continue if you come into full compliance with these terms,
+and take practical steps to correct past violations, within
+32 days of receiving notice.  Otherwise, all your licenses
+end immediately.
+
+## No Liability
+
+***As far as the law allows, the software comes as is, without
+any warranty or condition, and the licensor will not be liable
+to you for any damages arising out of these terms or the use
+or nature of the software, under any kind of legal claim.***
+
+## Definitions
+
+The **licensor** is the individual or entity offering these
+terms, and the **software** is the software the licensor
+makes available under these terms.
+
+A **product** can be a good or service, or a combination
+of them.
+
+**You** refers to the individual or entity agreeing to these
+terms.
+
+**Your company** is any legal entity, sole proprietorship,
+or other kind of organization that you work for, plus all
+its affiliates.
+
+**Affiliates** means the other organizations than an
+organization has control over, is under the control of, or is
+under common control with.
+
+**Control** means ownership of substantially all the assets of
+an entity, or the power to direct its management and policies
+by vote, contract, or otherwise.  Control can be direct or
+indirect.
+
+**Your licenses** are all the licenses granted to you for the
+software under these terms.
+
+**Use** means anything you do with the software requiring one
+of your licenses.
